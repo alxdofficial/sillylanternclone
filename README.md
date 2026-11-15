@@ -1,31 +1,65 @@
 # Story Studio
 
-A local writing desk inspired by SillyTavern. Keep a story's character, persona, world and writing notes beside the scene, choose a writing provider, and keep alternate takes on a reply.
+A private writing desk inspired by SillyTavern. Create stories with character and world notes, write a scene with a co-writer, and keep alternatives to a reply. It runs locally on a Mac; generation sends the selected story context to the provider you choose.
 
-## Install on a Mac
+## Install on your Mac
 
-1. Download and unzip **Story Studio for Mac.zip**. Move the unzipped folder wherever you'd like to keep the app.
-2. Double-click **Start Story Studio.command**. The first launch uses Node 20+ if available, or downloads official Node.js for Apple Silicon or Intel, verifies its checksum, and installs pinned dependencies. It needs internet access. If macOS blocks the unsigned launcher, review the files and open Terminal in the folder and run `zsh 'Start Story Studio.command'`.
-3. Answer **y** if you want to sign in to Codex with your own ChatGPT account using the official sign-in flow. You can skip this and use OpenRouter or manual writing. Leave the terminal window open while you write. Press Control-C there to stop the server.
+1. Alex must give your GitHub account access to the private repository. Once you have access, sign in to GitHub and clone [Story Studio](https://github.com/alxdofficial/sillylanternclone), or use its **Code → Download ZIP** button. For a clone, run:
 
-Run the same launcher for later sessions. The first-time setup uses the Node and npm public registries. Developers can instead run `npm ci` then `npm start`. The default URL is http://127.0.0.1:4317.
+   ```sh
+   git clone https://github.com/alxdofficial/sillylanternclone.git "Story Studio"
+   ```
 
-## Writing connections
+   GitHub may ask you to authenticate. A download ZIP is a copy of the app at that revision, not a backup of your stories.
+2. Open the folder and double-click **Start Story Studio.command**. If macOS blocks the unsigned launcher, inspect the downloaded files, open Terminal in that folder, and run `zsh 'Start Story Studio.command'`.
+3. First launch needs internet. It installs pinned app dependencies and, if Node 20 or newer is unavailable, downloads an official Node.js runtime and checks its checksum. If asked, choose whether to sign in to Codex with **your own** ChatGPT account; you can skip this and write manually or use OpenRouter.
+4. Your browser opens at [127.0.0.1:4317](http://127.0.0.1:4317). Leave the launcher window open while writing; press Control-C there to stop the server. For future sessions, use the same launcher.
 
-- **Codex** uses the installed project's pinned official CLI. Choose **Connection → Codex CLI**. The default model is GPT-6 Astra, verified with the account on the development Mac. If your account offers a different model, set `STORY_STUDIO_MODEL` before launching. Check `npx --no-install codex login status` to confirm ChatGPT sign-in. API-key authentication has separate billing. Subscription limits apply.
-- **Claude** works through a manual handoff. Write what you want to accomplish, click **Copy prompt**, paste it into your signed-in Claude session and bring the answer back using **Add reply**. This works for outlining and drafting. The app has no automatic Claude integration.
-- **OpenRouter** accepts a specific model ID and your own API key in **Connection**. Connection settings clear when the tab closes or reloads. Prompts leave the device on generation and the app requests providers with data collection denied. Billing and acceptable use depend on the route. See [MODELS.md](MODELS.md) for models to try.
+If you're asking Claude Code, Codex, or another agent to set it up, paste this after accepting the repository invitation:
 
-On the latest co-writer reply, **Another take** stores an alternate and **Previous / Next** selects which one the current scene follows. Under **Character & lore**, you can import the supported fields of a SillyTavern JSON card. **Name aliases** creates an editable lookup table and replaces names locally in pasted drafts. It does not perform reverse substitution or remove other identifying information.
+> Clone https://github.com/alxdofficial/sillylanternclone using my GitHub access. Read README.md and AGENTS.md, then walk me through launching Story Studio on my Mac. Leave provider sign-in and API-key entry to me. Keep any existing story library.
 
-## Back up or move to another Mac
+For development, install Node 20+, run `npm ci` then `npm start`. The server runs on this computer only. `PORT` and `STORY_STUDIO_DATA` can override the port and library folder.
 
-Your full library is stored in **~/Library/Application Support/Story Studio/library.json**. The folder is created on the first save. Open it in Finder using **Go → Go to Folder**. Quit the studio and copy the entire **Story Studio** folder to the same location on the other Mac. Install the app and sign in separately there. Provider credentials are outside this folder.
+## Start a story
 
-**Export history ZIP** creates an archive with `library.json` (every story, turn, alternate take and note currently in the library) and a readable text transcript per story. To restore, unzip it and choose **Import library** with the included `library.json`. Import replaces the open library after confirmation. Deleted content and external account conversation history are outside the export. The alias tool's draft and name table are temporary and stay in its page.
+Select **+** beside Your stories. In **Character & lore**, add the character's name, description, personality, scenario and example dialogue, plus your persona, world details, and notes on voice. You can edit these as the story develops. **Prompt** lets you inspect the assembled, role-labelled context before generating. The app includes bounded history, so older turns might not all be sent; check the preview for the current context.
 
-## Architecture
+In the composer, choose **Write with** for the current story:
 
-The local server binds to loopback and uses a deterministic story prompt with bounded recent context. It holds the writing library separately from inference. Story content is sent to the chosen provider on generation. Codex runs in a read-only sandbox with ephemeral sessions. The sandbox can still read files, and prompt instructions are not a security boundary. This app is intended for one local user and one writing tab. `PORT` and `STORY_STUDIO_DATA` can override the port and storage location.
+- **Codex** uses the locally installed official Codex CLI and its existing sign-in. The launcher offers the official ChatGPT sign-in flow. A ChatGPT sign-in uses its applicable plan allowance and limits; Codex signed in with an API key has separate usage billing. Verify the active method with `npx --no-install codex login status`. Model access varies by account.
+- **OpenRouter** uses your own OpenRouter account, API key and model ID. Open **Connection → OpenRouter** and choose a model. The dropdown shows a 10,000-word output estimate and the listed input and output prices per token. Enter the key there in the app. They stay in the current browser tab's memory and are cleared on reload or close; you'll need to enter them again. Paid models consume OpenRouter credits separately from a ChatGPT or Claude subscription. Some models are free but still require an OpenRouter key and have rate limits. Check current model prices and eligibility before use; see [MODELS.md](MODELS.md).
+- **Manual / Claude** uses **Copy prompt** and **Add reply**. Paste the prompt into your own Claude session or another service, then paste the response back. Story Studio does not automatically call Claude.
 
-See [RESEARCH.md](RESEARCH.md) for the upstream source review, compatibility limits, subscription integration, and MCP tradeoffs.
+Choose **Write with → OpenRouter** before sending the turn or using **Another take**. Switch back to **Codex** whenever you want. No automatic backend switch occurs. The next generation sends recent turns and applicable story settings to the selected route. For a scene that should receive different context, start a separate story and copy only the notes and draft you intend to send. Provider content rules and availability apply.
+
+Write your next turn and choose **Send & write**, or use **Continue**. Edit turns to revise the scene; **Another take** makes an alternative to the most recent co-writer reply, and **Previous / Next** chooses the version the story follows. The selected version becomes part of the subsequent context.
+
+### Keyword lore
+
+In **Character & lore**, add optional rules one per line using `keywords | text`. Separate keywords with commas; use `* | text` for always-on information. For example:
+
+```text
+castle, palace | The castle stands above the sea.
+* | Magic always has a cost.
+```
+
+This is a small subset of SillyTavern World Info, not full lorebook compatibility. Check **Prompt** to see what is included. The JSON character-card importer supports selected fields; it does not import all greetings, embedded lorebooks, artwork, scripts or extensions. Review imported text before saving.
+
+## Back up or move your writing
+
+The library lives at `~/Library/Application Support/Story Studio/library.json` on macOS, separate from the app folder. In Finder, use **Go → Go to Folder** to find it. To move your work, quit Story Studio and copy the whole **Story Studio** data folder to the same location on the other Mac. Install the app and sign in separately. Credentials are not part of the library.
+
+**Export history ZIP** saves the complete current library as `library.json` plus readable story transcripts. To restore, unzip the archive and use **Import library** to select `library.json`. Import replaces the current library after confirmation, so export a backup first. Deleted content and conversations held in external services are not included.
+
+If you previously used an older local version that stored stories in the app's `data/stories.json`, the app reads that file when no library exists in the new location; save a change to write the library into the new location. Preserve the old file until you have checked the stories and exported a backup. A pre-existing library in the new location takes precedence.
+
+## Privacy and limits
+
+Story data is stored locally, but generation sends the assembled story context to the chosen provider. For OpenRouter, the app requests routing with data collection denied; eligible providers may be unavailable, and this setting is not a guarantee of local-only processing or universal zero retention. Check provider terms and OpenRouter privacy settings. Provider metadata, service-side retention or safety policies may still apply. Don't put secrets in stories.
+
+**Aliases** runs locally in the browser. Enter source names one per line, click **Generate aliases**, then review or edit the generated names. Paste a draft, choose **Replace names**, then **Copy draft**. List nicknames separately if you want to replace them. Replacements match whole names with longer names first. The table is temporary. Review places, histories, and any other identifying details before sharing. Automated reverse substitution is outside this workflow.
+
+Codex runs in a read-only sandbox and ephemeral session; that does not prevent all reads of local files, and story instructions are not a security boundary. The server is for one trusted local user and one writing tab, not a public or shared deployment. See [TESTING.md](TESTING.md) for the live browser test on the development Mac. Jess will sign into her own accounts during setup.
+
+See [RESEARCH.md](RESEARCH.md) for the upstream source review, compatibility gaps and MCP tradeoffs.
