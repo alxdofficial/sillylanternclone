@@ -34,7 +34,9 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       assert.equal(request.provider.data_collection,'deny');
       if (request.model === 'fixture/prose' || request.model === 'thedrummer/cydonia-24b-v4.1') {
         const endsEarly = request.messages.at(-1).content.endsWith('cutoff fixture');
-        assert.equal(request.max_tokens,request.model === 'fixture/prose' ? 2048 : 5000);
+        assert.equal(request.max_tokens,request.model === 'fixture/prose' ? 2048 : 8000);
+        assert.ok(request.messages[0].content.includes(
+          'The output limit for this turn is ' + request.max_tokens.toLocaleString('en-US') + ' tokens.'));
         assert.equal(request.response_format,undefined);
         assert.equal(request.provider.require_parameters,undefined);
         assert.match(request.messages[0].content,/Return only the requested writing/);

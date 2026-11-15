@@ -43,7 +43,7 @@ Open **⋯** on a turn to explore a different path. **Branch from here** creates
 
 ## Character & lore
 
-The **Story timeline** on the left groups setup, dated scenes, and relationship events by their in-story calendar date. Entries within a day show the time in 24-hour format. Select a moment to inspect its events and highlight their connections on the graph. Older and manually written turns without a date appear under **Undated turns**. To date one, use **Edit** on the turn in the transcript. On a narrow screen, choose **Show timeline** above the graph.
+The **Story timeline** on the left groups setup, dated scenes, and relationship events by their in-story date and time. Entries at the same minute share a timestamp. Entries within a day show the time in 24-hour format. Select a moment to inspect its events and highlight their connections on the graph. Older and manually written turns without a date appear under **Undated turns**. To date one, use **Edit** on the turn in the transcript. On a narrow screen, choose **Show timeline** above the graph.
 
 Hover over a character or line for a preview in the right pane. Click or tap it to keep its details open and edit.
 
@@ -63,7 +63,7 @@ The selected OpenRouter model writes the prose. A separate DeepSeek V4.1 Flash c
 
 To move a story back to MCP after an explicit scene:
 
-1. Check the badges on both the writer turn and the reply. Use **Edit → MCP context → Omit (explicit)** to correct a label when needed. Select **Keep this turn out of AI context** if you want to omit that turn from all model routes, including OpenRouter.
+1. Check the badges on both the writer turn and the reply. Use **Edit → MCP context → Omit as explicit or unverified** to correct a label when needed. Select **Exclude this turn’s text from all AI prompts** if you want to omit that turn from all model routes, including OpenRouter.
 2. Keep any needed continuity in a short, non-explicit relationship event or **World → Story memory**. Check nearby turns and notes for copies of the sensitive prose.
 3. Switch to **MCP**, check **Prompt**, then queue the next scene. Start a fresh native agent session if the previous session already saw the original text.
 

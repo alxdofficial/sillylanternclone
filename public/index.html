@@ -175,9 +175,10 @@
     <div class="dialog-body">
       <textarea id="editText" aria-label="Turn text" rows="10" required></textarea>
       <label>In-story date and time <span>Optional for manually written turns.</span><input id="editStoryTime" type="datetime-local" step="60"></label>
-      <label class="context-toggle"><input id="excludeTurn" type="checkbox"> Keep this turn out of AI context</label>
-      <label>MCP context<select id="turnSensitivity"><option value="">Include without a label</option><option value="safe">Include (non-explicit)</option><option value="explicit">Omit (explicit)</option><option value="unclassified">Omit (not verified)</option></select></label>
-      <p class="form-note">OpenRouter labels new turns automatically. Explicit or unverified turns are kept out of MCP. The checkbox above excludes the turn from every model.</p>
+      <label>MCP context<select id="turnSensitivity" aria-describedby="editContextNote editSensitivityStatus"><option value="include">Include as non-explicit</option><option value="omit">Omit as explicit or unverified</option></select></label>
+      <p id="editSensitivityStatus" class="form-note" role="status" hidden></p>
+      <p id="editContextNote" class="form-note">OpenRouter sets this automatically. Choose Omit to mark a turn explicit. Unverified turns are omitted from MCP automatically.</p>
+      <label class="context-toggle"><input id="excludeTurn" type="checkbox"> Exclude this turn’s text from all AI prompts</label>
     </div>
     <footer class="dialog-actions"><button type="button" class="button subtle" id="cancelEdit">Cancel</button><button class="button primary">Save turn</button></footer>
   </form>

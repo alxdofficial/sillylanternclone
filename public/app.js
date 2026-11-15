@@ -754,14 +754,14 @@ function renderGraphTurns() {
   }
   current().messages.forEach((message,index) => {
     const turn = message.turnNumber || index + 1;
-    const detail = message.role === 'user' ? 'Your input' : attributedSpeaker(message);
-    entries.push({time:message.storyTime || '', label:eventTime(turn), detail, selection:{kind:'turn',turn}});
+    const kind = message.role === 'user' ? 'Direction' : attributedSpeaker(message) || 'Prose';
+    entries.push({time:message.storyTime || '', label:`${eventTime(turn)} · ${kind}`, selection:{kind:'turn',turn}});
   });
   entries.sort((a,b) => Number(!a.time) - Number(!b.time) || a.time.localeCompare(b.time)
     || (a.selection.turn ?? Infinity) - (b.selection.turn ?? Infinity));
   const rail = $('#graphTurns');
   rail.replaceChildren();
-  let day, list;
+  let day, list, lastTime, timeGroup;
   for (const {time,label,detail,selection} of entries) {
     const key = time.slice(0,10);
     if (key !== day) {
@@ -771,17 +771,22 @@ function renderGraphTurns() {
       list = el('ol','timeline-entries');
       group.append(list);
       rail.append(group);
+      lastTime = undefined;
     }
-    const item = el('li','timeline-entry');
+    if (!time || lastTime !== time) {
+      lastTime = time;
+      timeGroup = el('li','timeline-entry');
+      if (time) {
+        const clock = el('time','timeline-clock',time.slice(11));
+        clock.dateTime = time;
+        timeGroup.append(clock);
+      }
+      list.append(timeGroup);
+    }
     const button = el('button','graph-turn');
     button.type = 'button';
     button.dataset.timelineSelection = selectionKey(selection);
     button.setAttribute('aria-pressed',String(selectionKey(pinnedGraph) === button.dataset.timelineSelection));
-    if (time) {
-      const clock = el('time','timeline-clock',time.slice(11));
-      clock.dateTime = time;
-      button.append(clock);
-    }
     button.append(el('strong','',label));
     if (detail) button.append(el('span','timeline-detail',detail));
     button.onclick = () => {
@@ -789,8 +794,7 @@ function renderGraphTurns() {
       pinGraph(selection);
       $('#closeInspector').focus({preventScroll:true});
     };
-    item.append(button);
-    list.append(item);
+    timeGroup.append(button);
   }
 }
 
@@ -1213,6 +1217,15 @@ function readCast() {
   }));
 }
 
+let editingSensitivity;
+function showEditSensitivity(value) {
+  editingSensitivity = value;
+  $('#turnSensitivity').value = isAvailableToMcp({contentSensitivity:value}) ? 'include' : 'omit';
+  const status = $('#editSensitivityStatus');
+  status.hidden = value !== 'unclassified';
+  status.textContent = value === 'unclassified' ? 'This text has not been verified.' : '';
+}
+
 function openEdit(index) {
   editingIndex = index;
   const message = current().messages[index];
@@ -1220,7 +1233,7 @@ function openEdit(index) {
   $('#editStoryTime').value = message.storyTime || '';
   $('#editStoryTime').setCustomValidity('');
   $('#excludeTurn').checked = Boolean(message.excludeFromContext);
-  $('#turnSensitivity').value = message.contentSensitivity || '';
+  showEditSensitivity(message.contentSensitivity);
   $('#editDialog').showModal();
 }
 function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return migratePersona({id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(typeof p.storyWriterId==='string'?{storyWriterId:p.storyWriterId}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentRequest&&['send','alternate'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300)}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
@@ -1401,8 +1414,9 @@ $('#settingsForm').onsubmit = event => {
 $('#settingsForm').elements.title.oninput = event => event.target.setCustomValidity('');
 $('#closeEdit').onclick = $('#cancelEdit').onclick = () => $('#editDialog').close();
 $('#editText').oninput = () => {
-  if ($('#turnSensitivity').value === 'safe') $('#turnSensitivity').value = 'unclassified';
+  if (editingSensitivity === 'safe') showEditSensitivity('unclassified');
 };
+$('#turnSensitivity').onchange = event => showEditSensitivity(event.target.value === 'include' ? 'safe' : 'explicit');
 $('#editStoryTime').oninput = event => event.target.setCustomValidity('');
 $('#editForm').onsubmit = event => {
   event.preventDefault();
@@ -1416,7 +1430,7 @@ $('#editForm').onsubmit = event => {
   if (clock.value) message.storyTime = clock.value;
   else delete message.storyTime;
   message.content = $('#editText').value;
-  setSensitivity(message,$('#turnSensitivity').value);
+  setSensitivity(message,editingSensitivity);
   if ($('#excludeTurn').checked) message.excludeFromContext = true;
   else delete message.excludeFromContext;
   if (message.alternatives) {

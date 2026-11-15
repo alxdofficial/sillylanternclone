@@ -1,5 +1,7 @@
 // Conversation assembly follows the block order of SillyTavern's default
 // Chat Completion preset. Implemented independently; see RESEARCH.md.
+import { proseOutputLimit } from './models.js';
+
 export const extraFields = [
   'characterName', 'characterNickname', 'personaName', 'personality', 'scenario', 'examples',
   'authorNote', 'postHistory', 'loreRules', 'continuity'
@@ -406,9 +408,9 @@ export function buildMessages(project, instruction = '', mode = 'continue', {mai
   }));
 
   const scan = expand([...history.slice(-4).map(message => message.content), clip(instruction, 6000)].join('\n'));
-  context.push({role:'system',content:[
-    MAIN,sceneInstruction,'Return only the requested writing or planning material, without a speaker label.'
-  ].join('\n\n')});
+  const instructions = [MAIN,sceneInstruction,'Return only the requested writing or planning material, without a speaker label.'];
+  if (openRouter && model) instructions.push(`The output limit for this turn is ${proseOutputLimit(model).toLocaleString('en-US')} tokens.`);
+  context.push({role:'system',content:instructions.join('\n\n')});
   add('World Info · before character', clipEnds(project.lore, 12000), 12000);
   add('Character description', [clip(name, 100), clipEnds(lead.description, 11800)].filter(Boolean).join('\n'), 12000);
   add('Character nickname', lead.nickname, 120);
