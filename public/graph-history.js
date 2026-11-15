@@ -82,7 +82,6 @@ export function storyAtTurn(project, index) {
   }
   if (story.graphHistory) story.graphHistory = story.graphHistory.filter(entry => entry.turn <= turn);
   const castIds = new Set(getCast(story).map(member => member.id));
-  if (!castIds.has(story.speakerId)) story.speakerId = primarySpeaker;
   if (!castIds.has(story.storyWriterId)) delete story.storyWriterId;
   if (story.relationships) story.relationships = story.relationships.filter(edge =>
     (edge.turn || 0) <= turn && castIds.has(edge.from) && castIds.has(edge.to));

@@ -1,7 +1,7 @@
 import { captureGraphVersion, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
 import { maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
 import { mergeLibrary } from './sync.js';
-import { buildMessages, formatMessages, extraFields, getCast, getSpeaker, getWriter, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
+import { buildMessages, formatMessages, extraFields, getCast, narrator, getWriter, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
 import { models, chapterCost, isModelId } from './models.js';
 import { dateWriterTurn, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
@@ -134,7 +134,6 @@ function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className
 function render() {
   const project = current();
   if (!project) return;
-  syncSpeaker();
   $('#instruction').value = getSession(draftKey(project.id)) || '';
   syncRoute();
   $('#storyTitle').textContent = project.title;
@@ -363,10 +362,10 @@ function mcpStatus(project) {
   const queue = queuedTurn(project).request;
   const watcher = agentActivity.find(agent => agent.state === 'watching');
   if (queue) {
-    const speaker = getSpeaker(project, queue.speakerId).name;
+    const speaker = narrator.name;
     const writer = agentActivity.find(agent => agent.state === 'writing' && agent.storyId === project.id && agent.turnNumber === queue.turnNumber);
     if (writer) return {
-      line:`${writer.client} picked up your turn ${ago(writer.since)} and is writing ${speaker}’s reply.`,
+      line:`${writer.client} picked up your turn ${ago(writer.since)} and is writing the continuation.`,
       pending:{speaker, state:'Writing', active:true, detail:'The reply appears here when it is saved.'}
     };
     if (watcher) return {
@@ -392,7 +391,7 @@ function renderPending() {
   const project = current();
   if (!project) return;
   const pending = generatingFor?.projectId === project.id
-    ? {speaker:generatingFor.speaker, state:'Writing', active:true, detail:'OpenRouter is writing this reply.'}
+    ? {speaker:narrator.name, state:'Writing', active:true, detail:'OpenRouter is writing this reply.'}
     : mcpStatus(project).pending;
   if (!pending) return;
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
@@ -420,27 +419,12 @@ function syncRoute() {
   $('#sendButton').disabled = busy;
   $('#sendButton').textContent = busy ? 'Writing…' : route === 'manual' ? 'Save turn' : route === 'mcp' ? 'Queue turn' : 'Send & write ↗';
 }
-function syncSpeaker() {
-  const project = current();
-  const cast = getCast(project);
-  const select = $('#speakerSelect');
-  $('#speakerControl').hidden = cast.length <= 1;
-  select.replaceChildren(...cast.map(character => new Option(character.name, character.id)));
-  select.value = getSpeaker(project).id;
-  select.disabled = busy;
-}
-$('#speakerSelect').onchange = event => {
-  if (busy || !state) return;
-  current().speakerId = event.target.value;
-  markDirty();
-};
 function speakerMetadata(speaker) {
   return {speakerId:speaker.id, speakerName:speaker.name};
 }
 
 function setBusy(value) {
   busy = value;
-  syncSpeaker();
   syncRoute();
   renderMessages();
 }
@@ -471,17 +455,8 @@ async function generate(mode) {
     return;
   }
 
-  let speaker = getSpeaker(project);
-  if (mode === 'retry') {
-    const previous = project.messages.at(-1);
-    if (previous?.role !== 'assistant' || previous.excludeFromContext || provider === 'mcp' && !isAvailableToMcp(previous)) return;
-    const originalId = previous.speakerId || primarySpeaker;
-    speaker = getCast(project).find(member => member.id === originalId);
-    if (!speaker) {
-      error('This turn’s speaker is no longer in the cast. Choose a current speaker to write the next turn.');
-      return;
-    }
-  }
+  if (mode === 'retry' && (lastTurn?.role !== 'assistant' || lastTurn.excludeFromContext
+      || provider === 'mcp' && !isAvailableToMcp(lastTurn))) return;
 
   const replacedQueue = Boolean(project.agentRequest);
   const history = mode === 'retry' || answering ? project.messages.slice(0, -1) : project.messages.slice();
@@ -489,7 +464,7 @@ async function generate(mode) {
   delete project.agentNotice;
   delete project.agentRequest;
   if (answering && provider === 'mcp') {
-    project.agentRequest = {mode:'send',speakerId:speaker.id,turnNumber:lastTurn.turnNumber || project.messages.length};
+    project.agentRequest = {mode:'send',speakerId:narrator.id,turnNumber:lastTurn.turnNumber || project.messages.length};
     markDirty();
     return render();
   }
@@ -497,12 +472,12 @@ async function generate(mode) {
     const turnNumber = appendTurn(project, {role:'user', content:direction, ...(provider === 'openrouter' ? {contentSensitivity:'unclassified'} : {})});
     input.value = '';
     setSession(draftKey(project.id), '');
-    if (provider === 'mcp') project.agentRequest = {mode:'send',speakerId:speaker.id,turnNumber};
+    if (provider === 'mcp') project.agentRequest = {mode:'send',speakerId:narrator.id,turnNumber};
     markDirty();
     if (provider !== 'openrouter') return render();
   } else if (provider === 'mcp') {
     const previous = project.messages.at(-1);
-    project.agentRequest = {mode:'alternate',speakerId:speaker.id,turnNumber:previous.turnNumber || project.messages.length};
+    project.agentRequest = {mode:'alternate',speakerId:narrator.id,turnNumber:previous.turnNumber || project.messages.length};
     markDirty();
     return render();
   }
@@ -512,12 +487,12 @@ async function generate(mode) {
     ...Object.fromEntries(settingsFields.map(key => [key,project[key] || ''])),
     persona:project.persona, personaName:project.personaName, storyWriterId:project.storyWriterId,
     storyStartAt:project.storyStartAt, storyStartSource:project.storyStartSource, graphUpdates:project.graphUpdates,
-    cast:project.cast, relationships:project.relationships, speakerId:speaker.id,
+    cast:project.cast, relationships:project.relationships,
     replyTime:mode === 'retry' || answering ? lastTurn.storyTime : undefined,
     messages:recentTurns(history,recentTokenCap,{includeSensitive:true})
   };
   const originalHistory = JSON.stringify(project.messages);
-  generatingFor = {projectId:project.id, speaker:speaker.name, model:connection.model};
+  generatingFor = {projectId:project.id, model:connection.model};
   setBusy(true);
   try {
     if (replacedQueue) {
@@ -547,7 +522,7 @@ async function generate(mode) {
       message.alternatives ||= [message.content];
       message.alternativeSensitivities ||= message.alternatives.map((_,index) =>
         index === (message.selectedAlternative || 0) ? message.contentSensitivity || null : 'unclassified');
-      message.alternatives.push(stripSpeakerName(text, speaker.name));
+      message.alternatives.push(stripSpeakerName(text, narrator.name));
       message.alternativeSensitivities.push(validSensitivity(response.reply) ? response.reply : 'unclassified');
       message.selectedAlternative = message.alternatives.length - 1;
       message.content = message.alternatives[message.selectedAlternative];
@@ -556,7 +531,7 @@ async function generate(mode) {
     } else {
       setSensitivity(target.messages.at(-1),validSensitivity(response.input) ? response.input : 'unclassified');
       const suggestions = target.graphUpdates === false ? [] : graphSuggestions(response.suggestions);
-      appendTurn(target, {role:'assistant', content:stripSpeakerName(text, speaker.name), ...speakerMetadata(speaker),
+      appendTurn(target, {role:'assistant', content:stripSpeakerName(text, narrator.name), ...speakerMetadata(narrator),
         contentSensitivity:validSensitivity(response.reply) ? response.reply : 'unclassified',
         storyTime:recordStoryTime(target,response.storyTime),
         ...(suggestions.length ? {graphSuggestions:suggestions} : {})});
@@ -761,7 +736,7 @@ function renderGraphTurns() {
   }
   current().messages.forEach((message,index) => {
     const turn = message.turnNumber || index + 1;
-    const speaker = message.role === 'user' ? getWriter(current()).name || 'Writer' : message.speakerName || getSpeaker(current(),primarySpeaker).name;
+    const speaker = message.role === 'user' ? getWriter(current()).name || 'Writer' : message.speakerName || getCast(current())[0].name;
     entries.push({time:message.storyTime || '', label:speaker, detail:eventTime(turn), selection:{kind:'turn',turn}});
   });
   entries.sort((a,b) => Number(!a.time) - Number(!b.time) || a.time.localeCompare(b.time)
@@ -1156,7 +1131,7 @@ function openSettings(initialTab = $('#castTab')) {
   $('#graphUpdates').checked = project.graphUpdates !== false;
   clearConnection();
   showTimeline(false);
-  editingCharacter = getSpeaker(project).id;
+  editingCharacter = primarySpeaker;
   pinGraph(null);
   refreshCastGraph();
   renderGraphTurns();
@@ -1314,7 +1289,7 @@ $('#sceneProvider').onchange = event => {
   if (event.target.value === 'openrouter' && !connection.key) openConnection('openrouter');
   renderMessages();
 };
-$('#pasteReply').onclick=()=>{$('#pasteText').value='';$('#pasteDialog').showModal()};$('#closePaste').onclick=$('#cancelPaste').onclick=()=>$('#pasteDialog').close();$('#pasteForm').onsubmit=e=>{e.preventDefault();const text=$('#pasteText').value.trim();if(!text)return;const project=current();delete project.agentRequest;delete project.agentNotice;appendTurn(project,{role:'assistant',content:text,...speakerMetadata(getSpeaker(project))});markDirty();$('#pasteDialog').close();renderMessages()};
+$('#pasteReply').onclick=()=>{$('#pasteText').value='';$('#pasteDialog').showModal()};$('#closePaste').onclick=$('#cancelPaste').onclick=()=>$('#pasteDialog').close();$('#pasteForm').onsubmit=e=>{e.preventDefault();const text=$('#pasteText').value.trim();if(!text)return;const project=current();delete project.agentRequest;delete project.agentNotice;appendTurn(project,{role:'assistant',content:text,...speakerMetadata(narrator)});markDirty();$('#pasteDialog').close();renderMessages()};
 // Import fills only the selected profile draft. Saving is still explicit.
 const cardButton = el('button', 'button subtle', 'Import JSON card');
 cardButton.type = 'button';
@@ -1388,7 +1363,7 @@ $('#settingsForm').onsubmit = event => {
   if (!project.graphHistory?.length) captureGraphVersion(project, 0);
   if (cast.length) {
     for (const turn of project.messages) {
-      if (turn.role === 'assistant' && !turn.speakerId) Object.assign(turn, speakerMetadata(getSpeaker(project, primarySpeaker)));
+      if (turn.role === 'assistant' && !turn.speakerId) Object.assign(turn, speakerMetadata(getCast(project)[0]));
     }
   }
   for (const key of settingsFields) project[key] = form.elements[key].value.trim();
@@ -1404,7 +1379,6 @@ $('#settingsForm').onsubmit = event => {
     turn.graphSuggestions = turn.graphSuggestions.filter((_, proposal) => !pendingGraphReview.some(item => item.turn === index && item.index === proposal && item.status));
     if (!turn.graphSuggestions.length) delete turn.graphSuggestions;
   }
-  project.speakerId = getSpeaker(project).id;
   captureGraphVersion(project, Math.max(nextTurnNumber(project)-1, project.graphHistory.at(-1)?.turn || 0));
   markDirty();
   $('#settingsDialog').close();
@@ -1480,7 +1454,7 @@ function promptForDraft() {
   // Without a new direction, show what a queued turn or a reply to the last
   // writer turn sends, laid out exactly as the MCP server lays it out.
   const queued = provider === 'mcp' ? queuedTurn(project).request : null;
-  const input = replyInput(queued ? {...project, speakerId:queued.speakerId} : project, queued?.mode === 'alternate' ? 'alternate' : 'send', options);
+  const input = replyInput(project, queued?.mode === 'alternate' ? 'alternate' : 'send', options);
   return buildMessages(input.project, input.direction, input.mode, options);
 }
 $('#promptPreview').onclick = () => {

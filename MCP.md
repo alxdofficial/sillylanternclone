@@ -55,7 +55,7 @@ With Claude Code, double-click **Start Claude Writer.command**, which starts wat
 
 The agent waits for a queued turn, writes it, saves it, and waits again. Replies appear in the open Story Studio page within a few seconds. Keep that agent window open while you write. To stop, interrupt the agent (Esc in Claude Code) or tell it to stop watching.
 
-The line above the composer and a placeholder turn in the story show where a queued turn stands:
+The agent continues as the narrator, using the cast for dialogue and action. Give any style, tense or point-of-view direction in the composer, or set a default in **Character & lore → Writing → Writing notes**. The line above the composer and a placeholder turn show where a queued turn stands:
 
 - **Waiting for an agent:** no agent is watching. Open the Claude Writer or ask your agent to write the queued turn. The turn stays queued.
 - **Queued:** an agent is watching and will pick it up within a second or two.
@@ -86,11 +86,13 @@ With each reply, the agent may propose up to five updates: a new character, a pr
 | Tool | Use |
 | --- | --- |
 | `open_studio` | Get the local browser URL. Starts the local server if the writer wants the app started. |
-| `list_stories` | Story IDs and titles, the active story, and any queued request with its speaker. |
+| `list_stories` | Story IDs and titles, the active story, and any queued request. |
 | `wait_for_queued_turn` | Wait for a request, starting with the active story. The default is 50 seconds, or 300 for Claude Code. A queued result includes the writing context and revision. An idle result can list invalid requests under `skipped`. |
-| `get_story_context` | The assembled model-facing prompt, selected speaker, queued request, and library revision. Omit the story ID to use the active story. Pass a fresh `direction` for a chat draft. |
-| `submit_reply` | Save prose for a queued turn, or a chat draft the writer asked to save. Pass the story ID, speaker ID and revision from the context, `storyTime` as `YYYY-MM-DDTHH:mm`, and optional `updates`. Supply `writerTurn` only for a chat direction that has not been saved. A queued alternate attaches to the original reply as another take. |
+| `get_story_context` | The assembled narrator prompt, queued request and library revision. Omit the story ID to use the active story. Pass a fresh `direction` for a chat draft. |
+| `submit_reply` | Save narrated prose for a queued turn or a chat draft the writer asked to save. Pass the story ID and revision from the context, `storyTime` as `YYYY-MM-DDTHH:mm`, and optional `updates`. Supply `writerTurn` only for a chat direction that has not been saved. A queued alternate attaches to the original reply as another take. |
 | `decline_turn` | Hand a queued turn back with a short reason. `writerTurn: "explicit"` labels the queued writer turn explicit. |
+
+The context's `speaker` always identifies Narrator. Older clients can still pass `speakerId` for compatibility.
 
 `updates` entries use exact cast names or nicknames:
 

@@ -57,7 +57,7 @@ test('the page can see whether an agent is watching, writing or gone', async () 
     assert.equal(queued.status, 'queued');
     await pause(300);
     [agent] = await agents();
-    assert.deepEqual([agent.state, agent.storyId, agent.turnNumber, agent.speaker], ['writing', 'story', 2, 'Mara']);
+    assert.deepEqual([agent.state, agent.storyId, agent.turnNumber, agent.speaker], ['writing', 'story', 2, 'Narrator']);
 
     await client.callTool({name:'submit_reply', arguments:{storyId:'story', revision:queued.revision, reply:'Mara opens it.'}});
     await pause(300);

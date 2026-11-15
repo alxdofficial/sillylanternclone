@@ -1,3 +1,4 @@
+import { narrator } from '../public/prompt.js';
 import { captureGraphVersion } from '../public/graph-history.js';
 import { starterStoryId } from '../public/library.js';
 
@@ -60,7 +61,6 @@ export function createStarterStory() {
     persona:'',
     cast:structuredClone(cast),
     storyWriterId:'sam',
-    speakerId:'primary',
     storyStartAt,
     storyStartSource:'author',
     graphUpdates:true,
@@ -79,17 +79,17 @@ export function createStarterStory() {
       {from:"tomas",to:"mae",label:"Tomas radios Mae that the gate is open and asks her to keep passengers inside while they check the beacon.",turn:5,storyTime:"1998-10-25T00:06"}
     ],
     messages:[
-      {role:'assistant',speakerId:'primary',speakerName:'Lina Park',turnNumber:1,storyTime:storyStartAt,
+      {role:'assistant',speakerId:narrator.id,speakerName:narrator.name,turnNumber:1,storyTime:storyStartAt,
         content:'At eleven-forty, the departure board went blank. Lina climbed down from the chair without plugging it back in. “Still one crossing,” she told the waiting room. “I’ll tell you when I know whether it’s ours.” Tomas came in from the dock with rain dripping from his cuffs. Mae set her paper bag of bread on the ticket counter and moved aside so he could speak.'},
       {role:'user',turnNumber:2,storyTime:'1998-10-24T23:49',
         content:'Sam set a flashlight beside the ticket till. “The waiting-room lights are on a different circuit. Did the dock lose power too?”'},
-      {role:'assistant',speakerId:'tomas',speakerName:'Tomas Reyes',turnNumber:3,storyTime:'1998-10-24T23:55',
+      {role:'assistant',speakerId:narrator.id,speakerName:narrator.name,turnNumber:3,storyTime:'1998-10-24T23:55',
         content:'“Dock lights are on. The gate latch won’t move.” Tomas took the spare radio off its charging stand and set it beside Mae’s bread. “Could you relay updates to the waiting room? Channel three. Tell them we’ll speak again in ten minutes.” He checked that his own radio was on the same channel and nodded toward Lina’s flashlight. “First we light the latch.”'},
       {role:'user',turnNumber:4,storyTime:'1998-10-25T00:01',
         content:'The rain eased just after midnight. Sam fetched the mechanical key from the red dispatch drawer and called Ellis at the workshop. “Are we safe to use the manual lock with the dock lights on?”'},
-      {role:'assistant',speakerId:'ellis',speakerName:'Ellis Gray',turnNumber:5,storyTime:'1998-10-25T00:06',
+      {role:'assistant',speakerId:narrator.id,speakerName:narrator.name,turnNumber:5,storyTime:'1998-10-25T00:06',
         content:ellisReply},
-      {role:'assistant',speakerId:'mae',speakerName:'Mae Chen',turnNumber:6,storyTime:'1998-10-25T00:09',
+      {role:'assistant',speakerId:narrator.id,speakerName:narrator.name,turnNumber:6,storyTime:'1998-10-25T00:09',
         content:lastTake,alternatives:[lastTake,alternative],selectedAlternative:0,
         graphSuggestions:[{kind:"relationship",from:"Mae Chen",to:"Sam Bell",label:"Mae shows Sam the missing page and offers to radio Noor for the duplicate.",storyTime:"1998-10-25T00:09"}]}
     ],

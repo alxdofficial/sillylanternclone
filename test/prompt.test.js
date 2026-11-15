@@ -51,7 +51,7 @@ test('alternate directions are separate from stored conversation', () => {
   assert.equal(story.messages.length, 6);
 });
 
-test('a group reply swaps in the selected card and keeps attributed shared history', () => {
+test('narration uses the cast and retains legacy attribution without a character reply mode', () => {
   const project = {
     ...story,
     cast: [
@@ -63,12 +63,17 @@ test('a group reply swaps in the selected card and keeps attributed shared histo
       {role:'assistant', content:'A lantern.', speakerId:'primary', speakerName:'Iona'}
     ]
   };
-  const prompt = formatMessages(buildMessages(project, 'What next?'));
-  assert.match(prompt, /Current speaker:\s+Mara/);
+  const prompt = formatMessages(buildMessages(project, 'Use first-person present and a dry tone.'));
+  assert.match(prompt, /You are the narrator/);
+  assert.match(prompt, /Follow the writer’s requested style, point of view and tense/);
+  assert.match(prompt, /third-person past-tense prose/);
+  assert.match(prompt, /Use first-person present and a dry tone\./);
+  assert.doesNotMatch(prompt, /Current speaker:/);
   assert.match(prompt, /Mara knows the tide calendar/);
   assert.match(prompt, /Mara: Look east/);
   assert.match(prompt, /\[ASSISTANT\]\s+Iona: A lantern/);
-  assert.match(prompt, /Other cast:\s+Iona: Iona keeps the station lit/);
+  assert.match(prompt, /Character description:\s+Iona\s+Iona keeps the station lit/);
+  assert.match(prompt, /Other cast:\s+Mara: Mara knows the tide calendar/);
   assert.doesNotMatch(prompt, /Mara keeps the station lit/);
 });
 

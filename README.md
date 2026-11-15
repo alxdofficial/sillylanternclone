@@ -12,9 +12,9 @@ Setup needs internet access for the first download. Story Studio runs on Node.js
 
 You can ask your local agent to set it up for you.
 
-> Clone https://github.com/alxdofficial/sillylanternclone on this Mac. Read README.md and MCP.md, help me start Story Studio, register its MCP server in the local agent client I’m using, and allow its tools to run without asking each time.
+> Clone https://github.com/alxdofficial/sillylanternclone on this Mac and follow README.md and MCP.md. Start Story Studio, register its MCP server in my local agent client, and start a signed-in writer session that watches Story Studio and writes each turn I queue. If you need me to sign in, approve the Story Studio tools, or open a fresh session to finish, tell me exactly what to do.
 
-With Claude Code, double-click **Start Claude Writer.command** whenever you want to write. It opens a Claude session that can use only Story Studio's tools and writes each turn you queue. With another agent, start a new session and say “Watch Story Studio and write each turn I queue.”
+With Claude Code, **Start Claude Writer.command** opens a dedicated writer session and asks it to start watching. With Codex, start a new session after registration if your installer session has yet to load the tools. Ask that session to “Watch Story Studio and write each turn I queue.” Keep the writer session open while you write.
 
 ## Try The Late Ferry
 
@@ -29,8 +29,8 @@ The cast, setting, and first four turns were authored as a starting point. The l
 
 ## Write a scene
 
-1. Open **Stories** and choose **New story**. Add your cast under **Character & lore → Cast** and add the setting under **World**. Choose the next co-writer with **Reply as**.
-2. Write a scene beat, a line of dialogue, or instructions for the co-writer in the composer. **Prompt** shows the context assembled for the selected route.
+1. Open **Stories** and choose **New story**. You can add a cast under **Character & lore → Cast** and a setting under **World**.
+2. Write what happens next, paste the start of a scene, or give a direction in the composer. The narrator continues the story using whichever characters the scene needs. Set a one-off style in the composer or a standing preference in **Character & lore → Writing → Writing notes**. With no style direction, the narrator matches established prose or uses third-person past tense for a new story. **Prompt** shows the context assembled for the selected route.
 3. Choose a writing mode.
 
    - **MCP** gives the next reply to your signed-in Codex, Claude Code, or other local MCP client. Follow [MCP setup](MCP.md) once, then tell the agent “Watch Story Studio and write each turn I queue.” Each time you click **Queue turn**, the watching agent writes and saves the reply, and it appears in the page within a few seconds. Without a watching agent, ask the agent to write the queued reply. The line above the composer, and a placeholder turn in the story, show whether a queued turn is waiting for an agent, has been seen by a watching agent, or is being written. If the agent will not write a turn, for example an explicit scene, it hands the turn back and its reason appears above the composer.

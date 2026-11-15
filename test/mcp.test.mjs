@@ -9,6 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { strFromU8, unzipSync } from 'fflate';
 import { starterStoryId } from '../public/library.js';
+import { narrator } from '../public/prompt.js';
 
 async function freePort() {
   const server = createServer();
@@ -66,7 +67,8 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     assert.equal(toolData(stories).stories[0].pendingRequest, 'send');
     const context = toolData(await client.callTool({name:'get_story_context',arguments:{}}));
     assert.equal(context.pendingRequest.mode, 'send');
-    assert.equal(context.speaker.name, 'Mara');
+    assert.deepEqual(context.speaker,narrator);
+    assert.match(context.prompt,/You are the narrator/);
     assert.match(context.prompt, /now trust one another/);
     assert.match(context.prompt, /Plan how they cross the bridge/);
     assert.doesNotMatch(context.prompt, /PRIVATE TEST MARKER/);
@@ -91,6 +93,7 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     assert.equal(project.agentRequest, undefined);
     assert.equal(project.messages[0].content, 'PRIVATE TEST MARKER');
     assert.equal(project.messages[2].content, 'Mara tests the bridge.');
+    assert.equal(project.messages[2].speakerId,narrator.id);
     assert.equal(project.messages[2].storyTime, '1904-09-23T08:30');
     assert.equal(project.storyStartAt, '1904-09-23T08:30');
     assert.equal(project.messages[2].graphSuggestions[0].note, 'The bridge is passable.');

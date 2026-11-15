@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { appendTurn, buildMessages, dateWriterTurn, stripSpeakerName, formatMessages, getCast, getSpeaker, isStoryTime, queuedTurn, recordStoryTime, replyInput, syncTakeSuggestions } from './public/prompt.js';
+import { appendTurn, buildMessages, dateWriterTurn, stripSpeakerName, formatMessages, getCast, narrator, isStoryTime, queuedTurn, recordStoryTime, replyInput, syncTakeSuggestions } from './public/prompt.js';
 
 import { checkMapUpdates, updateSchema } from './map-updates.mjs';
 
@@ -26,7 +26,7 @@ Watching: when the writer asks you to watch Story Studio, loop on wait_for_queue
 
 Chat drafts: for a direction the writer gives in this chat rather than in the app, call get_story_context with that direction, show the draft, and call submit_reply (with writerTurn) only if the writer asks to save it.
 
-Writing: follow the assembled writing prompt and current speaker. Leave the writer’s character under their control unless they ask for narration. Put only the requested writing in reply. Reuse storyId, speaker.id as speakerId, and revision from the tool result. Infer storyTime from the story clock, scene and elapsed time, without a time zone or a computer clock. When enabled, send only new, non-explicit facts in updates. They are proposals for the writer to review. Omit updates and storyTime for a queued alternate. Omit writerTurn when a request is already queued.
+Writing: continue the story as its narrator. Use the cast for action and dialogue, and follow the writer’s style, point of view and tense in the assembled prompt. Put only the requested prose in reply. Reuse storyId and revision from the tool result. Infer storyTime from the story clock, scene and elapsed time, without a time zone or a computer clock. When enabled, send only new, non-explicit facts in updates. They are proposals for the writer to review. Omit updates and storyTime for a queued alternate. Omit writerTurn when a request is already queued.
 
 Privacy boundary: these tools return only the turns cleared for agents. Turns marked explicit, unverified or outside AI context are withheld on purpose. Never read Story Studio data any other way: not its data folder (~/Library/Application Support/Story Studio), library.json, exported ZIPs or transcripts, the local web API or the open page at 127.0.0.1, and not the app's source in search of stored text. If the context lacks something you need, ask the writer.
 
@@ -112,13 +112,6 @@ function findStory(library, storyId) {
   return project;
 }
 
-function findSpeaker(project, speakerId) {
-  if (speakerId && !getCast(project).some(speaker => speaker.id === speakerId)) {
-    throw Error('Speaker not found. Read the story context again for the current cast.');
-  }
-  return getSpeaker(project, speakerId);
-}
-
 // Validation is shared with the browser (queuedTurn in public/prompt.js).
 function pendingRequest(project) {
   const {request, problem} = queuedTurn(project);
@@ -126,29 +119,21 @@ function pendingRequest(project) {
   return request;
 }
 
-function resolveSpeaker(project, speakerId, request) {
-  if (request && speakerId && speakerId !== request.speakerId) {
-    throw Error('The queued handoff selected a different speaker. Use the speaker from get_story_context.');
-  }
-  return findSpeaker(project, request?.speakerId || speakerId);
-}
-
 const identifier = z.string().min(1).max(200);
-const saveHint = 'Write the reply, then call submit_reply with storyId, revision and speaker.id from this result, the prose as reply, the in-story time as storyTime, and any continuity updates as updates.';
+const saveHint = 'Write the reply, then call submit_reply with storyId and revision from this result, the prose as reply, the in-story time as storyTime, and any continuity updates as updates.';
 
-function storyContext(library, revision, project, {speakerId, direction = ''} = {}) {
+function storyContext(revision, project, direction = '') {
   const request = pendingRequest(project);
-  const speaker = resolveSpeaker(project, speakerId, request);
   // A queued turn is laid out exactly as the browser's Prompt preview shows it.
   const input = request ? replyInput(project, request.mode)
     : {project, direction, mode:direction.trim() ? 'send' : 'continue'};
-  const messages = buildMessages({...input.project, speakerId:speaker.id}, input.direction, input.mode, {maintainGraph:project.graphUpdates !== false});
+  const messages = buildMessages(input.project, input.direction, input.mode, {maintainGraph:project.graphUpdates !== false});
   return {
     storyId:project.id,
     title:project.title,
     revision,
     pendingRequest:request,
-    speaker:{id:speaker.id,name:speaker.name},
+    speaker:narrator,
     storyClock:'Infer the reply’s in-story date and time from the setting and elapsed time; pass YYYY-MM-DDTHH:mm to submit_reply.',
     mapUpdates:request?.mode === 'alternate' || project.graphUpdates === false ? 'off for this reply' : 'optional; see the last [SYSTEM] block',
     cast:getCast(project).map(({id,name}) => ({id,name})),
@@ -185,22 +170,22 @@ tool('list_stories', {
     id:project.id,
     title:project.title,
     pendingRequest:project.agentRequest?.mode || null,
-    ...(project.agentRequest ? {pendingSpeaker:getSpeaker(project, project.agentRequest.speakerId).name} : {})
+    ...(project.agentRequest ? {pendingSpeaker:narrator.name} : {})
   }))};
 });
 
 tool('get_story_context', {
-  description:'Read the assembled writing prompt for one story, plus the story ID, speaker and revision needed by submit_reply. Turns marked explicit, unverified or outside AI context are omitted. If the writer queued a turn, the prompt is for that turn.',
+  description:'Read the assembled writing prompt for one story, plus the story ID and revision needed by submit_reply. The writing voice is always the narrator. Turns marked explicit, unverified or outside AI context are omitted. If the writer queued a turn, the prompt is for that turn.',
   inputSchema:{
     storyId:identifier.optional().describe('Use the active story when omitted.'),
-    speakerId:identifier.optional().describe('Use the selected speaker when omitted.'),
+    speakerId:identifier.optional().describe('Legacy field. All turns are narrated.'),
     direction:z.string().max(6000).optional().describe('A new direction from the writer in this chat, if any. Leave blank for a queued Studio turn.')
   },
   annotations:{readOnlyHint:true, openWorldHint:false},
   _meta:{'anthropic/maxResultSizeChars':200000}
-}, async ({storyId, speakerId, direction = ''}) => {
+}, async ({storyId, direction = ''}) => {
   const {library, revision} = await readLibrary();
-  const context = storyContext(library, revision, findStory(library, storyId), {speakerId, direction});
+  const context = storyContext(revision, findStory(library, storyId), direction);
   reportWriting(context);
   return context;
 });
@@ -225,7 +210,7 @@ tool('wait_for_queued_turn', {
     const found = findQueuedTurn(library);
     skipped = found.skipped;
     if (found.project) {
-      const context = {status:'queued', ...storyContext(library, revision, found.project)};
+      const context = {status:'queued', ...storyContext(revision, found.project)};
       reportWriting(context);
       return context;
     }
@@ -269,26 +254,25 @@ function readReply(reply) {
 }
 
 tool('submit_reply', {
-  description:'Save a reply to a story: a queued turn, or a chat draft the writer asked to save. Pass the revision from get_story_context or wait_for_queued_turn. Put only prose in reply; pass continuity updates in updates, where the writer reviews them before they join the story. Only pass writerTurn for a new, unsaved direction when no turn is queued. A queued alternate is added to the original turn as another take.',
+  description:'Save narrated prose for a queued turn or a chat draft the writer asked to save. Pass the revision from get_story_context or wait_for_queued_turn. Put only prose in reply; pass continuity updates in updates, where the writer reviews them before they join the story. Only pass writerTurn for a new, unsaved direction when no turn is queued. A queued alternate is added to the original turn as another take.',
   inputSchema:{
     storyId:identifier,
     revision:z.string().regex(/^"[a-f0-9]{64}"$/),
-    speakerId:identifier.optional(),
+    speakerId:identifier.optional().describe('Legacy field. All turns are narrated.'),
     reply:z.string().max(60000).refine(text => Boolean(text.trim())).describe('Story prose only.'),
     writerTurn:z.string().max(6000).optional(),
     storyTime:z.string().refine(isStoryTime).optional().describe('In-story scene date and time, YYYY-MM-DDTHH:mm. Infer it from the context.'),
     updates:z.array(updateSchema).max(5).optional().describe('Up to five new, non-explicit continuity updates established by the latest writer turn or this reply. Use exact cast names. Omit when nothing new was established.')
   },
   annotations:{readOnlyHint:false, destructiveHint:false, idempotentHint:false, openWorldHint:false}
-}, async ({storyId, revision, speakerId, reply, writerTurn, storyTime, updates = []}) => {
+}, async ({storyId, revision, reply, writerTurn, storyTime, updates = []}) => {
   const current = await readLibrary();
   if (current.revision !== revision) throw Error('The library changed since this draft started. Read the story context again and rewrite the reply against it before saving.');
   const project = findStory(current.library, storyId);
   const request = pendingRequest(project);
-  const speaker = resolveSpeaker(project, speakerId, request);
   if (request && writerTurn?.trim()) throw Error('This handoff already has a saved writer turn. Omit writerTurn.');
   const draft = readReply(reply.trim());
-  draft.text = stripSpeakerName(draft.text, speaker.name);
+  draft.text = stripSpeakerName(draft.text, narrator.name);
   if (!draft.text.trim()) throw Error('The reply must contain story prose.');
   const proposals = [...draft.suggestions, ...updates];
   const mapOff = request?.mode === 'alternate' || project.graphUpdates === false;
@@ -315,8 +299,8 @@ tool('submit_reply', {
     turnNumber = appendTurn(project, {
       role:'assistant',
       content:draft.text.trim(),
-      speakerId:speaker.id,
-      speakerName:speaker.name,
+      speakerId:narrator.id,
+      speakerName:narrator.name,
       storyTime:recordStoryTime(project,storyTime),
       ...(proposedUpdates ? {graphSuggestions:suggestions} : {})
     });
@@ -335,7 +319,7 @@ tool('submit_reply', {
   if (!response.ok) throw Error(`Could not save the reply (HTTP ${response.status}).`);
   reportFinished();
   return {
-    storyId, turnNumber, speaker:speaker.name, proposedUpdates,
+    storyId, turnNumber, speaker:narrator.name, proposedUpdates,
     ...(mapOff && proposals.length ? {ignoredUpdates:'Map updates are off for this reply, so they were not saved.'} : {}),
     guidance:'Saved. The open Story Studio page shows the reply within a few seconds, after the writer saves any unsaved browser edits. Map updates wait under Review updates until the writer keeps or dismisses them. If you are watching for turns, call wait_for_queued_turn again.'
   };

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMessages, clipEnds, dateWriterTurn, formatMessages, queuedTurn, replyInput, splitOpenRouterReply, stripSpeakerName, syncTakeSuggestions } from '../public/prompt.js';
+import { buildMessages, clipEnds, dateWriterTurn, formatMessages, narrator, queuedTurn, replyInput, splitOpenRouterReply, stripSpeakerName, syncTakeSuggestions } from '../public/prompt.js';
 import { checkMapUpdates } from '../map-updates.mjs';
 
 const story = (messages, agentRequest) => ({
@@ -13,7 +13,7 @@ test('a queued turn is only valid while it still matches the story, its speaker 
   const writer = {role:'user', content:'Cross the bridge.', turnNumber:2};
   const reply = {role:'assistant', content:'Mara crosses.', turnNumber:1};
   assert.deepEqual(queuedTurn(story([reply, writer], {mode:'send', speakerId:'iona', turnNumber:2})).request,
-    {mode:'send', speakerId:'iona', turnNumber:2});
+    {mode:'send', speakerId:narrator.id, turnNumber:2});
   assert.match(queuedTurn(story([reply, writer], {mode:'send', speakerId:'gone', turnNumber:2})).problem, /no longer in the cast/);
   assert.match(queuedTurn(story([reply, writer], {mode:'send', speakerId:'iona', turnNumber:1})).problem, /queued turn changed/);
   assert.match(queuedTurn(story([reply, {...writer, contentSensitivity:'explicit'}], {mode:'send', speakerId:'iona', turnNumber:2})).problem, /outside MCP context/);
