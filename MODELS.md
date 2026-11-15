@@ -20,7 +20,7 @@ For local inference, a [quantized Cydonia GGUF](https://huggingface.co/bartowski
 
 ## What Story Studio sends and expects
 
-The selected model receives one system message with narrator instructions, cast, world lore, relationship events, and the in-story clock. The recent eligible turns follow in order, ending with the current author direction. For short follow-ups such as “go into more detail,” the prompt tells the model to expand the latest narrated beat in place. OpenRouter can receive earlier explicit or unverified turns. **Keep this turn out of AI context** also excludes that turn from OpenRouter. To see the assembled messages, use **Prompt** with your direction still in the composer.
+The selected model receives one system message with narrator instructions, the full cast, world lore, relationship events, and the in-story clock. The recent eligible turns follow in order, ending with the current author direction. For short follow-ups such as “go into more detail,” the prompt tells the model to expand the latest narrated beat in place. OpenRouter can receive earlier explicit or unverified turns. **Keep this turn out of AI context** also excludes that turn from OpenRouter. To see the assembled messages, use **Prompt** with your direction still in the composer.
 
 Every OpenRouter request uses Chat Completions with strict JSON Schema for `text`, `input`, `reply`, `storyTime`, and `updates`. Story Studio checks for an endpoint advertising `structured_outputs` before sending the story. Custom model IDs must pass the same check. Routing requires support for the requested parameters and retains the app's data-collection preference. [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
 

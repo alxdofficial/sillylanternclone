@@ -47,7 +47,7 @@ The **Story timeline** on the left groups setup, dated scenes, and relationship 
 
 Hover over a character or line for a preview in the right pane. Click or tap it to keep its details open and edit.
 
-- **+ Character** creates a profile. Click a node to edit its name, aliases, description, and optional personality, scenario, and sample dialogue. **I write this character** identifies the character you control. The profile also supports importing basic details from a JSON character card. Removing a supporting character removes their relationship events when you save. Their existing dialogue stays in the transcript.
+- **+ Character** creates a profile. Click a node to edit its name, aliases, description, and optional personality, scenario, and sample dialogue. The profile also supports importing basic details from a JSON character card. Removing a supporting character removes their relationship events when you save. Their existing dialogue stays in the transcript.
 - **+ Relationship** lets you select two characters in the order of the event. Write one sentence describing what happened and choose its **In-story date and time**. Several events between the same two characters share a graph line. Its count shows how many are saved. Click the line to edit or delete individual events. **Undo last deletion** is available in the inspector before you save.
 - **World** holds the setting, start date and time, short continuity facts under **Story memory**, and optional keyword lore. Enter one rule per line, such as `harbor, dock | The tide cuts off the old footpath.` Use `* | lore` for a rule that is always active. **Writing** holds prose directions, style notes, and the title.
 

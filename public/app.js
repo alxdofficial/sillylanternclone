@@ -16,7 +16,7 @@ let baseLibrary = null, demoGeneration;
 let connection = {model:'',key:''};
 let editingCharacter = primarySpeaker;
 let draftRelationships = [], connectingFrom = '', editingRelationship = null;
-let draftStartAt = '', draftStartSource = '', draftWriterId = '';
+let draftStartAt = '', draftStartSource = '';
 let estimatedEdgeDates = new WeakSet();
 let connecting = false, pinnedGraph = null, hoverGraph = null, deletedEvent = null, shownEvents = 12;
 let pendingGraphReview = [];
@@ -863,7 +863,6 @@ function selectCastEditor(id, focusEditor = false) {
   editingCharacter = selected.dataset.id;
   for (const editor of editors) editor.hidden = editor !== selected;
   $('#cardHint').textContent = '';
-  $('#writerCharacter').checked = draftWriterId === editingCharacter;
   pinGraph({kind:'character',id:editingCharacter});
   if (focusEditor) {
     const field = selected.querySelector('input');
@@ -1113,9 +1112,6 @@ function setDraftStart(time) {
 }
 $('#storyStartAt').onchange = event => setDraftStart(event.target.value);
 $('#storyStartAt').oninput = event => event.target.setCustomValidity('');
-$('#writerCharacter').onchange = event => {
-  draftWriterId = event.target.checked ? editingCharacter : '';
-};
 
 function openSettings(initialTab = $('#castTab')) {
   if (!state) return;
@@ -1132,7 +1128,6 @@ function openSettings(initialTab = $('#castTab')) {
   draftStartSource = project.storyStartSource || 'estimate';
   $('#storyStartAt').value = draftStartAt;
   $('#storyStartAt').setCustomValidity('');
-  draftWriterId = project.storyWriterId || '';
   estimatedEdgeDates = new WeakSet();
   draftRelationships = (project.relationships || []).map(edge => {
     const draft = {...edge,storyTime:relationshipTime(project,edge,draftStartAt)};
@@ -1183,7 +1178,6 @@ function addCastEditor(character) {
     const detail = count ? `This also removes ${count} relationship ${count === 1 ? 'event' : 'events'} when you save. The character’s existing turns stay in the transcript.`
       : 'The character will be removed when you save. Their existing turns stay in the transcript.';
     if (!await confirmDanger(`Remove ${editorName(card)} from the cast?`, detail, 'Remove character')) return;
-    if (draftWriterId === card.dataset.id) draftWriterId = '';
     draftRelationships = draftRelationships.filter(edge => edge.from !== card.dataset.id && edge.to !== card.dataset.id);
     card.remove();
     clearConnection();
@@ -1407,8 +1401,6 @@ $('#settingsForm').onsubmit = event => {
   }
   for (const key of settingsFields) project[key] = form.elements[key].value.trim();
   project.cast = cast;
-  if (draftWriterId) project.storyWriterId = draftWriterId;
-  else delete project.storyWriterId;
   project.storyStartAt = draftStartAt;
   project.storyStartSource = draftStartSource;
   project.relationships = draftRelationships;

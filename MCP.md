@@ -55,7 +55,7 @@ With Claude Code, double-click **Start Claude Writer.command**, which starts wat
 
 The agent waits for a queued turn, writes it, saves it, and waits again. Replies appear in the open Story Studio page within a few seconds. Keep that agent window open while you write. To stop, interrupt the agent (Esc in Claude Code) or tell it to stop watching.
 
-The agent continues as the narrator, using the cast for dialogue and action. Give any style, tense or point-of-view direction in the composer, or set a default in **Character & lore → Writing → Writing notes**. The line above the composer and a placeholder turn show where a queued turn stands:
+The agent writes as the narrator, using the full cast for dialogue and action. Short follow-ups such as “go into more detail” refer to the latest available narrated passage. Give any style, tense or point-of-view direction in the composer, or set a default in **Character & lore → Writing → Writing notes**. The line above the composer and a placeholder turn show where a queued turn stands:
 
 - **Waiting for an agent:** no agent is watching. Open the Claude Writer or ask your agent to write the queued turn. The turn stays queued.
 - **Queued:** an agent is watching and will pick it up within a second or two.

@@ -19,8 +19,8 @@ const story = {
 test('prompt orders context around role-preserved history and the current direction', () => {
   const messages = buildMessages(story, 'Ren checks the BRASS COMPASS by the monkey statue. a+b');
   const text = formatMessages(messages);
-  const order = ['World Info · before character', 'Writer character', 'Character description', 'Character personality',
-    'Scenario', 'World Info · activated entries', 'Example dialogue', 'Turn 1', 'Author’s note', 'Turn 2',
+  const order = ['World Info · before character', 'Character description', 'Character personality',
+    'Scenario', 'Other cast', 'World Info · activated entries', 'Example dialogue', 'Turn 1', 'Author’s note', 'Turn 2',
     'Turn 5', 'Post-history instructions', 'Ren checks'];
   for (let i = 1; i < order.length; i++) {
     assert.ok(text.indexOf(order[i-1]) >= 0 && text.indexOf(order[i]) > text.indexOf(order[i-1]), order[i]);
@@ -154,6 +154,8 @@ test('OpenRouter grounds a short follow-up in the latest narration', () => {
   assert.match(messages[0].content,/Put the requested writing or planning in text/);
   assert.match(messages.at(-2).content,/Iona set the broken radio on the ticket counter/);
   assert.equal(messages.at(-1).content,'Author direction:\ngo into more detail');
+  assert.match(buildMessages(project,'go into more detail','send',{maintainGraph:true})[0].content,
+    /“Go into more detail” means expand the relevant beat in place/);
 });
 
 test('story time validates dates, shares the setup anchor, and rolls over at midnight', () => {
@@ -168,12 +170,14 @@ test('story time validates dates, shares the setup anchor, and rolls over at mid
   assert.equal(recordStoryTime(project,''),'1980-09-01T00:00');
 });
 
-test('a saved persona becomes one cast member and remains the writer in prompts', () => {
+test('a saved persona becomes one ordinary cast member in prompts', () => {
   const project = migratePersona({...story, cast:[{id:'ren',name:'Ren',description:'Repairs radios.'}]});
   assert.equal(project.storyWriterId,'ren');
   assert.equal(project.persona,'');
   assert.equal(project.cast.length,1);
-  assert.match(formatMessages(buildMessages(project)),/Writer character:\nRen\nRepairs radios\./);
+  const prompt = formatMessages(buildMessages(project));
+  assert.match(prompt,/Other cast:\nRen: Repairs radios\./);
+  assert.doesNotMatch(prompt,/Writer character:/);
 });
 
 test('MCP compatibility parser does not save an incomplete graph block as prose', () => {
