@@ -55,3 +55,9 @@ A simulated OpenRouter response added explicit labels and an inferred date to a 
 Opened the bundled story in Chromium with an empty data directory. Verified six turns, six characters, the dated relationship events across midnight, the two alternate takes, keyword lore, and the reviewable map update. Kept the map update and added a manual turn. Reloading restored the original story and cleared the draft. The demo alone created no library file.
 
 Created a regular story alongside the demo, added a turn, and confirmed it survived reload and appeared in the ZIP. The demo stayed out of both the saved library and the export. The automated MCP test also submits a temporary demo reply, compares the saved library byte-for-byte, and checks that a stale edit cannot reappear after a reset.
+
+## Demo replay, branching, and rewind
+
+Replayed the demo from turn 4 in a disposable library. This Codex session requested each scene's context and submitted the drafts, inferred timestamps, and graph suggestions through the live Story Studio MCP server using a stdio SDK client. Approved turn 5's two relationship events and its continuity fact in the browser before drafting turn 6. Queued an alternate in the browser, saved it through MCP, and switched back to the main take. The packaged demo's six turns, relationship events, and graph history were compared with the resulting library. Standalone Codex CLI inference was unavailable during this run because the account rejected the tested model IDs.
+
+The branch and rewind browser test used the three-dot menu at desktop and phone widths. Branched from demo turn 3, confirmed the branch omitted the later radio call and story memory, and added an independent fourth turn. Canceled a rewind first, then accepted and confirmed the branch preserved only two turns after reload. The original demo still had six turns. Also verified Escape returns focus to the menu button and that rewind is disabled at the latest turn.

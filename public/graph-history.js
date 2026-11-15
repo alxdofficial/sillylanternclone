@@ -57,6 +57,37 @@ export function readGraphVersion(project, turn = Infinity) {
   return snapshot.cast ? {...snapshot, cast:copyCast(snapshot.cast)} : null;
 }
 
+export function storyAtTurn(project, index) {
+  const ending = project.messages[index];
+  if (!ending) throw new RangeError('That story turn is no longer available.');
+  const turn = ending.turnNumber || index + 1;
+  const story = structuredClone(project);
+  story.messages.length = index + 1;
+  story.nextTurn = turn + 1;
+  delete story.agentRequest;
+
+  const version = readGraphVersion(story,turn);
+  if (version) {
+    const [primary, ...cast] = version.cast;
+    story.characterName = primary.name;
+    story.characterNickname = primary.nickname;
+    story.character = primary.description;
+    story.personality = primary.personality;
+    story.scenario = primary.scenario;
+    story.examples = primary.examples;
+    story.cast = cast;
+    story.lore = version.lore;
+    story.continuity = version.continuity;
+  }
+  if (story.graphHistory) story.graphHistory = story.graphHistory.filter(entry => entry.turn <= turn);
+  const castIds = new Set(getCast(story).map(member => member.id));
+  if (!castIds.has(story.speakerId)) story.speakerId = primarySpeaker;
+  if (!castIds.has(story.storyWriterId)) delete story.storyWriterId;
+  if (story.relationships) story.relationships = story.relationships.filter(edge =>
+    (edge.turn || 0) <= turn && castIds.has(edge.from) && castIds.has(edge.to));
+  return story;
+}
+
 export function captureGraphVersion(project, turn) {
   if (!validTurn(turn)) throw new TypeError('Invalid graph version turn.');
   const history = project.graphHistory || [];

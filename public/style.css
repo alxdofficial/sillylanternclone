@@ -108,6 +108,30 @@ textarea { caret-color: #f0c6de; }
 .message-header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 9px; margin-bottom: 5px; }
 .message-header strong { min-width: 0; overflow-wrap: anywhere; font-size: 15px; }
 .message-actions { display: flex; flex-wrap: wrap; gap: 4px 7px; margin-inline-start: auto; }
+.turn-menu {
+  position: fixed;
+  z-index: 3;
+  display: grid;
+  min-width: min(180px, calc(100vw - 16px));
+  padding: 4px;
+  border: 1px solid #625262;
+  border-radius: 6px;
+  background: #2a252b;
+  box-shadow: 0 6px 18px #0006;
+}
+.turn-menu button {
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.turn-menu button:hover:not(:disabled) { background: #473846; }
+.turn-menu button:disabled { opacity: .55; }
+.message-actions .turn-more { font-size: 21px; line-height: 1; padding-inline: 8px; }
+@media (pointer: coarse) {
+  .turn-menu button { min-height: 44px; }
+}
 .message-actions button, .alternatives button, .text-button {
   border: 0;
   border-radius: 4px;

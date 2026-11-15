@@ -1,4 +1,4 @@
-import { captureGraphVersion, normalizeGraphHistory } from './graph-history.js';
+import { captureGraphVersion, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
 import { maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
 import { buildMessages, formatMessages, extraFields, getCast, getSpeaker, getWriter, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
@@ -108,7 +108,167 @@ function render() {
   }
   renderMessages();
 }
-function renderMessages(){const p=current(), box=$('#messages');box.replaceChildren();if(!p.messages.length){const empty=el('div','empty');empty.append(el('div','empty-mark','\u2733'),el('strong','','Every story starts somewhere.'),el('p','','Set the scene below, or ask your co-writer to begin.'));box.append(empty);return}p.messages.forEach((m,index)=>{const row=el('article','message '+(m.role==='user'?'user':'assistant'));const body=el('div','message-body'), head=el('div','message-header');head.append(el('strong','',m.role==='user'?(getWriter(p).name||'You'):(m.speakerName||p.characterName||'Co-writer')));if(m.excludeFromContext)head.append(el('span','context-badge','Outside AI context'));else if(!isAvailableToMcp(m))head.append(el('span','context-badge',m.contentSensitivity==='explicit'?'Explicit · outside MCP':'Unverified · outside MCP'));if(!m.excludeFromContext&&m.graphSuggestions?.length){const review=el('button','text-button','Review map updates');review.onclick=()=>{openSettings();pinGraph({kind:'review'});};head.append(review)}const actions=el('div','message-actions');const edit=el('button','','Edit');edit.onclick=()=>openEdit(index);const del=el('button','','Delete');del.onclick=()=>{if(!confirm('Delete this turn?'))return;p.messages.splice(index,1);markDirty();renderMessages()};actions.append(edit,del);if(m.role==='assistant'&&!m.excludeFromContext&&index===p.messages.length-1&&$('#sceneProvider').value!=='manual'&&($('#sceneProvider').value==='openrouter'||isAvailableToMcp(m))){const retry=el('button','','Another take');retry.disabled=busy;retry.onclick=()=>generate('retry');actions.prepend(retry)}head.append(actions);body.append(head,el('div','message-text',m.content));if(m.role==='assistant' && m.alternatives?.length>1){const nav=el('div','alternatives');const prev=el('button','','← Previous');const count=el('span','',`${m.selectedAlternative+1} of ${m.alternatives.length} takes`);const next=el('button','','Next →');prev.disabled=busy||m.selectedAlternative===0;next.disabled=busy||m.selectedAlternative===m.alternatives.length-1;prev.onclick=()=>selectAlternative(m,m.selectedAlternative-1);next.onclick=()=>selectAlternative(m,m.selectedAlternative+1);nav.append(prev,count,next);body.append(nav)}row.append(body);box.append(row)});box.scrollTop=box.scrollHeight}
+const turnMenu = $('#turnMenu');
+let turnMenuTrigger, turnMenuIndex;
+
+function closeTurnMenu(returnFocus = false) {
+  turnMenu.hidden = true;
+  turnMenuTrigger?.setAttribute('aria-expanded','false');
+  if (returnFocus) turnMenuTrigger?.focus({preventScroll:true});
+  turnMenuTrigger = null;
+  turnMenuIndex = null;
+}
+
+function openTurnMenu(trigger, index) {
+  if (turnMenuTrigger === trigger) return closeTurnMenu(true);
+  closeTurnMenu();
+  turnMenuTrigger = trigger;
+  turnMenuIndex = index;
+  trigger.setAttribute('aria-expanded','true');
+  $('#rewindTurn').disabled = index === current().messages.length - 1;
+  turnMenu.hidden = false;
+  positionTurnMenu();
+  $('#branchTurn').focus({preventScroll:true});
+}
+
+function positionTurnMenu() {
+  if (!turnMenuTrigger) return;
+  const anchor = turnMenuTrigger.getBoundingClientRect();
+  const transcript = $('#messages').getBoundingClientRect();
+  if (anchor.bottom <= transcript.top || anchor.top >= transcript.bottom) return closeTurnMenu();
+  const {width,height} = turnMenu.getBoundingClientRect();
+  turnMenu.style.left = Math.max(8,Math.min(anchor.right - width,window.innerWidth - width - 8)) + 'px';
+  turnMenu.style.top = (anchor.bottom + height + 12 <= window.innerHeight
+    ? anchor.bottom + 4 : Math.max(8,anchor.top - height - 4)) + 'px';
+}
+
+document.addEventListener('pointerdown', event => {
+  if (turnMenuTrigger && !turnMenu.contains(event.target) && !turnMenuTrigger.contains(event.target)) closeTurnMenu();
+});
+document.addEventListener('focusin', event => {
+  if (turnMenuTrigger && !turnMenu.contains(event.target) && event.target !== turnMenuTrigger) closeTurnMenu();
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && turnMenuTrigger) {
+    event.preventDefault();
+    closeTurnMenu(true);
+  }
+});
+$('#messages').addEventListener('scroll',positionTurnMenu,{passive:true});
+window.addEventListener('resize', () => closeTurnMenu());
+
+$('#branchTurn').onclick = () => {
+  const index = turnMenuIndex;
+  closeTurnMenu(true);
+  if (index == null || busy) return;
+  if (state.projects.length - 1 >= maxLibraryStories) {
+    alert('Your library has reached its story limit.');
+    return;
+  }
+  const project = current();
+  const branch = storyAtTurn(project,index);
+  const turn = branch.nextTurn - 1;
+  const names = new Set(state.projects.map(story => story.title));
+  const base = project.title.slice(0,128);
+  const title = base + ' · Branch from turn ' + turn;
+  let label = title;
+  for (let n = 2; names.has(label); n++) label = title + ' (' + n + ')';
+  branch.id = id();
+  branch.title = label;
+  setSession(routeKey(branch.id),$('#sceneProvider').value);
+  state.projects.unshift(branch);
+  state.activeId = branch.id;
+  markDirty(branch);
+  error();
+  render();
+  void save();
+};
+
+$('#rewindTurn').onclick = () => {
+  const index = turnMenuIndex;
+  closeTurnMenu(true);
+  if (index == null || busy) return;
+  const project = current();
+  const count = project.messages.length - index - 1;
+  if (count < 1) return;
+  const turn = project.messages[index].turnNumber || index + 1;
+  if (!confirm(`Rewind “${project.title}” to turn ${turn}? This removes ${count} later ${count === 1 ? 'turn' : 'turns'} and their relationship events from this story. This cannot be undone.`)) return;
+  const rewound = storyAtTurn(project,index);
+  state.projects[state.projects.indexOf(project)] = rewound;
+  markDirty(rewound);
+  error();
+  render();
+  void save();
+};
+
+function renderMessages() {
+  closeTurnMenu();
+  const project = current(), box = $('#messages');
+  box.replaceChildren();
+  if (!project.messages.length) {
+    const empty = el('div','empty');
+    empty.append(el('div','empty-mark','✳'),el('strong','','Every story starts somewhere.'),
+      el('p','','Set the scene below, or ask your co-writer to begin.'));
+    box.append(empty);
+    return;
+  }
+  project.messages.forEach((message,index) => {
+    const row = el('article','message ' + (message.role === 'user' ? 'user' : 'assistant'));
+    const body = el('div','message-body'), head = el('div','message-header');
+    const name = message.role === 'user' ? getWriter(project).name || 'You' : message.speakerName || project.characterName || 'Co-writer';
+    head.append(el('strong','',name));
+    if (message.excludeFromContext) head.append(el('span','context-badge','Outside AI context'));
+    else if (!isAvailableToMcp(message)) head.append(el('span','context-badge',
+      message.contentSensitivity === 'explicit' ? 'Explicit · outside MCP' : 'Unverified · outside MCP'));
+    if (!message.excludeFromContext && message.graphSuggestions?.length) {
+      const review = el('button','text-button','Review map updates');
+      review.onclick = () => { openSettings(); pinGraph({kind:'review'}); };
+      head.append(review);
+    }
+
+    const actions = el('div','message-actions');
+    const edit = el('button','','Edit');
+    edit.onclick = () => openEdit(index);
+    const remove = el('button','','Delete');
+    remove.onclick = () => {
+      if (!confirm('Delete this turn?')) return;
+      project.messages.splice(index,1);
+      markDirty(project);
+      renderMessages();
+    };
+    const more = el('button','turn-more','…');
+    more.type = 'button';
+    more.setAttribute('aria-label',`More actions for turn ${message.turnNumber || index + 1}`);
+    more.setAttribute('aria-controls','turnMenu');
+    more.setAttribute('aria-expanded','false');
+    more.disabled = busy;
+    more.onclick = () => openTurnMenu(more,index);
+    actions.append(edit,remove,more);
+    const provider = $('#sceneProvider').value;
+    if (message.role === 'assistant' && !message.excludeFromContext && index === project.messages.length - 1
+        && provider !== 'manual' && (provider === 'openrouter' || isAvailableToMcp(message))) {
+      const retry = el('button','','Another take');
+      retry.disabled = busy;
+      retry.onclick = () => generate('retry');
+      actions.prepend(retry);
+    }
+    head.append(actions);
+    body.append(head,el('div','message-text',message.content));
+    if (message.role === 'assistant' && message.alternatives?.length > 1) {
+      const nav = el('div','alternatives');
+      const prev = el('button','','← Previous'), next = el('button','','Next →');
+      prev.disabled = busy || message.selectedAlternative === 0;
+      next.disabled = busy || message.selectedAlternative === message.alternatives.length - 1;
+      prev.onclick = () => selectAlternative(message,message.selectedAlternative - 1);
+      next.onclick = () => selectAlternative(message,message.selectedAlternative + 1);
+      nav.append(prev,el('span','',`${message.selectedAlternative + 1} of ${message.alternatives.length} takes`),next);
+      body.append(nav);
+    }
+    row.append(body);
+    box.append(row);
+  });
+  box.scrollTop = box.scrollHeight;
+}
 function setSensitivity(message, value) {
   if (validSensitivity(value)) message.contentSensitivity = value;
   else delete message.contentSensitivity;

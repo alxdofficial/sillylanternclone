@@ -35,6 +35,8 @@ New libraries open on **The Late Ferry**, a late-night harbor mystery with six c
 
 Use **Edit** to revise a saved turn or **Another take** to generate an alternate reply on the latest eligible turn. Use **Previous** and **Next** to choose which take appears in the story and in future prompts.
 
+Open **⋯** on a turn to explore a different path. **Branch from here** creates a separate story through that turn, including the selected take, the cast and world notes recorded then, and earlier relationship events. You can branch from the demo to keep writing a regular saved story. **Rewind to here** removes later turns and their events from the current story after confirmation. For older turns without a saved cast or world version, Story Studio uses the current notes.
+
 ## Character & lore
 
 The **Story timeline** on the left groups setup, dated scenes, and relationship events by their in-story calendar date. Entries within a day show the time in 24-hour format. Select a moment to inspect its events and highlight their connections on the graph. Older and manually written turns without a date appear under **Undated turns**. To date one, use **Edit** on the turn in the transcript. On a narrow screen, choose **Show timeline** above the graph.

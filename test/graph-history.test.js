@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { captureGraphVersion, normalizeGraphHistory, readGraphVersion } from '../public/graph-history.js';
+import { captureGraphVersion, normalizeGraphHistory, readGraphVersion, storyAtTurn } from '../public/graph-history.js';
 
 function story() {
   return {
@@ -68,4 +68,42 @@ test('malformed backups are rejected rather than returning incorrect past states
   captureGraphVersion(project, 0);
   assert.throws(() => normalizeGraphHistory([...project.graphHistory,{turn:0,lore:'Duplicate'}]), /strictly increasing/);
   assert.throws(() => normalizeGraphHistory([...project.graphHistory,{turn:1,continuity:10}]), /invalid section/);
+});
+
+test('a turn snapshot keeps the selected take and past graph state without changing the original', () => {
+  const project = story();
+  project.messages = [
+    {turnNumber:1,role:'user',content:'Look east.'},
+    {turnNumber:4,role:'assistant',content:'East is clear.',alternatives:['Ice ahead.','East is clear.'],selectedAlternative:1},
+    {turnNumber:7,role:'assistant',content:'The storm hits.'}
+  ];
+  project.agentRequest = {mode:'alternate',turnNumber:7,speakerId:'primary'};
+  project.nextTurn = 8;
+  project.relationships = [
+    {from:'primary',to:'ada',label:'They met at the port.',turn:0,storyTime:'1998-01-01T08:00'},
+    {from:'primary',to:'ada',label:'Iona shares a map.',turn:4,storyTime:'1998-01-01T08:10'},
+    {from:'ada',to:'primary',label:'Ada calls a warning.',turn:7,storyTime:'1998-01-01T08:05'}
+  ];
+  captureGraphVersion(project,0);
+  project.lore = 'Both boats have cleared the ice.';
+  captureGraphVersion(project,4);
+  project.lore = 'The storm blocks the port.';
+  project.continuity = 'The crew lost the flare.';
+  project.cast[0].description = 'Ada lost her boat in the storm.';
+  captureGraphVersion(project,7);
+
+  const snapshot = storyAtTurn(project,1);
+  assert.deepEqual(snapshot.messages.map(message => message.turnNumber), [1,4]);
+  assert.equal(snapshot.messages[1].selectedAlternative,1);
+  assert.equal(snapshot.nextTurn,5);
+  assert.equal(snapshot.agentRequest,undefined);
+  assert.equal(snapshot.lore,'Both boats have cleared the ice.');
+  assert.equal(snapshot.continuity,'The crew borrowed a flare.');
+  assert.equal(snapshot.cast[0].description,'Restores old boats.');
+  assert.deepEqual(snapshot.relationships.map(edge => edge.turn),[0,4]);
+  assert.deepEqual(snapshot.graphHistory.map(version => version.turn),[0,4]);
+  snapshot.messages[1].alternatives[0] = 'Branch-only take.';
+  assert.equal(project.messages[1].alternatives[0],'Ice ahead.');
+  assert.equal(project.messages.length,3);
+  assert.equal(project.lore,'The storm blocks the port.');
 });
