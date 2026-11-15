@@ -12,7 +12,7 @@ import test from 'node:test';
 const fixture = 'PRIVATE_TEST_VALUE';
 const app = fileURLToPath(new URL('../server.mjs',import.meta.url));
 
-test('OpenRouter selects the advertised format and logs errors without recording story text', async () => {
+test('OpenRouter requires JSON Schema support and logs errors without recording story text', async () => {
   const directory = await mkdtemp(join(tmpdir(),'story-studio-diagnostics-'));
   const listener = createServer();
   listener.listen(0,'127.0.0.1');
@@ -30,31 +30,24 @@ test('OpenRouter selects the advertised format and logs errors without recording
     const scene = ${JSON.stringify(scene)};
     globalThis.fetch = async (url, options) => {
       if (url.endsWith('/endpoints')) {
-        const parameters = url.includes('/fixture/schema/') ? ['structured_outputs'] : ['response_format'];
+        if (url.includes('/fixture/offline/')) return new Response(null,{status:503});
+        const parameters = url.includes('/fixture/legacy/') ? ['response_format'] : ['structured_outputs'];
         return Response.json({data:{endpoints:[{supported_parameters:parameters}]}});
       }
       const request = JSON.parse(options.body);
-      if (!['fixture/schema','fixture/footer'].includes(request.model)) {
+      assert.notEqual(request.model,'fixture/legacy');
+      assert.notEqual(request.model,'fixture/offline');
+      if (request.model !== 'fixture/schema') {
         return new Response(${JSON.stringify(fixture)}, {status:401});
       }
       assert.equal(request.provider.data_collection,'deny');
-      const {text, ...metadata} = scene;
-      let content;
-      if (request.model === 'fixture/schema') {
-        assert.equal(request.provider.require_parameters,true);
-        assert.equal(request.response_format.type,'json_schema');
-        assert.equal(request.response_format.json_schema.strict,true);
-        assert.deepEqual(request.response_format.json_schema.schema.required,Object.keys(scene));
-        assert.equal(request.response_format.json_schema.schema.additionalProperties,false);
-        assert.ok(request.messages.some(message => message.content.includes('Return the schema object only')));
-        content = JSON.stringify(scene);
-      } else {
-        assert.equal(request.provider.require_parameters,undefined);
-        assert.equal(request.response_format,undefined);
-        assert.ok(request.messages.some(message => message.content.includes('fenced story-safety block')));
-        content = [text, ${JSON.stringify('```story-safety')}, JSON.stringify(metadata), ${JSON.stringify('```')}].join('\\n');
-      }
-      return Response.json({choices:[{message:{content}}]});
+      assert.equal(request.provider.require_parameters,true);
+      assert.equal(request.response_format.type,'json_schema');
+      assert.equal(request.response_format.json_schema.strict,true);
+      assert.deepEqual(request.response_format.json_schema.schema.required,Object.keys(scene));
+      assert.equal(request.response_format.json_schema.schema.additionalProperties,false);
+      assert.ok(request.messages.some(message => message.content.includes('Return the schema object only')));
+      return Response.json({choices:[{message:{content:JSON.stringify(scene)}}]});
     };
   `);
   const child = spawn(process.execPath,['--import',mock,app],{
@@ -77,15 +70,22 @@ test('OpenRouter selects the advertised format and logs errors without recording
         instruction:fixture, key:fixture, provider:'openrouter',model
       })
     });
-    for (const format of ['schema','footer']) {
-      const model = 'fixture/'+format;
-      const capability = await fetch(`${origin}/api/openrouter/format?model=${encodeURIComponent(model)}`);
-      assert.deepEqual(await capability.json(),{structuredOutput:format === 'schema'});
-      const success = await generate(model);
-      const draft = await success.json();
-      const {updates, ...expected} = scene;
-      assert.equal(success.status,200,JSON.stringify(draft));
-      assert.deepEqual(draft,{...expected,suggestions:updates});
+    const capability = model => fetch(`${origin}/api/openrouter/format?model=${encodeURIComponent(model)}`);
+    assert.deepEqual(await (await capability('fixture/schema')).json(),{structuredOutput:true});
+    const success = await generate('fixture/schema');
+    const draft = await success.json();
+    const {updates, ...expected} = scene;
+    assert.equal(success.status,200,JSON.stringify(draft));
+    assert.deepEqual(draft,{...expected,suggestions:updates});
+    for (const [model,status,reason] of [
+      ['fixture/legacy',422,/no endpoint with JSON Schema support/],
+      ['fixture/offline',503,/Could not check the model/]
+    ]) {
+      for (const request of [capability,generate]) {
+        const blocked = await request(model);
+        assert.equal(blocked.status,status);
+        assert.match((await blocked.json()).error,reason);
+      }
     }
     const response = await generate('custom/'+fixture);
     assert.equal(response.status,500);

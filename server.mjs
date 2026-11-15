@@ -4,12 +4,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
-import { isModelId, models } from './public/models.js';
-import { buildMessages, extraFields, getCast, getWriter, validCast, validRelationships, validSensitivity, splitOpenRouterReply, isStoryTime } from './public/prompt.js';
+import { models } from './public/models.js';
+import { buildMessages, extraFields, getCast, getWriter, validCast, validRelationships, validSensitivity, isStoryTime } from './public/prompt.js';
 import { maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory } from './examples/the-late-ferry.mjs';
 import { checkMapUpdates } from './map-updates.mjs';
-import { readStructuredStory, storyResponseFormat, supportsStorySchema } from './openrouter-format.mjs';
+import { readStructuredStory, requireStorySchema, storyResponseFormat } from './openrouter-format.mjs';
 import { createLogger, diagnosticError, errorCode } from './diagnostics.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -144,16 +144,7 @@ function reportAgent(report) {
 
 const libraryLimit = 16_000_000;
 function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
-function checkOpenRouterConnection(model,key) {
-  if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
-    throw diagnosticError('OPENROUTER_KEY_REQUIRED','Enter an OpenRouter API key in Connection.');
-  }
-  if (typeof model !== 'string' || !isModelId(model)) {
-    throw diagnosticError('OPENROUTER_MODEL_INVALID','Enter a specific OpenRouter model ID (author/model).');
-  }
-}
-
-async function generateOpenRouter(messages, model, key, diagnostics, structuredOutput) {
+async function generateOpenRouter(messages, model, key, diagnostics) {
   diagnostics.model = modelIds.has(model) ? model : 'custom';
   log('info','generation_started',{requestId:diagnostics.requestId,provider:'openrouter',model:diagnostics.model});
   let response;
@@ -167,8 +158,8 @@ async function generateOpenRouter(messages, model, key, diagnostics, structuredO
         model,
         messages,
         max_tokens: 2048,
-        provider: {data_collection:'deny', ...(structuredOutput ? {require_parameters:true} : {})},
-        ...(structuredOutput ? {response_format:storyResponseFormat} : {})
+        provider: {data_collection:'deny',require_parameters:true},
+        response_format:storyResponseFormat
       })
     });
   } catch (error) {
@@ -195,7 +186,6 @@ async function generateOpenRouter(messages, model, key, diagnostics, structuredO
   }
   const text = result.choices?.[0]?.message?.content;
   if (typeof text !== 'string' || !text.trim()) throw diagnosticError('OPENROUTER_EMPTY_REPLY','OpenRouter returned no prose for this request.');
-  // The label footer comes last, so a reply cut at max_tokens loses it.
   return {text:text.trim(), truncated:result.choices?.[0]?.finish_reason === 'length'};
 }
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml'};
@@ -267,7 +257,8 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
   return res.end(Buffer.from(archive));
 }
 if (url.pathname === '/api/openrouter/format' && req.method === 'GET') {
-  return json(res,200,{structuredOutput:await supportsStorySchema(url.searchParams.get('model'))});
+  await requireStorySchema(url.searchParams.get('model'));
+  return json(res,200,{structuredOutput:true});
 }
 if (url.pathname === '/api/generate' && req.method === 'POST') {
   const {project,instruction,provider,model,key,mode='send'} = await body(req);
@@ -282,27 +273,29 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
   diagnostics.provider = 'openrouter';
   diagnostics.mode = mode;
   try {
-    checkOpenRouterConnection(model,key);
-    const structuredOutput = await supportsStorySchema(model);
-    diagnostics.outputFormat = structuredOutput ? 'json_schema' : 'footer';
-    const messages = buildMessages(project,instruction,mode,{model,includeSensitive:true,classifySafety:true,structuredOutput});
-    const output = await generateOpenRouter(messages,model,key,diagnostics,structuredOutput);
+    if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
+      diagnostics.code = 'OPENROUTER_KEY_REQUIRED';
+      return json(res,400,{error:'Enter an OpenRouter API key in Connection.'});
+    }
+    await requireStorySchema(model);
+    diagnostics.outputFormat = 'json_schema';
+    const messages = buildMessages(project,instruction,mode,{model,includeSensitive:true,classifySafety:true});
+    const output = await generateOpenRouter(messages,model,key,diagnostics);
+    diagnostics.truncated = output.truncated;
     const validateUpdates = value => checkMapUpdates(project,project.graphUpdates === false || mode === 'alternate' ? undefined : value);
-    const draft = structuredOutput ? readStructuredStory(output,validateUpdates) : splitOpenRouterReply(output.text,validateUpdates);
+    const draft = readStructuredStory(output,validateUpdates);
     if (output.truncated) {
       draft.truncated = true;
-      diagnostics.truncated = true;
       if (draft.input === 'safe') draft.input = 'unclassified';
       if (draft.reply === 'safe') draft.reply = 'unclassified';
       draft.suggestions = [];
     }
-    if (!draft.text) throw diagnosticError('OPENROUTER_EMPTY_REPLY','OpenRouter returned a label without a story reply.');
     diagnostics.unverifiedLabels = draft.input === 'unclassified' || draft.reply === 'unclassified';
     if (draft.updateProblems) diagnostics.invalidMapUpdates = draft.updateProblems;
     return json(res, 200, draft);
   } catch (e) {
     diagnostics.code = errorCode(e,'GENERATION_FAILED');
-    return json(res,500,{error:e.diagnosticCode ? e.message : 'Story Studio could not generate a reply.'});
+    return json(res,e.status || 500,{error:e.diagnosticCode ? e.message : 'Story Studio could not generate a reply.'});
   }
 }
 if(req.method!=='GET')return json(res,404,{error:'Not found.'});if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}const path=url.pathname==='/'?'/index.html':url.pathname;if(!/^\/(index\.html|app\.js|prompt\.js|models\.js|graph-history\.js|library\.js|sync\.js|style\.css)$/.test(path))return json(res,404,{error:'Not found.'});const contents=await readFile(join(root,'public',path));res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"});res.end(contents);

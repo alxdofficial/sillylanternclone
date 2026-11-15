@@ -7,7 +7,6 @@ Prices checked on 15 November 2026. One estimated chapter uses 2,000 billed inpu
 | Model | What to try it for | Context | USD per million input / output tokens | Estimated USD per chapter |
 | --- | --- | ---: | ---: | ---: |
 | [Cydonia 24B v4.1](https://openrouter.ai/thedrummer/cydonia-24b-v4.1) | First choice for creative prose | 131K | $0.30 / $0.50 | $0.00310 |
-| [Venice Dolphin 24B](https://openrouter.ai/cognitivecomputations/dolphin-mistral-24b-venice-edition) | Steerable alternative | 128K | $0.20 / $0.90 | $0.00490 |
 | [Euryale 70B v2.2](https://openrouter.ai/sao10k/l3.1-euryale-70b) | Character voice and dialogue | 131K | $0.85 / $0.85 | $0.00595 |
 | [Magnum v4 72B](https://openrouter.ai/anthracite-org/magnum-v4-72b) | More expensive prose comparison | 32K | $2.50 / $5.00 | $0.03000 |
 | [UnslopNemo 12B](https://openrouter.ai/thedrummer/unslopnemo-12b) | Lightweight adventure writing and roleplay | 1,024K | $0.40 / $0.40 | $0.00280 |
@@ -23,23 +22,11 @@ For local inference, a [quantized Cydonia GGUF](https://huggingface.co/bartowski
 
 The selected model receives the current direction, recent eligible turns, narrator instructions, cast, world lore, relationship events, and the in-story clock. It follows the writer's requested style, point of view and tense when provided. OpenRouter can receive earlier explicit or unverified turns. **Keep this turn out of AI context** also excludes that turn from OpenRouter.
 
-Story Studio checks the selected model's OpenRouter endpoint capabilities. When an endpoint advertises structured outputs, Story Studio requests a strict JSON Schema for `text`, `input`, `reply`, `storyTime`, and `updates`. Routing requires support for the requested parameters and retains the app's data-collection preference. The app validates the returned labels, time, and updates before saving. [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
+Every OpenRouter request uses Chat Completions with strict JSON Schema for `text`, `input`, `reply`, `storyTime`, and `updates`. Story Studio checks for an endpoint advertising `structured_outputs` before sending the story. Custom model IDs must pass the same check. Routing requires support for the requested parameters and retains the app's data-collection preference. [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
 
-Among the six presets, Venice Dolphin 24B was the only model without an endpoint advertising JSON Schema support when checked on November 15, 2026. Check the current endpoint listings for changes. [OpenRouter model catalog](https://openrouter.ai/api/v1/models)
+The model labels the writer input and assistant reply separately and records the in-story time to the minute. A regular reply can suggest up to five non-explicit map updates if suggestions are enabled. The shapes match the [MCP updates array](MCP.md#tool-contract). An alternate keeps the original scene time and has no map updates. Story Studio validates the response locally and keeps metadata separate from the prose.
 
-If schema support is missing or cannot be confirmed, Story Studio requests the same information as prose followed by a fenced `story-safety` block. A final standard `json` block with recognizable safety fields is also accepted. One writing request uses the selected format and model. The app keeps prose from the `text` field or the reply body and stores the metadata separately.
-
-The model labels the writer input and assistant reply separately and records the in-story time to the minute. A regular reply can suggest up to five non-explicit map updates if suggestions are enabled. The shapes match the [MCP updates array](MCP.md#tool-contract). An alternate keeps the original scene time and has no map updates. This is an example of the footer format:
-
-````text
-Story prose appears here.
-
-```story-safety
-{"input":"safe","reply":"safe","storyTime":"1998-10-25T00:11","updates":[{"kind":"fact","note":"The log copy is at East Pier."}]}
-```
-````
-
-Missing labels and length-limited replies stay outside MCP until reviewed. Invalid map entries are skipped with a warning. Correct labels with **Edit** and check accepted continuity under **Character & lore** before handing a story back to MCP. [OpenRouter API reference](https://openrouter.ai/docs/api_reference/overview)
+Unreadable or incomplete JSON produces a writing error. Replies with unverified labels stay outside MCP until reviewed. Invalid map entries are skipped with a warning. Correct labels with **Edit** and check accepted continuity under **Character & lore** before handing a story back to MCP. [OpenRouter API reference](https://openrouter.ai/docs/api_reference/overview)
 
 ## Free routes checked on 15 November 2026
 

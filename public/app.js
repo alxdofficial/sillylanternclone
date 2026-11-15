@@ -1253,6 +1253,8 @@ sceneModelChoice.onchange = () => {
 const customOption = el('option', '', 'Enter another model ID…');
 customOption.value = 'custom';
 modelChoice.append(customOption);
+const providerDialog = $('#providerDialog');
+let modelCheck;
 
 function showModelPrice() {
   const model = models.find(item => item.id === modelChoice.value);
@@ -1273,25 +1275,47 @@ function openConnection() {
   showModelPrice();
   $('#modelError').textContent = '';
   $('#keyInput').value = connection.key;
-  $('#providerDialog').showModal();
+  modelCheck?.abort();
+  providerDialog.showModal();
 }
 $('#providerButton').onclick = openConnection;
 $('#closeProvider').onclick = $('#cancelProvider').onclick = () => $('#providerDialog').close();
-$('#providerDialog').addEventListener('close', () => { $('#keyInput').value = ''; });
-$('#providerForm').onsubmit = event => {
+providerDialog.addEventListener('close', () => {
+  modelCheck?.abort();
+  $('#keyInput').value = '';
+});
+$('#providerForm').onsubmit = async event => {
   event.preventDefault();
-  {
-    const model = modelChoice.value === 'custom' ? $('#modelInput').value.trim() : modelChoice.value;
-    if (!isModelId(model)) {
-      $('#modelError').textContent = modelChoice.value === 'custom'
-        ? 'Enter a specific model ID in author/model format.'
-        : 'Choose an OpenRouter model.';
-      (modelChoice.value === 'custom' ? $('#modelInput') : modelChoice).focus();
-      return;
-    }
-    if (!models.some(item => item.id === model)) customModelId = model;
-    connection = {model, key:$('#keyInput').value.trim()};
+  const custom = modelChoice.value === 'custom';
+  const modelInput = $('#modelInput');
+  const model = custom ? modelInput.value.trim() : modelChoice.value;
+  if (!isModelId(model)) {
+    $('#modelError').textContent = custom
+      ? 'Enter a specific model ID in author/model format.'
+      : 'Choose an OpenRouter model.';
+    (custom ? modelInput : modelChoice).focus();
+    return;
   }
+  if (custom) {
+    modelCheck?.abort();
+    const check = modelCheck = new AbortController();
+    const submit = event.currentTarget.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+      const capability = await api('/api/openrouter/format?' + new URLSearchParams({model}),{signal:check.signal});
+      if (check.signal.aborted || !providerDialog.open || modelChoice.value !== 'custom' ||
+          modelInput.value.trim() !== model) return;
+      if (!capability.structuredOutput) throw Error('Choose a model with JSON Schema support.');
+      if (!models.some(item => item.id === model)) customModelId = model;
+    } catch (e) {
+      if (!check.signal.aborted && providerDialog.open && modelChoice.value === 'custom' &&
+          modelInput.value.trim() === model) $('#modelError').textContent = e.message;
+      return;
+    } finally {
+      if (modelCheck === check) submit.disabled = false;
+    }
+  }
+  connection = {model, key:$('#keyInput').value.trim()};
   setSession(routeKey(current().id), 'openrouter');
   syncRoute();
   renderMessages();
@@ -1456,14 +1480,14 @@ $('#deleteProject').onclick = async () => {
   render();
 };
 $('#sendButton').onclick=()=>generate('send');$('#instruction').oninput=()=>{if(state)setSession(draftKey(current().id),$('#instruction').value)};$('#instruction').onkeydown=e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();generate('send')}};
-function promptForDraft(structuredOutput = false) {
+function promptForDraft() {
   const direction = $('#instruction').value.trim();
   const project = current();
   const provider = $('#sceneProvider').value;
   const options = {
     maintainGraph: provider === 'mcp' && project.graphUpdates !== false,
     model: provider === 'openrouter' ? connection.model : '',
-    includeSensitive:provider === 'openrouter',classifySafety:provider === 'openrouter',structuredOutput
+    includeSensitive:provider === 'openrouter',classifySafety:provider === 'openrouter'
   };
   if (direction) return buildMessages(project, direction, 'send', options);
   // Without a new direction, show what a queued turn or a reply to the last
@@ -1472,15 +1496,10 @@ function promptForDraft(structuredOutput = false) {
   const input = replyInput(project, queued?.mode === 'alternate' ? 'alternate' : 'send', options);
   return buildMessages(input.project, input.direction, input.mode, options);
 }
-$('#promptPreview').onclick = async () => {
+$('#promptPreview').onclick = () => {
   if (!state) return;
-  const contents = $('#promptContents');
-  const model = $('#sceneProvider').value === 'openrouter' ? connection.model : '';
-  contents.textContent = model ? 'Checking the model’s response format…' : formatMessages(promptForDraft());
+  $('#promptContents').textContent = formatMessages(promptForDraft());
   $('#promptDialog').showModal();
-  if (!model) return;
-  const {structuredOutput} = await api('/api/openrouter/format?' + new URLSearchParams({model})).catch(() => ({}));
-  if ($('#promptDialog').open) contents.textContent = formatMessages(promptForDraft(structuredOutput));
 };
 $('#closePrompt').onclick = () => $('#promptDialog').close();
 function download(blob, filename) {

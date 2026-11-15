@@ -20,8 +20,7 @@ export const storyResponseFormat = {
 
 const capabilities = new Map();
 
-export async function supportsStorySchema(model) {
-  if (typeof model !== 'string' || !isModelId(model)) return false;
+async function supportsStorySchema(model) {
   const cached = capabilities.get(model);
   if (cached && cached.until > Date.now()) return cached.supported;
   try {
@@ -29,15 +28,28 @@ export async function supportsStorySchema(model) {
     const response = await fetch('https://openrouter.ai/api/v1/models/' + id + '/endpoints',{
       redirect:'error',signal:AbortSignal.timeout(2500)
     });
-    if (!response.ok) return false;
+    if (response.status === 404) return false;
+    if (!response.ok) throw Error('Endpoint lookup failed.');
     const {data} = await response.json();
-    if (!Array.isArray(data?.endpoints)) return false;
-    const supported = data.endpoints.some(endpoint => endpoint.supported_parameters?.includes('structured_outputs'));
+    if (!Array.isArray(data?.endpoints)) throw Error('Missing endpoint list.');
+    const supported = data.endpoints.some(endpoint => endpoint?.supported_parameters?.includes('structured_outputs'));
     if (capabilities.size >= 100) capabilities.delete(capabilities.keys().next().value);
     capabilities.set(model,{supported,until:Date.now()+300_000});
     return supported;
   } catch {
-    return false;
+    throw Object.assign(diagnosticError('OPENROUTER_MODEL_CHECK_FAILED',
+      'Could not check the model’s structured output support on OpenRouter. Try again.'),{status:503});
+  }
+}
+
+export async function requireStorySchema(model) {
+  if (!isModelId(model)) {
+    throw Object.assign(diagnosticError('OPENROUTER_MODEL_INVALID',
+      'Enter a specific OpenRouter model ID (author/model).'),{status:400});
+  }
+  if (!await supportsStorySchema(model)) {
+    throw Object.assign(diagnosticError('OPENROUTER_SCHEMA_UNSUPPORTED',
+      'OpenRouter lists no endpoint with JSON Schema support for this model. Choose a different model.'),{status:422});
   }
 }
 

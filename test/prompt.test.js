@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMessages, formatMessages, splitOpenRouterReply, splitAgentReply, migratePersona, isStoryTime, recordStoryTime } from '../public/prompt.js';
+import { buildMessages, formatMessages, splitAgentReply, migratePersona, isStoryTime, recordStoryTime } from '../public/prompt.js';
 
 const story = {
   characterName: 'Iona', personaName: 'Ren',
@@ -103,27 +103,6 @@ test('known small model gets a tighter budget without losing the latest directio
   assert.ok(small.reduce((n,m)=> n + Math.ceil(Buffer.byteLength(m.content)/3) + 8,0) <= 5600);
 });
 
-test('OpenRouter labels are stripped from prose and missing or invalid labels stay unverified', () => {
-  assert.deepEqual(splitOpenRouterReply('Scene text.\n\n```story-safety\n{"input":"safe","reply":"explicit"}\n```'),
-    {text:'Scene text.',input:'safe',reply:'explicit',storyTime:'',suggestions:[]});
-  assert.deepEqual(splitOpenRouterReply('Scene text.\n```story-safety\n{"input":"safe"'),
-    {text:'Scene text.',input:'unclassified',reply:'unclassified',storyTime:'',suggestions:[]});
-  assert.deepEqual(splitOpenRouterReply('Scene text without any label.'),
-    {text:'Scene text without any label.',input:'unclassified',reply:'unclassified',storyTime:'',suggestions:[]});
-});
-
-test('OpenRouter accepts a plain JSON fence only for a recognizable final classification block', () => {
-  const storyJson = 'The screen showed:\n```json\n{"input":"radio","reply":"tape"}\n```';
-  const update = {kind:'fact',note:'The ferry reached the pier.'};
-  const footer = JSON.stringify({input:'safe',reply:'explicit',storyTime:'1998-10-25T00:12',updates:[update]});
-  assert.deepEqual(splitOpenRouterReply(storyJson + '\n\n```json\n' + footer + '\n```\n'), {
-    text:storyJson,input:'safe',reply:'explicit',storyTime:'1998-10-25T00:12',suggestions:[update]
-  });
-  assert.equal(splitOpenRouterReply(storyJson).text,storyJson);
-  const nonterminal = '```json\n' + footer + '\n```\nHe closed the log.';
-  assert.equal(splitOpenRouterReply(nonterminal).text,nonterminal);
-});
-
 test('auto-flagged turns stop at the MCP boundary while OpenRouter keeps scene continuity', () => {
   const project = {...story,messages:[
     {role:'user',content:'PRIVATE_WRITER',contentSensitivity:'explicit'},
@@ -138,7 +117,7 @@ test('auto-flagged turns stop at the MCP boundary while OpenRouter keeps scene c
   assert.match(router,/PRIVATE_WRITER/);
   assert.match(router,/UNVERIFIED_REPLY/);
   assert.doesNotMatch(router,/HIDDEN_EVERYWHERE/);
-  assert.match(router,/fenced story-safety block/);
+  assert.match(router,/Return the schema object only/);
 });
 
 test('story time validates dates, shares the setup anchor, and rolls over at midnight', () => {
@@ -161,10 +140,6 @@ test('a saved persona becomes one cast member and remains the writer in prompts'
   assert.match(formatMessages(buildMessages(project)),/Writer character:\nRen\nRepairs radios\./);
 });
 
-test('provider footers keep dates and non-explicit updates separate from prose', () => {
-  const update = {kind:'relationship',from:'Iona',to:'Ren',label:'They agree to share the map.',storyTime:'1950-03-01T09:00'};
-  const footer = JSON.stringify({input:'safe',reply:'explicit',storyTime:'1950-03-01T09:15',updates:[update]});
-  assert.deepEqual(splitOpenRouterReply('Prose.\n```story-safety\n' + footer + '\n```'),
-    {text:'Prose.',input:'safe',reply:'explicit',storyTime:'1950-03-01T09:15',suggestions:[update]});
+test('MCP compatibility parser does not save an incomplete graph block as prose', () => {
   assert.deepEqual(splitAgentReply('Prose.\n```story-graph\n{"incomplete":'),{text:'Prose.',suggestions:[]});
 });
