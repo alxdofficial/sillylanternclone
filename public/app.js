@@ -1456,14 +1456,14 @@ $('#deleteProject').onclick = async () => {
   render();
 };
 $('#sendButton').onclick=()=>generate('send');$('#instruction').oninput=()=>{if(state)setSession(draftKey(current().id),$('#instruction').value)};$('#instruction').onkeydown=e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();generate('send')}};
-function promptForDraft() {
+function promptForDraft(structuredOutput = false) {
   const direction = $('#instruction').value.trim();
   const project = current();
   const provider = $('#sceneProvider').value;
   const options = {
     maintainGraph: provider === 'mcp' && project.graphUpdates !== false,
     model: provider === 'openrouter' ? connection.model : '',
-    includeSensitive:provider === 'openrouter',classifySafety:provider === 'openrouter'
+    includeSensitive:provider === 'openrouter',classifySafety:provider === 'openrouter',structuredOutput
   };
   if (direction) return buildMessages(project, direction, 'send', options);
   // Without a new direction, show what a queued turn or a reply to the last
@@ -1472,10 +1472,15 @@ function promptForDraft() {
   const input = replyInput(project, queued?.mode === 'alternate' ? 'alternate' : 'send', options);
   return buildMessages(input.project, input.direction, input.mode, options);
 }
-$('#promptPreview').onclick = () => {
+$('#promptPreview').onclick = async () => {
   if (!state) return;
-  $('#promptContents').textContent = formatMessages(promptForDraft());
+  const contents = $('#promptContents');
+  const model = $('#sceneProvider').value === 'openrouter' ? connection.model : '';
+  contents.textContent = model ? 'Checking the model’s response format…' : formatMessages(promptForDraft());
   $('#promptDialog').showModal();
+  if (!model) return;
+  const {structuredOutput} = await api('/api/openrouter/format?' + new URLSearchParams({model})).catch(() => ({}));
+  if ($('#promptDialog').open) contents.textContent = formatMessages(promptForDraft(structuredOutput));
 };
 $('#closePrompt').onclick = () => $('#promptDialog').close();
 function download(blob, filename) {

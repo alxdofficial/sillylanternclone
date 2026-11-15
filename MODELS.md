@@ -23,7 +23,13 @@ For local inference, a [quantized Cydonia GGUF](https://huggingface.co/bartowski
 
 The selected model receives the current direction, recent eligible turns, narrator instructions, cast, world lore, relationship events, and the in-story clock. It follows the writer's requested style, point of view and tense when provided. OpenRouter can receive earlier explicit or unverified turns. **Keep this turn out of AI context** also excludes that turn from OpenRouter.
 
-Story Studio asks OpenRouter for prose followed by one fenced `story-safety` JSON block. A final standard `json` block with recognizable safety fields is also accepted. The model labels the writer input and assistant reply separately and records the in-story time to the minute. A regular reply can suggest up to five non-explicit map updates in that same block if suggestions are enabled. The shapes match the [MCP updates array](MCP.md#tool-contract). An alternate keeps the original scene time and has no map updates.
+Story Studio checks the selected model's OpenRouter endpoint capabilities. When an endpoint advertises structured outputs, Story Studio requests a strict JSON Schema for `text`, `input`, `reply`, `storyTime`, and `updates`. Routing requires support for the requested parameters and retains the app's data-collection preference. The app validates the returned labels, time, and updates before saving. [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
+
+Among the six presets, Venice Dolphin 24B was the only model without an endpoint advertising JSON Schema support when checked on November 15, 2026. Check the current endpoint listings for changes. [OpenRouter model catalog](https://openrouter.ai/api/v1/models)
+
+If schema support is missing or cannot be confirmed, Story Studio requests the same information as prose followed by a fenced `story-safety` block. A final standard `json` block with recognizable safety fields is also accepted. One writing request uses the selected format and model. The app keeps prose from the `text` field or the reply body and stores the metadata separately.
+
+The model labels the writer input and assistant reply separately and records the in-story time to the minute. A regular reply can suggest up to five non-explicit map updates if suggestions are enabled. The shapes match the [MCP updates array](MCP.md#tool-contract). An alternate keeps the original scene time and has no map updates. This is an example of the footer format:
 
 ````text
 Story prose appears here.

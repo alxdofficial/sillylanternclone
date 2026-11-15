@@ -9,6 +9,7 @@ import { buildMessages, extraFields, getCast, getWriter, validCast, validRelatio
 import { maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory } from './examples/the-late-ferry.mjs';
 import { checkMapUpdates } from './map-updates.mjs';
+import { readStructuredStory, storyResponseFormat, supportsStorySchema } from './openrouter-format.mjs';
 import { createLogger, diagnosticError, errorCode } from './diagnostics.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -22,7 +23,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   console.error('Story Studio: PORT must be a number from 1 to 65535.');
   process.exit(1);
 }
-const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/agent','/api/generate','/api/export']);
+const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/agent','/api/openrouter/format','/api/generate','/api/export']);
 const methodNames = new Set(['GET','POST','PUT']);
 const modelIds = new Set(models.map(model => model.id));
 let starter = createStarterStory();
@@ -143,13 +144,16 @@ function reportAgent(report) {
 
 const libraryLimit = 16_000_000;
 function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
-async function generateOpenRouter(messages, model, key, diagnostics) {
+function checkOpenRouterConnection(model,key) {
   if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
     throw diagnosticError('OPENROUTER_KEY_REQUIRED','Enter an OpenRouter API key in Connection.');
   }
   if (typeof model !== 'string' || !isModelId(model)) {
     throw diagnosticError('OPENROUTER_MODEL_INVALID','Enter a specific OpenRouter model ID (author/model).');
   }
+}
+
+async function generateOpenRouter(messages, model, key, diagnostics, structuredOutput) {
   diagnostics.model = modelIds.has(model) ? model : 'custom';
   log('info','generation_started',{requestId:diagnostics.requestId,provider:'openrouter',model:diagnostics.model});
   let response;
@@ -163,7 +167,8 @@ async function generateOpenRouter(messages, model, key, diagnostics) {
         model,
         messages,
         max_tokens: 2048,
-        provider: {data_collection: 'deny'}
+        provider: {data_collection:'deny', ...(structuredOutput ? {require_parameters:true} : {})},
+        ...(structuredOutput ? {response_format:storyResponseFormat} : {})
       })
     });
   } catch (error) {
@@ -261,6 +266,9 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
   res.writeHead(200, {'content-type': 'application/zip', 'content-disposition': 'attachment; filename="story-studio-history.zip"', 'cache-control': 'no-store'});
   return res.end(Buffer.from(archive));
 }
+if (url.pathname === '/api/openrouter/format' && req.method === 'GET') {
+  return json(res,200,{structuredOutput:await supportsStorySchema(url.searchParams.get('model'))});
+}
 if (url.pathname === '/api/generate' && req.method === 'POST') {
   const {project,instruction,provider,model,key,mode='send'} = await body(req);
   if (!validateState({activeId:project?.id,projects:[project]}) || typeof instruction !== 'string') {
@@ -274,10 +282,13 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
   diagnostics.provider = 'openrouter';
   diagnostics.mode = mode;
   try {
-    const messages = buildMessages(project,instruction,mode,{model,includeSensitive:true,classifySafety:true});
-    const output = await generateOpenRouter(messages,model,key,diagnostics);
-    const draft = splitOpenRouterReply(output.text, value =>
-      checkMapUpdates(project,project.graphUpdates === false || mode === 'alternate' ? undefined : value));
+    checkOpenRouterConnection(model,key);
+    const structuredOutput = await supportsStorySchema(model);
+    diagnostics.outputFormat = structuredOutput ? 'json_schema' : 'footer';
+    const messages = buildMessages(project,instruction,mode,{model,includeSensitive:true,classifySafety:true,structuredOutput});
+    const output = await generateOpenRouter(messages,model,key,diagnostics,structuredOutput);
+    const validateUpdates = value => checkMapUpdates(project,project.graphUpdates === false || mode === 'alternate' ? undefined : value);
+    const draft = structuredOutput ? readStructuredStory(output,validateUpdates) : splitOpenRouterReply(output.text,validateUpdates);
     if (output.truncated) {
       draft.truncated = true;
       diagnostics.truncated = true;

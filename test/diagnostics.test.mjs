@@ -12,7 +12,7 @@ import test from 'node:test';
 const fixture = 'PRIVATE_TEST_VALUE';
 const app = fileURLToPath(new URL('../server.mjs',import.meta.url));
 
-test('server diagnostics identify upstream errors without recording request or provider text', async () => {
+test('OpenRouter selects the advertised format and logs errors without recording story text', async () => {
   const directory = await mkdtemp(join(tmpdir(),'story-studio-diagnostics-'));
   const listener = createServer();
   listener.listen(0,'127.0.0.1');
@@ -21,8 +21,41 @@ test('server diagnostics identify upstream errors without recording request or p
   await new Promise(resolve => listener.close(resolve));
 
   const mock = join(directory,'openrouter.mjs');
+  const scene = {
+    text:'The ferry bell rang.',input:'safe',reply:'explicit',storyTime:'1998-10-25T00:13',
+    updates:[{kind:'world',note:'The ferry has a bell.'}]
+  };
   await writeFile(mock,`
-    globalThis.fetch = async () => new Response(${JSON.stringify(fixture)}, {status:401});
+    import assert from 'node:assert/strict';
+    const scene = ${JSON.stringify(scene)};
+    globalThis.fetch = async (url, options) => {
+      if (url.endsWith('/endpoints')) {
+        const parameters = url.includes('/fixture/schema/') ? ['structured_outputs'] : ['response_format'];
+        return Response.json({data:{endpoints:[{supported_parameters:parameters}]}});
+      }
+      const request = JSON.parse(options.body);
+      if (!['fixture/schema','fixture/footer'].includes(request.model)) {
+        return new Response(${JSON.stringify(fixture)}, {status:401});
+      }
+      assert.equal(request.provider.data_collection,'deny');
+      const {text, ...metadata} = scene;
+      let content;
+      if (request.model === 'fixture/schema') {
+        assert.equal(request.provider.require_parameters,true);
+        assert.equal(request.response_format.type,'json_schema');
+        assert.equal(request.response_format.json_schema.strict,true);
+        assert.deepEqual(request.response_format.json_schema.schema.required,Object.keys(scene));
+        assert.equal(request.response_format.json_schema.schema.additionalProperties,false);
+        assert.ok(request.messages.some(message => message.content.includes('Return the schema object only')));
+        content = JSON.stringify(scene);
+      } else {
+        assert.equal(request.provider.require_parameters,undefined);
+        assert.equal(request.response_format,undefined);
+        assert.ok(request.messages.some(message => message.content.includes('fenced story-safety block')));
+        content = [text, ${JSON.stringify('```story-safety')}, JSON.stringify(metadata), ${JSON.stringify('```')}].join('\\n');
+      }
+      return Response.json({choices:[{message:{content}}]});
+    };
   `);
   const child = spawn(process.execPath,['--import',mock,app],{
     env:{...process.env, PORT:String(port), STORY_STUDIO_DATA:directory, STORY_STUDIO_LOG_DIR:join(directory,'logs')},
@@ -38,12 +71,23 @@ test('server diagnostics identify upstream errors without recording request or p
     const headers = {origin,'content-type':'application/json'};
     const invalid = await fetch(origin+'/api/state',{method:'PUT',headers,body:fixture});
     assert.equal(invalid.status,400);
-    const response = await fetch(origin+'/api/generate',{
+    const generate = model => fetch(origin+'/api/generate',{
       method:'POST',headers,body:JSON.stringify({
         project:{id:fixture,title:fixture,character:'',persona:'',lore:'',notes:'',messages:[]},
-        instruction:fixture, key:fixture, provider:'openrouter',model:'custom/'+fixture
+        instruction:fixture, key:fixture, provider:'openrouter',model
       })
     });
+    for (const format of ['schema','footer']) {
+      const model = 'fixture/'+format;
+      const capability = await fetch(`${origin}/api/openrouter/format?model=${encodeURIComponent(model)}`);
+      assert.deepEqual(await capability.json(),{structuredOutput:format === 'schema'});
+      const success = await generate(model);
+      const draft = await success.json();
+      const {updates, ...expected} = scene;
+      assert.equal(success.status,200,JSON.stringify(draft));
+      assert.deepEqual(draft,{...expected,suggestions:updates});
+    }
+    const response = await generate('custom/'+fixture);
     assert.equal(response.status,500);
     assert.match((await response.json()).error,/OpenRouter returned 401/);
 
