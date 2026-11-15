@@ -5,6 +5,44 @@ const status = message => { get('status').textContent = message; };
 const nameKey = name => name.toLowerCase();
 const randomChoice = choices => choices[crypto.getRandomValues(new Uint32Array(1))[0] % choices.length];
 const mapping = new Map();
+const storageKey = 'fictional-cast-workspace';
+let generatedFor = '';
+function saveWorkspace() {
+  try {
+    sessionStorage.setItem(storageKey, JSON.stringify({
+      names:get('names').value, source:get('source').value, generatedFor,
+      aliases:[...mapping].map(([key, input]) => [key, input.value]),
+      applied:Boolean(get('output').value)
+    }));
+  } catch {
+    status('This draft is too large to keep when leaving the page. Copy your work before navigating.');
+  }
+}
+
+function addAlias(key, name, alias) {
+  const row = document.createElement('div');
+  row.className = 'name-row';
+  const label = document.createElement('label');
+  label.textContent = name;
+  label.htmlFor = 'alias-' + mapping.size;
+  const input = document.createElement('input');
+  input.id = label.htmlFor;
+  input.maxLength = 120;
+  input.value = alias;
+  input.addEventListener('input', () => {
+    get('output').value = '';
+    saveWorkspace();
+  });
+  mapping.set(key, input);
+  row.append(label, input);
+  get('mapping').append(row);
+}
+
+function updateNameStatus() {
+  get('mapping').hidden = get('names').value !== generatedFor;
+  if (mapping.size && get('mapping').hidden) status('The name list changed. Generate aliases again before replacing names.');
+}
+
 
 get('make').onclick = () => {
   const unique = new Map();
@@ -19,31 +57,27 @@ get('make').onclick = () => {
   get('output').value = '';
   const used = new Set([...unique.keys(), ...[...previous.values()].map(input => nameKey(input.value.trim()))]);
   for (const [key, name] of unique) {
-    const row = document.createElement('div');
-    row.className = 'name-row';
-    const label = document.createElement('label');
-    label.textContent = name;
-    label.htmlFor = 'alias-' + mapping.size;
-    const input = document.createElement('input');
-    input.id = label.htmlFor;
-    input.maxLength = 120;
     let alias = previous.get(key)?.value;
     if (!alias) {
       do { alias = randomChoice(firstNames) + ' ' + randomChoice(lastNames); }
       while (used.has(nameKey(alias)));
     }
     used.add(nameKey(alias));
-    input.value = alias;
-    input.addEventListener('input', () => { get('output').value = ''; });
-    mapping.set(key, input);
-    row.append(label, input);
-    get('mapping').append(row);
+    addAlias(key, name, alias);
   }
+  generatedFor = get('names').value;
+  updateNameStatus();
   status('Review or edit the aliases, then replace names in the draft.');
+  saveWorkspace();
 };
-get('source').oninput = () => { get('output').value = ''; };
+get('names').oninput = () => {
+  get('output').value = '';
+  updateNameStatus();
+  saveWorkspace();
+};
+get('source').oninput = () => { get('output').value = ''; saveWorkspace(); };
 get('apply').onclick = () => {
-  if (!mapping.size) return status('Generate a name table first.');
+  if (!mapping.size || get('names').value !== generatedFor) return status('Generate a name table for the current names first.');
   const aliases = new Map([...mapping].map(([name, input]) => [name, input.value.trim()]));
   const values = [...aliases.values()].map(nameKey);
   if (values.some(name => !name || mapping.has(name)) || new Set(values).size !== values.length) {
@@ -59,9 +93,36 @@ get('apply').onclick = () => {
     return alias;
   });
   status(count + (count === 1 ? ' name replaced.' : ' names replaced.'));
+  saveWorkspace();
 };
 get('copy').onclick = async () => {
   if (!get('output').value) return status('Replace names in a draft first.');
   try { await navigator.clipboard.writeText(get('output').value); status('Draft copied.'); }
   catch { get('output').select(); status('Select and copy the output manually.'); }
 };
+
+get('clear').onclick = () => {
+  if (!confirm('Clear the name table and both drafts in this tab?')) return;
+  for (const key of ['names','source','output']) get(key).value = '';
+  mapping.clear();
+  get('mapping').replaceChildren();
+  generatedFor = '';
+  updateNameStatus();
+  saveWorkspace();
+  status('Alias workspace cleared.');
+};
+
+try {
+  const saved = JSON.parse(sessionStorage.getItem(storageKey));
+  if (saved) {
+    get('names').value = saved.names;
+    get('source').value = saved.source;
+    generatedFor = saved.generatedFor;
+    const originalNames = new Map(generatedFor.split('\n').map(name => [nameKey(name.trim()), name.trim()]));
+    for (const [key, alias] of saved.aliases) addAlias(key, originalNames.get(key), alias);
+    updateNameStatus();
+    if (saved.applied) get('apply').click();
+  }
+} catch {
+  status('The previous alias workspace could not be restored.');
+}

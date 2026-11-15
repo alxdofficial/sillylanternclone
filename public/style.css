@@ -35,3 +35,14 @@
   max-height: 60dvh;
   overflow: auto;
 }
+
+.validation-message { color: #ffbec9; }
+.validation-message:empty { display: none; }
+@media (max-width: 640px) {
+  .topbar { height: auto; min-height: 56px; flex-wrap: wrap; overflow: visible; padding: 4px 8px; gap: 1px 3px; }
+  .tool { padding: 6px 5px; }
+  .tool span { font-size: 11px; }
+  .save-status { margin: 0 4px; }
+  .route-bar { flex-wrap: wrap; }
+  #routeSummary { white-space: normal; overflow-wrap: anywhere; }
+}

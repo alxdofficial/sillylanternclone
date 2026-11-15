@@ -1,15 +1,20 @@
-# Models to try for fictional adult writing
+# OpenRouter models for fictional adult writing
 
-OpenRouter catalog checked 15 November 2026. The table reflects model descriptions and listed prices, not an independent writing or refusal benchmark. Prices are USD per million input / output tokens. The estimate assumes about 13,333 output tokens per 10,000 generated English words. Input context and retries are billed separately. The Connection dropdown also shows the catalog's per-token rates.
+These are candidates for stories about fictional adults. OpenRouter's catalog and [roleplay guide](https://openrouter.ai/blog/tutorials/sillytavern-openrouter/) describe the models and their providers. Whether a particular scene is accepted depends on the chosen model and host. Cydonia passed a live non-explicit writing test in Story Studio. Explicit content behavior was not tested.
 
-| Model | First job I'd try | Context listed | Input / output per million | 10,000 words, output only |
+Prices checked on 15 November 2026. One estimated chapter uses 2,000 billed input tokens and 5,000 billed output tokens total. Extra context, retries, or splitting a chapter into multiple turns can add input tokens.
+
+| Model | What to try it for | Context | USD per million input / output tokens | Estimated USD per chapter |
 | --- | --- | ---: | ---: | ---: |
-| [Cydonia 24B v4.1](https://openrouter.ai/thedrummer/cydonia-24b-v4.1) | First pick for dialogue and prose. The model is tuned for creative writing and described as less restrictive. | 131K | $0.30 / $0.50 | ~$0.0067 |
-| [Venice Dolphin Mistral 24B](https://openrouter.ai/cognitivecomputations/dolphin-mistral-24b-venice-edition) | Compare if steerability and fewer refusals are the priority. Its description emphasizes those goals. | 128K | $0.20 / $0.90 | ~$0.0120 |
-| [Euryale 70B v2.2](https://openrouter.ai/sao10k/l3.1-euryale-70b) | Compare if distinct voices and sustained roleplay matter more than cost. It is a roleplay-focused fine-tune. | 131K | $0.85 / $0.85 | ~$0.0113 |
+| [Cydonia 24B v4.1](https://openrouter.ai/thedrummer/cydonia-24b-v4.1) | First choice for creative prose | 131K | $0.30 / $0.50 | $0.00310 |
+| [Venice Dolphin 24B](https://openrouter.ai/cognitivecomputations/dolphin-mistral-24b-venice-edition) | Steerable alternative | 128K | $0.20 / $0.90 | $0.00490 |
+| [Euryale 70B v2.2](https://openrouter.ai/sao10k/l3.1-euryale-70b) | Character voice and dialogue | 131K | $0.85 / $0.85 | $0.00595 |
+| [Magnum v4 72B](https://openrouter.ai/anthracite-org/magnum-v4-72b) | More expensive prose comparison | 32K | $2.50 / $5.00 | $0.03000 |
+| [UnslopNemo 12B](https://openrouter.ai/thedrummer/unslopnemo-12b) | Lightweight adventure writing and roleplay | 1,024K | $0.40 / $0.40 | $0.00280 |
+| [MythoMax 13B](https://openrouter.ai/gryphe/mythomax-l2-13b) | Cheap short scenes with compact context | 8K | $0.08 / $0.11 | $0.00071 |
 
-These are candidates for stories about fictional adults. Model tuning and the serving provider both affect behavior. OpenRouter's [SillyTavern guide](https://openrouter.ai/blog/tutorials/sillytavern-openrouter/) discusses provider filtering. Listing a model does not guarantee availability with Story Studio's data-collection restriction. The three options above are in the Connection dialog, or enter any supported model ID yourself.
+[Grok 4.7](https://openrouter.ai/x-ai/grok-4.7) is a general writing and planning comparison. The listed $2.00 input and $6.00 output per million tokens would be about $0.034 per chapter at this usage. Its availability and moderation can differ from the consumer Grok app. For Jess's main workflow, start with Cydonia.
 
-To compare them, start with the same small story bible and scene direction. Check whether each keeps the characters' voices distinct, follows the requested POV, remembers a continuity detail, leaves room for the writer's next move, and honors the requested tone. Pick on that evidence before buying more credits.
+To compare, use the same short scene with consenting fictional adults and the same direction. Check whether each model follows the point of view, keeps the voices distinct, and maintains the desired level of detail. Review the [provider routing guidance](https://openrouter.ai/blog/tutorials/sillytavern-openrouter/) if a request is unavailable or rejected. Story Studio requests providers that deny data collection, which can narrow availability.
 
-For local inference, a [quantized Cydonia GGUF](https://huggingface.co/bartowski/TheDrummer_Cydonia-24B-v4.1-GGUF) can run with llama.cpp on a machine with enough memory for the weights and context. This avoids hosted inference charges and sends no draft to a hosted model. Story Studio currently has no local-model adapter. [SillyTavern already supports both llama.cpp and OpenRouter](https://docs.sillytavern.app/usage/api-connections/).
+For local inference, a [quantized Cydonia GGUF](https://huggingface.co/bartowski/TheDrummer_Cydonia-24B-v4.1-GGUF) can run with llama.cpp on a machine with enough memory for the weights and context. Story Studio currently has no local-model adapter. [SillyTavern supports both llama.cpp and OpenRouter](https://docs.sillytavern.app/usage/api-connections/).
