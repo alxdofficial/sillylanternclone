@@ -90,8 +90,9 @@ test('map updates follow the first take and are set aside for other takes', () =
 test('the MCP map-update instruction names the updates array and event-style relationships', () => {
   const prompt = formatMessages(buildMessages(story([{role:'user', content:'Go.', turnNumber:1}]), '', 'continue', {maintainGraph:true}));
   assert.match(prompt, /submit_reply’s updates array/);
-  assert.match(prompt, /One sentence: what happened between them/);
-  assert.match(prompt, /Exact cast names: Mara, Iona/);
+  assert.match(prompt, /what happened between them in one sentence/);
+  assert.match(prompt, /Use exact cast names/);
+  assert.doesNotMatch(prompt, /Shapes:/);
   const [analysis,source] = buildMetadataMessages(story([]),'Go.','Mara handed her the log.','send');
   assert.match(analysis.content,/what happened between them/);
   assert.match(analysis.content,/Never continue, rewrite, or quote the draft/);

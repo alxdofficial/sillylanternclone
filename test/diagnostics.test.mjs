@@ -43,7 +43,7 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
         assert.doesNotMatch(request.messages[0].content,/JSON Schema|Classify authorDirection/);
         assert.doesNotMatch(JSON.stringify(request.messages),/PRIVATE_DIRECTION_SUFFIX/);
         if (request.messages.at(-1).content.endsWith('replacement direction')) {
-          assert.match(request.messages[0].content,/Original take time:\\n1998-10-25T00:10/);
+          assert.match(request.messages[0].content,/Original reply time:\\n1998-10-25T00:10/);
         }
         if (request.messages.at(-1).content.endsWith('late upstream error')) {
           return Response.json({error:{code:429,message:'PRIVATE_UPSTREAM_ERROR'}});
@@ -84,9 +84,9 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       const graphSchema = request.response_format.json_schema.schema.properties.updates;
       assert.match(graphSchema.description,/Omit NSFW, explicit, and graphic details from every field/);
       if (source.authorDirection !== 'replacement direction' && source.authorDirection !== 'cutoff fixture') {
-        assert.match(request.messages[0].content,/Every field in every proposed graph update must be safe for work/);
+        assert.match(request.messages[0].content,/Every field must stay safe for work regardless of the labels/);
         assert.match(request.messages[0].content,/Never include NSFW, sexually explicit, or graphic details/);
-        assert.match(request.messages[0].content,/If a fact has no safe-for-work consequence or you are unsure, omit it/);
+        assert.match(request.messages[0].content,/When unsure, omit the fact/);
       }
       if (source.authorDirection === 'replacement direction') {
         assert.match(request.messages[0].content,/empty updates array/);

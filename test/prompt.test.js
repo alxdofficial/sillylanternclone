@@ -19,8 +19,8 @@ const story = {
 test('prompt orders context around role-preserved history and the current direction', () => {
   const messages = buildMessages(story, 'Ren checks the BRASS COMPASS by the monkey statue. a+b');
   const text = formatMessages(messages);
-  const order = ['World Info · before character', 'Character description', 'Character personality',
-    'Scenario', 'Other cast', 'World Info · activated entries', 'Example dialogue', 'Turn 1', 'Author’s note', 'Turn 2',
+  const order = ['World setting', 'Character description', 'Character personality',
+    'Scenario', 'Other cast', 'Relevant lore', 'Example dialogue', 'Turn 1', 'Author’s note', 'Turn 2',
     'Turn 5', 'Post-history instructions', 'Ren checks'];
   for (let i = 1; i < order.length; i++) {
     assert.ok(text.indexOf(order[i-1]) >= 0 && text.indexOf(order[i]) > text.indexOf(order[i-1]), order[i]);
@@ -65,7 +65,8 @@ test('narration uses the cast and retains legacy attribution without a character
   };
   const prompt = formatMessages(buildMessages(project, 'Use first-person present and a dry tone.'));
   assert.match(prompt, /You are the narrator/);
-  assert.match(prompt, /Follow the writer’s requested style, point of view and tense/);
+  assert.match(prompt, /Follow the latest author direction and its requested style, point of view and tense/);
+  assert.match(prompt, /Earlier directions belong to earlier turns/);
   assert.match(prompt, /third-person past-tense prose/);
   assert.match(prompt, /Use first-person present and a dry tone\./);
   assert.doesNotMatch(prompt, /Current speaker:/);

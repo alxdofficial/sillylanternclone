@@ -114,7 +114,7 @@ With each reply, the agent may send up to five non-explicit updates: a new chara
 | `open_studio` | Get the local browser URL. Starts the local server if the writer wants the app started. |
 | `list_stories` | Story IDs and titles, the active story, and any queued request. |
 | `wait_for_queued_turn` | Wait for a request, starting with the active story. The default is 50 seconds, or 300 for Claude Code. A queued result includes the writing context and revision. An idle result can list invalid requests under `skipped`. |
-| `get_story_context` | The assembled narrator prompt, queued request and library revision. Omit the story ID to use the active story. Pass a fresh `direction` for a chat draft. |
+| `get_story_context` | The assembled narrator prompt, queued request and library revision. Omit the story ID to use the active story. Pass a fresh `direction` for a chat draft. A queued Studio turn takes precedence in the returned context. |
 | `submit_reply` | Save narrated prose for a queued turn or a chat draft the writer asked to save. Pass the story ID and revision from the context, `storyTime` as `YYYY-MM-DDTHH:mm`, and optional `updates`. Omit `storyTime` and `updates` for an alternate or replacement. Supply `writerTurn` only for a chat direction that has not been saved. An alternate adds a take. A replacement rewrites the selected take. |
 | `decline_turn` | Hand a queued turn back with a short reason. `writerTurn: "explicit"` labels the queued writer turn explicit. |
 
