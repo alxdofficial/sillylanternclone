@@ -262,7 +262,7 @@ export function queuedTurn(project) {
   if (!isAvailableToMcp(last,precedingDirection(project.messages))) {
     return {request:null, problem:request.mode === 'alternate'
       ? 'That reply is outside MCP context. Queue a new non-explicit continuation instead.'
-      : 'The queued writer turn is outside MCP context. Write this scene with OpenRouter, or change its label with Edit.'};
+      : 'The queued writer turn is outside MCP context. Write this scene with OpenRouter, or change its label in ⋯ → Time and context.'};
   }
   return {request:{mode:request.mode, speakerId:narrator.id, turnNumber}, problem:''};
 }

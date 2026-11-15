@@ -38,7 +38,12 @@ function setSession(key, value) {
   }
 }
 const routeKey = id => 'story-route:' + id;
+function writingRoute(project) {
+  const route = getSession(routeKey(project.id));
+  return ['mcp','openrouter','manual'].includes(route) ? route : 'mcp';
+}
 const draftKey = id => 'story-draft:' + id;
+let composerEdit;
 const id = () => globalThis.crypto?.randomUUID?.() || `story-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const current = () => state.projects.find(p => p.id === state.activeId);
 function status(text) {
@@ -153,7 +158,8 @@ function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className
 function render() {
   const project = current();
   if (!project) return;
-  $('#instruction').value = getSession(draftKey(project.id)) || '';
+  if (composerEdit?.storyId !== project.id) composerEdit = undefined;
+  $('#instruction').value = composerEdit?.draft ?? (getSession(draftKey(project.id)) || '');
   syncRoute();
   $('#storyTitle').textContent = project.title;
   $('#deleteProject').hidden = project.id === starterStoryId;
@@ -213,8 +219,14 @@ function openTurnMenu(trigger, index) {
   $('#rewindTurn').disabled = index === current().messages.length - 1;
   turnMenu.hidden = false;
   positionTurnMenu();
-  $('#branchTurn').focus({preventScroll:true});
+  $('#turnDetails').focus({preventScroll:true});
 }
+
+$('#turnDetails').onclick = () => {
+  const index = turnMenuIndex;
+  closeTurnMenu();
+  if (Number.isInteger(index)) openTurnDetails(index);
+};
 
 function positionTurnMenu() {
   if (!turnMenuTrigger) return;
@@ -260,7 +272,7 @@ $('#branchTurn').onclick = () => {
   for (let n = 2; names.has(label); n++) label = title + ' (' + n + ')';
   branch.id = id();
   branch.title = label;
-  setSession(routeKey(branch.id),$('#sceneProvider').value);
+  setSession(routeKey(branch.id),writingRoute(project));
   state.projects.unshift(branch);
   state.activeId = branch.id;
   markDirty(branch);
@@ -341,22 +353,26 @@ function renderMessages() {
 
     const actions = el('div','message-actions');
     const edit = el('button','','Edit');
-    edit.onclick = () => openEdit(index);
+    edit.disabled = busy || Boolean(composerEdit);
+    edit.onclick = () => editInComposer(index);
     const remove = el('button','danger','Delete');
+    remove.disabled = busy || Boolean(composerEdit);
     remove.setAttribute('aria-label',`Delete turn ${turn}`);
     remove.onclick = async () => {
       if (!await confirmDanger(`Delete turn ${turn}?`,
         'This permanently removes the text and its alternate takes from the story.', 'Delete turn')) return;
+      if (project.agentRequest?.turnNumber === turn) delete project.agentRequest;
+      if (project.agentNotice?.turnNumber === turn) delete project.agentNotice;
       project.messages.splice(index,1);
       markDirty(project);
-      renderMessages();
+      render();
     };
     const more = el('button','turn-more','…');
     more.type = 'button';
     more.setAttribute('aria-label',`More actions for turn ${turn}`);
     more.setAttribute('aria-controls','turnMenu');
     more.setAttribute('aria-expanded','false');
-    more.disabled = busy;
+    more.disabled = busy || Boolean(composerEdit);
     more.onclick = () => openTurnMenu(more,index);
     actions.append(edit,remove,more);
     head.append(actions);
@@ -365,8 +381,8 @@ function renderMessages() {
     if (message.role === 'assistant' && message.alternatives?.length > 1) {
       const nav = el('div','alternatives');
       const prev = el('button','','← Previous'), next = el('button','','Next →');
-      prev.disabled = busy || message.selectedAlternative === 0;
-      next.disabled = busy || message.selectedAlternative === message.alternatives.length - 1;
+      prev.disabled = busy || Boolean(composerEdit) || message.selectedAlternative === 0;
+      next.disabled = busy || Boolean(composerEdit) || message.selectedAlternative === message.alternatives.length - 1;
       prev.onclick = () => selectAlternative(message,message.selectedAlternative - 1);
       next.onclick = () => selectAlternative(message,message.selectedAlternative + 1);
       nav.append(prev,el('span','',`${message.selectedAlternative + 1} of ${message.alternatives.length} takes`),next);
@@ -382,6 +398,59 @@ function setSensitivity(message, value) {
   if (validSensitivity(value)) message.contentSensitivity = value;
   else delete message.contentSensitivity;
 }
+function syncEditedTake(message) {
+  if (!message.alternatives) return;
+  const selected = message.selectedAlternative;
+  message.alternatives[selected] = message.content;
+  if (message.alternativeSensitivities) message.alternativeSensitivities[selected] = message.contentSensitivity || null;
+  else if (message.contentSensitivity) message.alternativeSensitivities = message.alternatives.map((_,index)=>
+    index === selected ? message.contentSensitivity : 'unclassified');
+}
+
+function editInComposer(index) {
+  const project = current();
+  const message = project.messages[index];
+  const draft = message.content;
+  composerEdit = {storyId:project.id, turnNumber:message.turnNumber || index + 1, original:draft, draft};
+  render();
+  const input = $('#instruction');
+  input.focus();
+  input.setSelectionRange(draft.length,draft.length);
+}
+
+function closeComposerEdit() {
+  composerEdit = undefined;
+  $('#instruction').setCustomValidity('');
+  render();
+  $('#instruction').focus();
+}
+
+function saveComposerEdit() {
+  const project = current();
+  const {turnNumber, original, storyId} = composerEdit;
+  const message = project.messages.find(turn => turn.turnNumber === turnNumber);
+  if (project.id !== storyId || message?.content !== original) {
+    error('This turn changed while you were editing it. Copy your edit before closing it, then reopen the updated turn.');
+    return;
+  }
+  const input = $('#instruction');
+  if (!input.value.trim()) {
+    input.setCustomValidity('Enter the revised turn text.');
+    input.reportValidity();
+    return;
+  }
+  if (input.value !== original) {
+    message.content = input.value;
+    if (['safe','reviewed-safe'].includes(message.contentSensitivity)) setSensitivity(message,'unclassified');
+    syncEditedTake(message);
+    if (project.agentRequest?.turnNumber === turnNumber) delete project.agentRequest;
+    if (project.agentNotice?.turnNumber === turnNumber) delete project.agentNotice;
+    markDirty(project);
+  }
+  error();
+  closeComposerEdit();
+}
+
 function selectAlternative(message, index) {
   if (!message.alternatives || index < 0 || index >= message.alternatives.length) return;
   message.selectedAlternative = index;
@@ -442,19 +511,25 @@ function renderPending() {
 }
 function syncRoute() {
   const project = current();
-  const savedRoute = getSession(routeKey(project.id));
-  const route = ['mcp','openrouter','manual'].includes(savedRoute) ? savedRoute : 'mcp';
+  const route = writingRoute(project);
   $('#sceneProvider').value = route;
   const usesOpenRouter = route === 'openrouter';
   $('#sceneModelControl').hidden = !usesOpenRouter;
-  sceneModelChoice.disabled = busy;
+  sceneModelChoice.disabled = busy || Boolean(composerEdit);
   syncSceneModel();
-  $('#routeSummary').textContent = usesOpenRouter
+  $('#routeSummary').textContent = composerEdit ? '' : usesOpenRouter
     ? connection.key ? '' : 'Add an API key in Connection'
     : route === 'manual' ? 'No model calls' : mcpStatus(project).line;
-  $('#sceneProvider').disabled = busy;
+  $('#sceneProvider').disabled = busy || Boolean(composerEdit);
+  $('#promptPreview').disabled = Boolean(composerEdit);
+  $('#composerEditStatus').hidden = !composerEdit;
+  $('#composerEditStatus').textContent = composerEdit ? `Editing turn ${composerEdit.turnNumber}` : '';
+  $('#instructionLabel').textContent = composerEdit ? 'Edit turn text' : 'What happens next?';
+  $('#pasteReply').hidden = Boolean(composerEdit);
+  $('#cancelComposerEdit').hidden = !composerEdit;
+  $('#composeShortcut').textContent = composerEdit ? '⌘/Ctrl + Enter to save' : '⌘/Ctrl + Enter to send';
   $('#sendButton').disabled = busy;
-  $('#sendButton').textContent = busy ? 'Writing…' : route === 'manual' ? 'Save turn' : route === 'mcp' ? 'Queue turn' : 'Send & write ↗';
+  $('#sendButton').textContent = composerEdit ? 'Save edit' : busy ? 'Writing…' : route === 'manual' ? 'Save turn' : route === 'mcp' ? 'Queue turn' : 'Send & write ↗';
 }
 function speakerMetadata(speaker) {
   return {speakerId:speaker.id, speakerName:speaker.name};
@@ -468,8 +543,9 @@ function setBusy(value) {
 
 async function generate() {
   if (busy || !state) return;
+  if (composerEdit) return saveComposerEdit();
   const project = current();
-  const provider = $('#sceneProvider').value;
+  const provider = writingRoute(project);
   const input = $('#instruction');
   const direction = input.value.trim();
   // An empty composer answers a writer turn that has no reply yet, such as
@@ -479,11 +555,11 @@ async function generate() {
   if (!direction && !answering) return input.focus();
   error();
   if (answering && provider === 'mcp' && !isAvailableToMcp(lastTurn)) {
-    error('Your last turn is outside MCP context. Write this scene with OpenRouter, or change its label with Edit.');
+    error('Your last turn is outside MCP context. Write this scene with OpenRouter, or change its label in ⋯ → Time and context.');
     return;
   }
   if (provider === 'openrouter' && (!connection.model || !connection.key)) {
-    openConnection('openrouter');
+    openConnection();
     error('Enter your OpenRouter key and choose a model, then send again.');
     return;
   }
@@ -556,9 +632,9 @@ async function generate() {
     if (response.truncated) {
       const unverified = response.input === 'unclassified' || response.reply === 'unclassified';
       error('This reply reached Story Studio’s output limit and may end mid-scene.' +
-        (unverified ? ' Any unverified text stays outside MCP until you check its label with Edit.' : ''));
+        (unverified ? ' Any unverified text stays outside MCP until you check its label in ⋯ → Time and context.' : ''));
     } else if (response.metadataFailed) {
-      error('Your draft is in the story. DeepSeek could not verify its labels or suggest map updates. Check the labels with Edit before using this turn in MCP.');
+      error('Your draft is in the story. DeepSeek could not verify its labels or suggest map updates. Check the labels in ⋯ → Time and context before using this turn in MCP.');
     } else if (response.updateProblems) {
       const reasons = [...new Set(response.updateRejections?.map(({code}) => graphRejectionLabels[code]).filter(Boolean))];
       const reason = reasons.length ? ` (${reasons.join(', ')})` : '';
@@ -1268,11 +1344,10 @@ function showEditSensitivity(value, heldForReview = false) {
     : value === 'unclassified' ? 'This text has not been verified.' : '';
 }
 
-function openEdit(index) {
+function openTurnDetails(index) {
   editingIndex = index;
   const {messages} = current();
   const message = messages[index];
-  $('#editText').value = message.content;
   $('#editStoryTime').value = message.storyTime || '';
   $('#editStoryTime').setCustomValidity('');
   $('#excludeTurn').checked = Boolean(message.excludeFromContext);
@@ -1361,7 +1436,7 @@ $('#providerForm').onsubmit = event => {
 $('#sceneProvider').onchange = event => {
   setSession(routeKey(current().id), event.target.value);
   syncRoute();
-  if (event.target.value === 'openrouter' && !connection.key) openConnection('openrouter');
+  if (event.target.value === 'openrouter' && !connection.key) openConnection();
   renderMessages();
 };
 $('#pasteReply').onclick=()=>{$('#pasteText').value='';$('#pasteDialog').showModal()};$('#closePaste').onclick=$('#cancelPaste').onclick=()=>$('#pasteDialog').close();$('#pasteForm').onsubmit=e=>{e.preventDefault();const text=$('#pasteText').value.trim();if(!text)return;const project=current();delete project.agentRequest;delete project.agentNotice;appendTurn(project,{role:'assistant',content:text,...speakerMetadata(narrator)});markDirty();$('#pasteDialog').close();renderMessages()};
@@ -1462,9 +1537,6 @@ $('#settingsForm').onsubmit = event => {
 };
 $('#settingsForm').elements.title.oninput = event => event.target.setCustomValidity('');
 $('#closeEdit').onclick = $('#cancelEdit').onclick = () => $('#editDialog').close();
-$('#editText').oninput = () => {
-  if (['safe','reviewed-safe'].includes(editingSensitivity)) showEditSensitivity('unclassified');
-};
 $('#turnSensitivity').onchange = event => showEditSensitivity(event.target.value === 'include' ? 'reviewed-safe' : 'explicit');
 $('#editStoryTime').oninput = event => event.target.setCustomValidity('');
 $('#editForm').onsubmit = event => {
@@ -1478,16 +1550,10 @@ $('#editForm').onsubmit = event => {
   }
   if (clock.value) message.storyTime = clock.value;
   else delete message.storyTime;
-  message.content = $('#editText').value;
   setSensitivity(message,editingSensitivity);
   if ($('#excludeTurn').checked) message.excludeFromContext = true;
   else delete message.excludeFromContext;
-  if (message.alternatives) {
-    message.alternatives[message.selectedAlternative] = message.content;
-    if (message.alternativeSensitivities) message.alternativeSensitivities[message.selectedAlternative] = message.contentSensitivity || null;
-    else if (message.contentSensitivity) message.alternativeSensitivities = message.alternatives.map((_,index)=>
-      index===message.selectedAlternative ? message.contentSensitivity : 'unclassified');
-  }
+  syncEditedTake(message);
   markDirty();
   $('#editDialog').close();
   renderMessages();
@@ -1517,11 +1583,24 @@ $('#deleteProject').onclick = async () => {
   markDirty(project);
   render();
 };
-$('#sendButton').onclick=()=>generate();$('#instruction').oninput=()=>{if(state)setSession(draftKey(current().id),$('#instruction').value)};$('#instruction').onkeydown=e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();generate()}};
+$('#sendButton').onclick = () => generate();
+$('#cancelComposerEdit').onclick = closeComposerEdit;
+$('#instruction').oninput = event => {
+  const input = event.target;
+  input.setCustomValidity('');
+  if (composerEdit) composerEdit.draft = input.value;
+  else if (state) setSession(draftKey(current().id),input.value);
+};
+$('#instruction').onkeydown = event => {
+  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    void generate();
+  }
+};
 function promptForDraft() {
   const direction = $('#instruction').value.trim();
   const project = current();
-  const provider = $('#sceneProvider').value;
+  const provider = writingRoute(project);
   const options = {
     maintainGraph: provider === 'mcp' && project.graphUpdates !== false,
     model: provider === 'openrouter' ? connection.model : '',
@@ -1618,7 +1697,6 @@ storyDrawer.addEventListener('click', event => {
     state = normalize(await response.json());
     baseLibrary = structuredClone(state);
     setSession(draftKey(starterStoryId),'');
-    setSession(routeKey(starterStoryId),'');
     render();
     status('Saved locally');
   } catch (e) {
