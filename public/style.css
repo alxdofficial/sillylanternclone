@@ -57,3 +57,63 @@
 .cast-settings h3 { margin: 0; font-size: 14px; }
 .cast-card { border: 1px solid #524950; border-radius: 5px; margin: 12px 0; padding: 10px 14px; min-width: 0; }
 .cast-card legend { font-weight: 650; padding: 0 5px; }
+
+#settingsDialog { width: min(780px, calc(100vw - 24px)); padding: 0; overflow: hidden; }
+#settingsForm { display: flex; flex-direction: column; max-height: min(84dvh, 780px); }
+.settings-head { margin: 0; padding: 16px 20px 12px; align-items: center; }
+.settings-tabs { display: flex; gap: 4px; padding: 0 20px 8px; flex-wrap: wrap; border-bottom: 1px solid #484349; }
+.settings-tabs button, .cast-roster button {
+  color: #d9d2d9; background: transparent; border: 0; border-radius: 4px; padding: 8px 10px; text-align: left;
+}
+.settings-tabs button[aria-selected="true"], .cast-roster button[aria-pressed="true"] {
+  color: #fff; background: #4a3e49;
+}
+.settings-tabs button:hover, .cast-roster button:hover { background: #4b454c; }
+.settings-body { overflow-y: auto; min-height: 0; padding: 14px 20px 18px; }
+.settings-actions { margin: 0; padding: 12px 20px; border-top: 1px solid #484349; }
+.cast-layout { display: grid; grid-template-columns: minmax(125px, 170px) minmax(0, 1fr); gap: 18px; }
+.cast-rail { min-width: 0; align-self: start; }
+.cast-roster { display: grid; gap: 3px; max-height: 260px; overflow-y: auto; margin-bottom: 8px; }
+.cast-roster button { overflow-wrap: anywhere; }
+.profile-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.profile-head h3 { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
+#cardHint:empty { display: none; }
+.profile-details { margin-block: 12px; }
+.profile-details summary { color: #d1c4d0; cursor: pointer; padding: 4px 0; }
+#settingsForm .cast-card { border: 0; margin: 0; padding: 0; }
+#settingsForm .cast-card > legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.context-badge { color: #ccc0ca; font-size: 11px; white-space: nowrap; }
+#editForm .context-toggle { display: flex; align-items: center; gap: 9px; margin: 12px 0 4px; }
+#editForm .context-toggle input { width: auto; margin: 0; }
+@media (max-width: 560px) {
+  .settings-head, .settings-tabs, .settings-body, .settings-actions { padding-inline: 12px; }
+  .cast-layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .cast-rail { border-bottom: 1px solid #484349; padding-bottom: 10px; }
+  .cast-roster { display: flex; flex-wrap: wrap; max-height: 104px; }
+  .cast-roster button { max-width: 100%; }
+}
+
+.cast-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+#castGraph { display: block; width: 100%; background: #1b191d; border: 1px solid #484349; border-radius: 6px; }
+.graph-edge { stroke: #97828f; stroke-width: 2; fill: none; }
+.graph-node { cursor: pointer; }
+.graph-node circle { fill: #39303a; stroke: #8d7787; stroke-width: 1.5; }
+.graph-node:hover circle, .graph-node:focus circle, .graph-node[aria-pressed="true"] circle { fill: #5c4354; stroke: #f0c6e0; stroke-width: 2.5; }
+.graph-node text { fill: #f1e8ee; font-size: 12px; pointer-events: none; }
+.graph-node .graph-initial { font-size: 15px; font-weight: 700; }
+.graph-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.relationship-list, .graph-suggestions { display: grid; gap: 7px; margin-top: 10px; }
+.relationship-row, .graph-suggestion { border-top: 1px solid #484349; padding-top: 8px; overflow-wrap: anywhere; }
+.relationship-row button, .graph-suggestion button { margin: 5px 6px 0 0; }
+#settingsForm .context-toggle { display: flex; align-items: center; gap: 8px; }
+#settingsForm .context-toggle input { width: auto; margin: 0; }
+#graphStatus:empty { display: none; }
+@media (max-width: 560px) {
+  .cast-layout { grid-template-columns: minmax(0,1fr); }
+  #castGraph { max-height: 240px; }
+}
+
+#backToGraph { display: none; }
+@media (max-width: 560px) {
+  #backToGraph { display: inline-block; margin: 0 0 9px; }
+}

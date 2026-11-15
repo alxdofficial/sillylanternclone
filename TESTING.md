@@ -31,3 +31,9 @@ The follow-up browser checks verified that:
 ## Cast and speaker checks
 
 In an isolated browser library, added Iona alongside Mara, switched **Reply as**, and inspected **Prompt**. The preview included Iona's definitions and excluded Mara's. Simulated generation produced a turn labeled Iona. After selecting Mara, **Another take** still targeted Iona's card. Reload preserved the cast, attribution and selected speaker. Exported ZIP contained the cast and both takes. Checked that the speaker selector was visible at 320px. No inference request was billed for these checks.
+
+## Graph, MCP and private-scene handoff
+
+Verified the browser workflow at desktop and mobile sizes: add character profiles, draw multiple edges between the same pair, save turn-stamped events, and edit world and story memory. Saved graph versions preserve the prior profiles and world. A browser-queued MCP reply appeared automatically after an SDK client submitted it. Proposed updates stayed out of future prompts until reviewed and saved.
+
+Used a synthetic private marker and a non-explicit aftermath. The marker remained in the transcript and was absent from Prompt preview, the browser generation payload, and the MCP context. The aftermath and reviewed graph facts remained. A live signed-in Codex run discovered the MCP tools, read the queued context, wrote a one-sentence scene referencing the brass key, and saved it as the next turn. The queue cleared. This did not send an explicit passage to either service. Claude Code was signed out, so no live Claude generation was tested.

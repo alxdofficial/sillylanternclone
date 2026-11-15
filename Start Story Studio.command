@@ -35,18 +35,10 @@ if ! command -v node >/dev/null || ! command -v npm >/dev/null || ! node -e 'pro
   export PATH="$runtime/$package/bin:$PATH"
 fi
 
-if [[ ! -x node_modules/.bin/codex ]] || ! cmp -s package-lock.json node_modules/.story-studio-lock; then
+if [[ ! -d node_modules/@modelcontextprotocol/sdk ]] || ! cmp -s package-lock.json node_modules/.story-studio-lock; then
   printf 'Installing Story Studio dependencies…\n'
   npm ci --no-audit --no-fund
   cp package-lock.json node_modules/.story-studio-lock
-fi
-
-if ! node_modules/.bin/codex login status 2>&1 | grep -Fq 'Logged in using ChatGPT'; then
-  printf 'Connect your ChatGPT plan now? [y/N] (You can use OpenRouter or write manually without it.) '
-  read -r answer
-  if [[ "$answer" == [yY] ]]; then
-    node_modules/.bin/codex login
-  fi
 fi
 
 url="http://127.0.0.1:${PORT:-4317}"

@@ -35,12 +35,12 @@ test('prompt orders context around role-preserved history and the current direct
   assert.equal(messages.at(-1).role, 'user');
 });
 
-test('only the newest history is retained under the character budget', () => {
+test('recent prose keeps the newest turns under the estimated token cap', () => {
   const messages = buildMessages({
     messages: Array.from({length:80}, (_, i) => ({role:'user', content:`Turn ${i}: ` + 'X'.repeat(5990)}))
   });
   const text = formatMessages(messages);
-  assert.ok(text.length < 17_000);
+  assert.ok(Buffer.byteLength(text) < 49_000);
   assert.doesNotMatch(text, /Turn 0:/);
   assert.match(text, /Turn 79:/);
 });
@@ -68,5 +68,32 @@ test('a group reply swaps in the selected card and keeps attributed shared histo
   assert.match(prompt, /Mara knows the tide calendar/);
   assert.match(prompt, /Mara: Look east/);
   assert.match(prompt, /\[ASSISTANT\]\s+Iona: A lantern/);
-  assert.doesNotMatch(prompt, /keeps the station lit/);
+  assert.match(prompt, /Other cast:\s+Iona: Iona keeps the station lit/);
+  assert.doesNotMatch(prompt, /Mara keeps the station lit/);
+});
+
+test('excluded text cannot activate lore or appear in an agent handoff', () => {
+  const project = {
+    ...story,
+    loreRules:'private-marker | Secret triggered lore',
+    continuity:'At dawn, Ren carries the brass key.',
+    messages:[
+      {role:'user',content:'private-marker',excludeFromContext:true},
+      {role:'user',content:'Take the morning ferry.'}
+    ]
+  };
+  const prompt = formatMessages(buildMessages(project, '', 'continue', {maintainGraph:true}));
+  assert.doesNotMatch(prompt, /private-marker|Secret triggered lore/);
+  assert.match(prompt, /At dawn, Ren carries the brass key/);
+  assert.match(prompt, /Take the morning ferry/);
+});
+
+test('known small model gets a tighter budget without losing the latest direction', () => {
+  const messages = Array.from({length:600}, (_, i) => ({role:'user', content:`Turn ${i}: ` + 'lamp '.repeat(150)}));
+  const project = {...story,messages,lore:'This is the lighthouse. '.repeat(600)};
+  const large = buildMessages(project,'Board the ferry');
+  const small = buildMessages(project,'Board the ferry','send',{model:'gryphe/mythomax-l2-13b'});
+  assert.ok(large.length > small.length);
+  assert.equal(small.at(-1).content,'Board the ferry');
+  assert.ok(small.reduce((n,m)=> n + Math.ceil(Buffer.byteLength(m.content)/3) + 8,0) <= 5600);
 });

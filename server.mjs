@@ -1,12 +1,11 @@
 import http from 'node:http';
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
 import { isModelId } from './public/models.js';
-import { buildMessages, formatMessages, extraFields, validCast } from './public/prompt.js';
+import { buildMessages, extraFields, validCast, validRelationships } from './public/prompt.js';
 import { fileURLToPath } from 'node:url';
 
 const root=dirname(fileURLToPath(import.meta.url));
@@ -45,9 +44,7 @@ async function body(req, limit = 2_000_000) {
 }
 
 const libraryLimit = 16_000_000;
-function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=100 && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string')));}
-let generating=false;
-async function generate(messages){if(generating)throw Error('A response is already being written. Please wait.');generating=true;return new Promise((resolve,reject)=>{let out='',err='',settled=false;const finish=(error,value)=>{if(settled)return;settled=true;clearTimeout(timer);generating=false;error?reject(error):resolve(value);};const child=spawn(process.env.STORY_STUDIO_CODEX || join(root, 'node_modules', '.bin', process.platform === 'win32' ? 'codex.cmd' : 'codex'),['exec','--skip-git-repo-check','--ephemeral','--ignore-user-config','--model',process.env.STORY_STUDIO_MODEL || 'gpt-6-astra','--sandbox','read-only','--json','-'],{cwd:root,stdio:['pipe','pipe','pipe'],env:process.env});const timer=setTimeout(()=>{child.kill('SIGTERM');finish(Error('Codex took too long. Please try again.'));},180000);child.stdout.on('data',c=>{out+=c;if(out.length>4_000_000){child.kill();finish(Error('Response was too large.'));}});child.stderr.on('data',c=>{err=(err+c).slice(-12000);});child.on('error',e=>finish(Error(`Could not start Codex: ${e.message}. Install and sign in to Codex first.`)));child.on('close',code=>{let text='', failure='';for(const line of out.split('\n')){try{const e=JSON.parse(line);if(e.type==='item.completed'&&e.item?.type==='agent_message')text=e.item.text||text;if(e.type==='turn.failed'||e.type==='error')failure=e.error?.message||e.message||failure;}catch{}}if(code!==0 || !text.trim()){let detail=failure;try{detail=JSON.parse(failure).error?.message||failure}catch{}return finish(Error(`Codex could not complete the request. ${detail || 'Check your login and usage limits.'}`));}finish(null,text.trim());});child.stdin.on('error',()=>{});child.stdin.end(formatMessages(messages));});}
+function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=100 && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean')));}
 async function generateOpenRouter(messages, model, key) {
   if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
     throw Error('Enter an OpenRouter API key in Connections.');
@@ -86,7 +83,9 @@ const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8'
 http.createServer(async(req,res)=>{try{if(![`localhost:${port}`,`127.0.0.1:${port}`].includes(req.headers.host))return json(res,403,{error:'Use the local app address.'});const url=new URL(req.url,`http://127.0.0.1:${port}`);if(req.method!=='GET'){const origin=req.headers.origin;if(!origin||!([`http://127.0.0.1:${port}`,`http://localhost:${port}`].includes(origin)))return json(res,403,{error:'Request origin is not allowed.'});if(!(req.headers['content-type']||'').startsWith('application/json'))return json(res,415,{error:'JSON required.'});}
 if (url.pathname === '/api/state' && req.method === 'GET') {
   const library = await getState();
-  res.setHeader('etag', revisionOf(library));
+  const revision = revisionOf(library);
+  res.setHeader('etag', revision);
+  if (req.headers['if-none-match'] === revision) { res.writeHead(304); return res.end(); }
   return json(res, 200, library);
 }
 if (url.pathname === '/api/state' && req.method === 'PUT') {
@@ -115,6 +114,20 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
   res.writeHead(200, {'content-type': 'application/zip', 'content-disposition': 'attachment; filename="story-studio-history.zip"', 'cache-control': 'no-store'});
   return res.end(Buffer.from(archive));
 }
-if(url.pathname==='/api/generate'&&req.method==='POST'){const {project,instruction,provider='codex',model,key,mode='continue'}=await body(req);if(!validateState({activeId:project?.id,projects:[project]})||typeof instruction!=='string')return json(res,400,{error:'Invalid story request.'});if(!['codex','openrouter'].includes(provider)||!['send','continue','alternate'].includes(mode))return json(res,400,{error:'Unsupported provider.'});const messages=buildMessages(project,instruction,mode);try{return json(res,200,{text:await (provider==='openrouter'?generateOpenRouter(messages,model,key):generate(messages))});}catch(e){return json(res,500,{error:e.message});}}
-if(req.method!=='GET')return json(res,404,{error:'Not found.'});if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}const path=url.pathname==='/'?'/index.html':url.pathname;if(!/^\/(index\.html|app\.js|prompt\.js|models\.js|style\.css|aliases\.html|aliases\.js|aliases\.css)$/.test(path))return json(res,404,{error:'Not found.'});const contents=await readFile(join(root,'public',path));res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"});res.end(contents);
+if (url.pathname === '/api/generate' && req.method === 'POST') {
+  const {project,instruction,provider,model,key,mode='send'} = await body(req);
+  if (!validateState({activeId:project?.id,projects:[project]}) || typeof instruction !== 'string') {
+    return json(res, 400, {error:'Invalid story request.'});
+  }
+  if (provider !== 'openrouter' || !['send','alternate'].includes(mode)) {
+    return json(res, 400, {error:'Unsupported browser generation mode.'});
+  }
+  try {
+    const messages = buildMessages(project,instruction,mode,{model});
+    return json(res, 200, {text:await generateOpenRouter(messages,model,key)});
+  } catch (e) {
+    return json(res, 500, {error:e.message});
+  }
+}
+if(req.method!=='GET')return json(res,404,{error:'Not found.'});if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}const path=url.pathname==='/'?'/index.html':url.pathname;if(!/^\/(index\.html|app\.js|prompt\.js|models\.js|graph-history\.js|style\.css)$/.test(path))return json(res,404,{error:'Not found.'});const contents=await readFile(join(root,'public',path));res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"});res.end(contents);
 }catch(e){json(res,e.status||500,{error:e.message});}}).listen(port,'127.0.0.1',()=>console.log(`Story Studio running at http://127.0.0.1:${port}`));

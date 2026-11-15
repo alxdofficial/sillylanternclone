@@ -72,3 +72,9 @@ The shared builder in `public/prompt.js` follows the block order in the upstream
 SillyTavern stores reusable character cards and lets the writer combine them into groups. Group members share history. The default Swap mode inserts the active member's card for that reply. Upstream also supports joined cards, muted members, and Natural, List, Pooled and Manual reply ordering. Its lorebooks can attach to a character, persona, chat, or global settings. See [SillyTavern groups](https://docs.sillytavern.app/usage/core-concepts/groupchats/) and [World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/).
 
 Story Studio now implements a story-local cast and explicit speaker selection. It retains the original speaker on swipes, preserves named turns in shared history, and uses the selected card for description, personality, scenario, and examples. The writer's persona and lore remain shared story fields. It does not attempt automatic reply order, joined cards, reusable global card profiles or scoped lorebook bindings.
+
+## Current integration and long-story context
+
+The current browser exposes **MCP**, **OpenRouter**, and **Manual**. The earlier direct Codex subprocess experiment is historical. The supported Codex and Claude Code connection now uses a shared stdio MCP server registered in the local native client. See [MCP.md](MCP.md). MCP does not make inference calls; the calling agent writes within its native session. The browser queues work and reads back the agent's saved reply.
+
+Story Studio assembles recent included dialogue under an estimated token budget alongside character, world, and continuity facts. It prioritizes bounded older relationship events by relevance and displays those events with turn numbers in the prompt. This is a lossy record of continuity, with no claim of unlimited recall or fidelity to old prose.
