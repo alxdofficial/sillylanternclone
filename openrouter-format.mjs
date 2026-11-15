@@ -17,6 +17,19 @@ export const storyMetadataFormat = {
   type:'json_schema', json_schema:{name:'story_studio_metadata',strict:true,schema}
 };
 
+export function stripWritingPreamble(prose) {
+  const breakAt = prose.search(/\r?\n[ \t]*\r?\n/);
+  const end = breakAt < 0 ? prose.length : breakAt;
+  const opening = prose.slice(0,end);
+  const aside = /(^|[.!?][ \t]+)I(?:['’]ve| have) been (?:instructed|asked) to write (?:(?:approximately|about|around) )?\d[\d,]* words\b[^.!?\r\n]*(?:[.!?](?=[ \t]|$)|$)/i.exec(opening);
+  if (!aside) return prose;
+  const before = opening.slice(0,aside.index + aside[1].length);
+  if ((before.match(/"/g) || []).length % 2 || before.lastIndexOf('“') > before.lastIndexOf('”')) return prose;
+  const after = opening.slice(aside.index + aside[0].length);
+  const cleanOpening = [before.trim(),after.trim()].filter(Boolean).join(' ');
+  return (cleanOpening + prose.slice(end)).trim();
+}
+
 export function readStoryMetadata(output, checkUpdates) {
   if (output.truncated) {
     throw diagnosticError('OPENROUTER_METADATA_TRUNCATED','OpenRouter cut off the metadata response.');

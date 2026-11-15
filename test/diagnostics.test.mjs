@@ -39,10 +39,12 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
           'The output limit for this turn is ' + request.max_tokens.toLocaleString('en-US') + ' tokens.'));
         assert.equal(request.response_format,undefined);
         assert.equal(request.provider.require_parameters,undefined);
-        assert.match(request.messages[0].content,/Return only the requested writing/);
+        assert.match(request.messages[0].content,/For a scene, begin directly in the story/);
         assert.doesNotMatch(request.messages[0].content,/JSON Schema|Classify authorDirection/);
+        const preamble = request.messages.at(-1).content.endsWith('preamble fixture')
+          ? "I've been instructed to write approximately 250 words.\\n\\n" : '';
         return Response.json({provider:'Fixture Writing Host',usage:{prompt_tokens:120,completion_tokens:30},
-          choices:[{finish_reason:endsEarly ? 'length' : 'stop',message:{content:text}}]});
+          choices:[{finish_reason:endsEarly ? 'length' : 'stop',message:{content:preamble + text}}]});
       }
       if (request.model !== 'deepseek/deepseek-v4.1-flash') {
         return new Response(${JSON.stringify(fixture)}, {status:401});
@@ -93,6 +95,9 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     const {updates, ...expected} = scene;
     assert.equal(success.status,200,JSON.stringify(draft));
     assert.deepEqual(draft,{...expected,suggestions:updates});
+    const withPreamble = await generate('fixture/prose','preamble fixture');
+    assert.equal(withPreamble.status,200);
+    assert.deepEqual(await withPreamble.json(),draft);
     const withInvalid = await generate('fixture/prose','invalid proposals');
     assert.equal(withInvalid.status,200);
     const rejected = await withInvalid.json();
@@ -148,6 +153,7 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     assert.equal(rejectedLog?.invalidMapUpdates,2);
     assert.deepEqual(rejectedLog?.mapUpdateRejections,rejected.updateRejections);
     assert.doesNotMatch(contents,/PRIVATE_INVALID_NAME|OTHER_INVALID_NAME|bad time/);
+    assert.ok(events.some(event=>event.requestId===withPreamble.headers.get('x-story-studio-request-id') && event.prosePreambleRemoved));
     assert.doesNotMatch(contents,new RegExp(fixture));
     assert.ok(!contents.includes(scene.text));
   } finally {

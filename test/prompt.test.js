@@ -154,7 +154,7 @@ test('OpenRouter grounds a short follow-up in the latest narration', () => {
   assert.match(messages[0].content,/“Go into more detail” means expand the relevant beat in place/);
   assert.match(messages[0].content,/Author’s note:\s+Keep it tense/);
   assert.match(messages[0].content,/Post-history instructions:\s+End on a clue/);
-  assert.match(messages[0].content,/Return only the requested writing or planning material/);
+  assert.match(messages[0].content,/Keep restatements of the assignment, planning commentary, and speaker labels out of the prose/);
   assert.match(messages.at(-2).content,/Iona set the broken radio on the ticket counter/);
   assert.equal(messages.at(-1).content,'Author direction:\ngo into more detail');
   assert.match(buildMessages(project,'go into more detail','send',{maintainGraph:true})[0].content,

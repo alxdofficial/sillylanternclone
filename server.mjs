@@ -9,7 +9,7 @@ import { buildMessages, buildMetadataMessages, extraFields, getCast, getWriter, 
 import { maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory } from './examples/the-late-ferry.mjs';
 import { checkMapUpdates } from './map-updates.mjs';
-import { metadataModel, readStoryMetadata, storyMetadataFormat } from './openrouter-format.mjs';
+import { metadataModel, readStoryMetadata, storyMetadataFormat, stripWritingPreamble } from './openrouter-format.mjs';
 import { createLogger, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -307,14 +307,17 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     diagnostics.outputFormat = 'text';
     const messages = buildMessages(project,instruction,mode,{model,includeSensitive:true,openRouter:true});
     const output = await generateOpenRouter(messages,model,key,diagnostics);
+    const text = stripWritingPreamble(output.text);
+    if (text !== output.text) diagnostics.prosePreambleRemoved = true;
+    if (!text) throw diagnosticError('OPENROUTER_EMPTY_REPLY','OpenRouter returned no story prose for this request.');
     diagnostics.truncated = output.truncated;
-    const draft = {text:output.text,input:'unclassified',reply:'unclassified',storyTime:'',suggestions:[]};
+    const draft = {text,input:'unclassified',reply:'unclassified',storyTime:'',suggestions:[]};
     if (output.truncated) draft.truncated = true;
     const suggest = !output.truncated && project.graphUpdates !== false && mode !== 'alternate';
     const validateUpdates = value => checkMapUpdates(project,suggest ? value : undefined);
     try {
       diagnostics.metadataModel = metadataModel;
-      const metadataPrompt = buildMetadataMessages(project,instruction,output.text,mode,{truncated:output.truncated});
+      const metadataPrompt = buildMetadataMessages(project,instruction,text,mode,{truncated:output.truncated});
       const metadata = await generateOpenRouter(metadataPrompt,metadataModel,key,diagnostics,true);
       Object.assign(draft,readStoryMetadata(metadata,validateUpdates));
     } catch (e) {

@@ -425,7 +425,7 @@ export function buildMessages(project, instruction = '', mode = 'continue', {mai
   }));
 
   const scan = expand([...history.slice(-4).map(message => message.content), clip(instruction, 6000)].join('\n'));
-  const instructions = [MAIN,sceneInstruction,'Return only the requested writing or planning material, without a speaker label.'];
+  const instructions = [MAIN,sceneInstruction,'Start with the requested writing. For a scene, begin directly in the story. Keep restatements of the assignment, planning commentary, and speaker labels out of the prose.'];
   if (openRouter && model) instructions.push(`The output limit for this turn is ${proseOutputLimit(model).toLocaleString('en-US')} tokens.`);
   context.push({role:'system',content:instructions.join('\n\n')});
   add('World Info · before character', clipEnds(project.lore, 12000), 12000);
