@@ -12,7 +12,9 @@ Setup needs internet access for the first download. Story Studio runs on Node.js
 
 You can ask your local agent to set it up for you.
 
-> Clone https://github.com/alxdofficial/sillylanternclone on this Mac. Read README.md and MCP.md, help me start Story Studio, and register its MCP server in the local agent client I’m using.
+> Clone https://github.com/alxdofficial/sillylanternclone on this Mac. Read README.md and MCP.md, help me start Story Studio, register its MCP server in the local agent client I’m using, and allow its tools to run without asking each time.
+
+With Claude Code, double-click **Start Claude Writer.command** whenever you want to write. It opens a Claude session that can use only Story Studio's tools and writes each turn you queue. With another agent, start a new session and say “Watch Story Studio and write each turn I queue.”
 
 ## Try The Late Ferry
 
@@ -29,7 +31,7 @@ New libraries open on **The Late Ferry**, a late-night harbor mystery with six c
 2. Write a scene beat, a line of dialogue, or instructions for the co-writer in the composer. **Prompt** shows the context assembled for the selected route.
 3. Choose a writing mode.
 
-   - **MCP** gives the next reply to your signed-in Codex, Claude Code, or other local MCP client. Follow [MCP setup](MCP.md) once, click **Queue turn**, then ask the native agent to write and save the queued reply. Story Studio picks up the saved reply. The agent needs your instruction in its own session to begin writing.
+   - **MCP** gives the next reply to your signed-in Codex, Claude Code, or other local MCP client. Follow [MCP setup](MCP.md) once, then tell the agent “Watch Story Studio and write each turn I queue.” Each time you click **Queue turn**, the watching agent writes and saves the reply, and it appears in the page within a few seconds. Without a watching agent, ask the agent to write the queued reply. If the agent will not write a turn, for example an explicit scene, it hands the turn back and its reason appears above the composer.
    - **OpenRouter** sends the current scene to the selected model. Open **Connection**, enter your API key, select a model, and save. You can change the model beside **Write with** in the composer. The model list shows USD rates per million input and output tokens and estimated chapter cost at 2,000 input plus 5,000 output tokens. See [model notes and prices](MODELS.md).
    - **Manual** saves what you write without a model call. Use **Add reply** to enter the co-writer’s side yourself.
 
@@ -55,7 +57,7 @@ Both MCP and OpenRouter can propose new characters, profile updates, world detai
 
 The shared prompt builder includes the selected character, other cast, setting, applicable lore, and recent eligible prose. It limits recent prose to an estimated 16,000 tokens, with a smaller allowance on models with known shorter windows. Older prose stays in the transcript. Future prompts carry forward relevant relationship events and facts you saved in the graph and story memory.
 
-When you send a new OpenRouter turn, Story Studio asks the selected model to label your input and its reply separately. Turns marked **Explicit** or **Unverified** are omitted from future MCP prompts. They remain available to OpenRouter and in your transcript. Labels are model judgments and can be wrong. Missing labels count as unverified. Existing, manually added, and edited passages need your review.
+When you send a new OpenRouter turn, Story Studio asks the selected model to label your input and its reply separately. Turns marked **Explicit** or **Unverified** are omitted from future MCP prompts. They remain available to OpenRouter and in your transcript. Labels are model judgments and can be wrong. Missing labels count as unverified. A reply that reaches the model's length limit shows a warning, because its labels, scene time and suggested updates may be cut off. An MCP agent that hands back an explicit request can label your turn **Explicit** so it stays out of MCP prompts. Existing, manually added, and edited passages need your review.
 
 To move a story back to MCP after an explicit scene:
 
@@ -63,7 +65,7 @@ To move a story back to MCP after an explicit scene:
 2. Keep any needed continuity in a short, non-explicit relationship event or **World → Story memory**. Check nearby turns and notes for copies of the sensitive prose.
 3. Switch to **MCP**, check **Prompt**, then queue the next scene. Start a fresh native agent session if the previous session already saw the original text.
 
-The saved library and exports include the original passages. Model and provider policies apply to generation. See [verified test results](TESTING.md) for what was exercised with a simulated provider and what was tried in a live agent session.
+The saved library and exports include the original passages. MCP agents are told never to read them, the local app or the open page directly, because explicit text in an agent's context can trip its provider's safety limits. The Claude Writer enforces this by giving Claude no file, shell or web tools. See [what the agent can see](MCP.md#keep-the-agent-to-what-story-studio-shows-it). Character cards, world notes, story memory and relationship events always reach MCP agents, so keep them non-explicit. Model and provider policies apply to generation. See [verified test results](TESTING.md) for what was exercised with a simulated provider and what was tried in a live agent session.
 
 ## Back up and move your library
 

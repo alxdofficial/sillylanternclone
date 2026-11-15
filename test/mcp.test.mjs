@@ -53,7 +53,7 @@ test('native MCP handshake, private context, queued replies, alternates and revi
   try {
     await client.connect(transport);
     const {tools} = await client.listTools();
-    assert.deepEqual(tools.map(tool => tool.name).sort(), ['get_story_context','list_stories','open_studio','submit_reply']);
+    assert.deepEqual(tools.map(tool => tool.name).sort(), ['decline_turn','get_story_context','list_stories','open_studio','submit_reply','wait_for_queued_turn']);
     const opened = await client.callTool({name:'open_studio',arguments:{}});
     assert.equal(opened.isError, undefined, JSON.stringify(opened));
     assert.equal(toolData(opened).started, true, JSON.stringify(opened));

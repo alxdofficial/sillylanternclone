@@ -130,7 +130,8 @@ async function generateOpenRouter(messages, model, key) {
   const result = await response.json();
   const text = result.choices?.[0]?.message?.content;
   if (typeof text !== 'string' || !text.trim()) throw Error('OpenRouter returned no prose for this request.');
-  return text.trim();
+  // The label footer comes last, so a reply cut at max_tokens loses it.
+  return {text:text.trim(), truncated:result.choices?.[0]?.finish_reason === 'length'};
 }
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml'};
 http.createServer(async(req,res)=>{try{if(![`localhost:${port}`,`127.0.0.1:${port}`].includes(req.headers.host))return json(res,403,{error:'Use the local app address.'});const url=new URL(req.url,`http://127.0.0.1:${port}`);if(req.method!=='GET'){const origin=req.headers.origin;if(!origin||!([`http://127.0.0.1:${port}`,`http://localhost:${port}`].includes(origin)))return json(res,403,{error:'Request origin is not allowed.'});if(!(req.headers['content-type']||'').startsWith('application/json'))return json(res,415,{error:'JSON required.'});}
@@ -198,12 +199,13 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
   }
   try {
     const messages = buildMessages(project,instruction,mode,{model,includeSensitive:true,classifySafety:true});
-    const draft = splitOpenRouterReply(await generateOpenRouter(messages,model,key));
+    const output = await generateOpenRouter(messages,model,key);
+    const draft = {...splitOpenRouterReply(output.text), ...(output.truncated ? {truncated:true} : {})};
     if (!draft.text) throw Error('OpenRouter returned a label without a story reply.');
     return json(res, 200, draft);
   } catch (e) {
     return json(res, 500, {error:e.message});
   }
 }
-if(req.method!=='GET')return json(res,404,{error:'Not found.'});if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}const path=url.pathname==='/'?'/index.html':url.pathname;if(!/^\/(index\.html|app\.js|prompt\.js|models\.js|graph-history\.js|library\.js|style\.css)$/.test(path))return json(res,404,{error:'Not found.'});const contents=await readFile(join(root,'public',path));res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"});res.end(contents);
+if(req.method!=='GET')return json(res,404,{error:'Not found.'});if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}const path=url.pathname==='/'?'/index.html':url.pathname;if(!/^\/(index\.html|app\.js|prompt\.js|models\.js|graph-history\.js|library\.js|sync\.js|style\.css)$/.test(path))return json(res,404,{error:'Not found.'});const contents=await readFile(join(root,'public',path));res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"});res.end(contents);
 }catch(e){json(res,e.status||500,{error:e.message});}}).listen(port,'127.0.0.1',()=>console.log(`Story Studio running at http://127.0.0.1:${port}`));

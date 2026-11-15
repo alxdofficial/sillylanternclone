@@ -71,7 +71,7 @@ export function createStarterStory() {
     relationships:[
       {from:'primary',to:'tomas',label:'Lina dispatches the ferry and trusts Tomas to make the final safety call.',turn:0,storyTime:storyStartAt},
       {from:'mae',to:'primary',label:'Mae usually brings Lina bread left over from the evening bake.',turn:0,storyTime:storyStartAt},
-      {from:'sam',to:'ellis',label:'Ellis taught Sam where the terminal keeps its electrical diagrams.',turn:0,storyTime:storyStartAt},
+      {from:'ellis',to:'sam',label:'Ellis taught Sam where the terminal keeps its electrical diagrams.',turn:0,storyTime:storyStartAt},
       {from:'noor',to:'ellis',label:'Noor files beacon fault reports with Ellis at Harbor Works.',turn:0,storyTime:storyStartAt},
       {from:'tomas',to:'mae',label:'Tomas hands Mae the spare radio and asks her to relay dock updates.',turn:3,storyTime:'1998-10-24T23:55'},
       {from:"ellis",to:"sam",label:"Ellis tells Sam to isolate the gate circuit before using the mechanical key.",turn:5,storyTime:"1998-10-25T00:02"},

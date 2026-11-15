@@ -1,0 +1,23 @@
+#!/bin/zsh
+# Opens a Claude Code session whose only tools are Story Studio's MCP tools.
+# With no shell, file or web tools, the agent can only see the writing
+# context Story Studio prepares, which leaves out turns marked explicit,
+# unverified or outside AI context. It starts watching for queued turns.
+set -eu
+cd "${0:A:h:h}"
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.claude/local:$PATH"
+
+if ! command -v claude >/dev/null; then
+  printf 'Claude Code is not installed. See https://code.claude.com/docs/en/setup\n' >&2
+  exit 1
+fi
+
+app=$PWD
+server_env="\"PORT\":\"${PORT:-4317}\""
+if [[ -n "${STORY_STUDIO_DATA:-}" ]]; then
+  server_env+=",\"STORY_STUDIO_DATA\":\"${STORY_STUDIO_DATA//\"/\\\"}\""
+fi
+config="{\"mcpServers\":{\"story-studio\":{\"type\":\"stdio\",\"command\":\"${app//\"/\\\"}/bin/story-studio-mcp\",\"env\":{$server_env}}}}"
+
+exec claude --tools= --strict-mcp-config --mcp-config="$config" --allowedTools=mcp__story-studio \
+  "${STORY_STUDIO_PROMPT:-Watch Story Studio and write each turn I queue.}"
