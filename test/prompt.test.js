@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMessages, formatMessages, splitAgentReply, migratePersona, isStoryTime, recordStoryTime } from '../public/prompt.js';
+import { buildMessages, buildMetadataMessages, formatMessages, splitAgentReply, migratePersona, isStoryTime, recordStoryTime } from '../public/prompt.js';
 
 const story = {
   characterName: 'Iona', personaName: 'Ren',
@@ -112,10 +112,10 @@ test('the prompt fits relationship history around the recent prose', () => {
       storyTime:'1998-10-25T00:13',label:`Event ${index}: An agreement to share the lighthouse watch whenever high seas delay the ferry.`
     }))
   };
-  const large = buildMessages(project,'Ren takes the watch.','send',{model:'sao10k/l3.1-euryale-70b',classifySafety:true});
+  const large = buildMessages(project,'Ren takes the watch.','send',{model:'sao10k/l3.1-euryale-70b',openRouter:true});
   const events = messages => [...messages[0].content.matchAll(/Event (\d+):/g)].map(match => Number(match[1]));
   assert.deepEqual(events(large),Array.from({length:300},(_,index)=>index));
-  const small = buildMessages(project,'Ren takes the watch.','send',{model:'gryphe/mythomax-l2-13b',classifySafety:true});
+  const small = buildMessages(project,'Ren takes the watch.','send',{model:'gryphe/mythomax-l2-13b',openRouter:true});
   assert.ok(events(small).length < 300);
   assert.equal(events(small)[0],0);
   assert.deepEqual(small.slice(1),large.slice(1));
@@ -130,13 +130,16 @@ test('auto-flagged turns stop at the MCP boundary while OpenRouter keeps scene c
     {role:'user',content:'NEXT_SCENE',contentSensitivity:'safe'}
   ]};
   const mcp = formatMessages(buildMessages(project));
-  const router = formatMessages(buildMessages(project,'', 'send',{includeSensitive:true,classifySafety:true}));
+  const router = formatMessages(buildMessages(project,'', 'send',{includeSensitive:true,openRouter:true}));
   assert.doesNotMatch(mcp,/PRIVATE_WRITER|UNVERIFIED_REPLY|HIDDEN_EVERYWHERE/);
   assert.match(mcp,/NEXT_SCENE/);
   assert.match(router,/PRIVATE_WRITER/);
   assert.match(router,/UNVERIFIED_REPLY/);
   assert.doesNotMatch(router,/HIDDEN_EVERYWHERE/);
-  assert.match(router,/Return the schema object only/);
+  assert.doesNotMatch(router,/JSON Schema|Classify the author direction/);
+  const metadata = formatMessages(buildMetadataMessages(project,'NEXT_SCENE','The ferry left.','send'));
+  assert.match(metadata,/PRIVATE_WRITER/);
+  assert.doesNotMatch(metadata,/HIDDEN_EVERYWHERE/);
 });
 
 test('OpenRouter grounds a short follow-up in the latest narration', () => {
@@ -145,13 +148,13 @@ test('OpenRouter grounds a short follow-up in the latest narration', () => {
     {role:'assistant',content:'Iona set the broken radio on the ticket counter.',contentSensitivity:'explicit'}
   ]};
   const messages = buildMessages(project,'go into more detail','send',{
-    model:'sao10k/l3.1-euryale-70b',includeSensitive:true,classifySafety:true
+    model:'sao10k/l3.1-euryale-70b',includeSensitive:true,openRouter:true
   });
   assert.deepEqual(messages.map(message=>message.role),['system','user','assistant','user']);
   assert.match(messages[0].content,/“Go into more detail” means expand the relevant beat in place/);
   assert.match(messages[0].content,/Author’s note:\s+Keep it tense/);
   assert.match(messages[0].content,/Post-history instructions:\s+End on a clue/);
-  assert.match(messages[0].content,/Put the requested writing or planning in text/);
+  assert.match(messages[0].content,/Return only the requested writing or planning material/);
   assert.match(messages.at(-2).content,/Iona set the broken radio on the ticket counter/);
   assert.equal(messages.at(-1).content,'Author direction:\ngo into more detail');
   assert.match(buildMessages(project,'go into more detail','send',{maintainGraph:true})[0].content,

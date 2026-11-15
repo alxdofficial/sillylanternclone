@@ -559,6 +559,8 @@ async function generate(mode) {
     markDirty(target);
     if (response.truncated) {
       error('This reply reached the model’s length limit and may end mid-scene. It stays outside MCP context until you check its label with Edit.');
+    } else if (response.metadataFailed) {
+      error('Your draft is in the story. DeepSeek could not verify its labels or suggest map updates. Check the labels with Edit before using this turn in MCP.');
     } else if (response.updateProblems) {
       error('Some suggested map updates could not be matched to the cast or used the wrong format. Valid suggestions are available in Character & lore.');
     }
@@ -1248,7 +1250,6 @@ const customOption = el('option', '', 'Enter another model ID…');
 customOption.value = 'custom';
 modelChoice.append(customOption);
 const providerDialog = $('#providerDialog');
-let modelCheck;
 
 function showModelPrice() {
   const model = models.find(item => item.id === modelChoice.value);
@@ -1269,16 +1270,14 @@ function openConnection() {
   showModelPrice();
   $('#modelError').textContent = '';
   $('#keyInput').value = connection.key;
-  modelCheck?.abort();
   providerDialog.showModal();
 }
 $('#providerButton').onclick = openConnection;
 $('#closeProvider').onclick = $('#cancelProvider').onclick = () => $('#providerDialog').close();
 providerDialog.addEventListener('close', () => {
-  modelCheck?.abort();
   $('#keyInput').value = '';
 });
-$('#providerForm').onsubmit = async event => {
+$('#providerForm').onsubmit = event => {
   event.preventDefault();
   const custom = modelChoice.value === 'custom';
   const modelInput = $('#modelInput');
@@ -1290,25 +1289,7 @@ $('#providerForm').onsubmit = async event => {
     (custom ? modelInput : modelChoice).focus();
     return;
   }
-  if (custom) {
-    modelCheck?.abort();
-    const check = modelCheck = new AbortController();
-    const submit = event.currentTarget.querySelector('[type="submit"]');
-    submit.disabled = true;
-    try {
-      const capability = await api('/api/openrouter/format?' + new URLSearchParams({model}),{signal:check.signal});
-      if (check.signal.aborted || !providerDialog.open || modelChoice.value !== 'custom' ||
-          modelInput.value.trim() !== model) return;
-      if (!capability.structuredOutput) throw Error('Choose a model with JSON Schema support.');
-      if (!models.some(item => item.id === model)) customModelId = model;
-    } catch (e) {
-      if (!check.signal.aborted && providerDialog.open && modelChoice.value === 'custom' &&
-          modelInput.value.trim() === model) $('#modelError').textContent = e.message;
-      return;
-    } finally {
-      if (modelCheck === check) submit.disabled = false;
-    }
-  }
+  if (custom && !models.some(item => item.id === model)) customModelId = model;
   connection = {model, key:$('#keyInput').value.trim()};
   setSession(routeKey(current().id), 'openrouter');
   syncRoute();
@@ -1479,7 +1460,7 @@ function promptForDraft() {
   const options = {
     maintainGraph: provider === 'mcp' && project.graphUpdates !== false,
     model: provider === 'openrouter' ? connection.model : '',
-    includeSensitive:provider === 'openrouter',classifySafety:provider === 'openrouter'
+    includeSensitive:provider === 'openrouter',openRouter:provider === 'openrouter'
   };
   if (direction) return buildMessages(project, direction, 'send', options);
   // Without a new direction, show what a queued turn or a reply to the last

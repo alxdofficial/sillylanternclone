@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMessages, clipEnds, dateWriterTurn, formatMessages, narrator, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from '../public/prompt.js';
+import { buildMessages, buildMetadataMessages, clipEnds, dateWriterTurn, formatMessages, narrator, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from '../public/prompt.js';
 import { checkMapUpdates } from '../map-updates.mjs';
-import { readStructuredStory } from '../openrouter-format.mjs';
+import { readStoryMetadata } from '../openrouter-format.mjs';
 
 const story = (messages, agentRequest) => ({
   id:'s', title:'T', characterName:'Mara', character:'An archivist.', persona:'', lore:'', notes:'',
@@ -78,10 +78,11 @@ test('the MCP map-update instruction names the updates array and event-style rel
   assert.match(prompt, /submit_reply’s updates array/);
   assert.match(prompt, /One sentence: what happened between them/);
   assert.match(prompt, /Exact cast names: Mara, Iona/);
-  const openRouter = formatMessages(buildMessages(story([]), 'Go.', 'send', {classifySafety:true}));
-  assert.match(openRouter, /under about 1,200 words/);
-  assert.match(openRouter, /what happened between them/);
-  assert.match(openRouter, /Exact cast names: Mara, Iona/);
+  const [analysis,source] = buildMetadataMessages(story([]),'Go.','Mara handed her the log.','send');
+  assert.match(analysis.content,/what happened between them/);
+  assert.match(analysis.content,/Never continue, rewrite, or quote the draft/);
+  assert.deepEqual(JSON.parse(source.content).cast,['Mara','Iona']);
+  assert.equal(JSON.parse(source.content).draft,'Mara handed her the log.');
 });
 
 test('structured updates reject alias-based self-events and report invalid OpenRouter updates', () => {
@@ -92,15 +93,14 @@ test('structured updates reject alias-based self-events and report invalid OpenR
     {kind:'relationship',from:'Mara',to:'Iona',label:'Mara gives Iona the log.'},
     {kind:'relationship',from:'Unknown',to:'Iona',label:'A name outside the cast.'}
   ];
-  const text = JSON.stringify({text:'Mara handed her the log.',input:'bad label',reply:'safe',
+  const text = JSON.stringify({input:'bad label',reply:'safe',
     storyTime:'1998-10-25T00:13',updates});
-  const parsed = readStructuredStory({text},value=>checkMapUpdates(project,value));
-  assert.equal(parsed.text,'Mara handed her the log.');
+  const parsed = readStoryMetadata({text},value=>checkMapUpdates(project,value));
   assert.equal(parsed.input,'unclassified');
   assert.equal(parsed.reply,'safe');
   assert.equal(parsed.storyTime,'1998-10-25T00:13');
   assert.equal(parsed.updateProblems,2);
   assert.deepEqual(parsed.suggestions,[updates[1]]);
-  assert.throws(() => readStructuredStory({text:'Raw prose and a footer'}),/unreadable structured reply/);
-  assert.throws(() => readStructuredStory({text:text.slice(0,-1),truncated:true}),/cut off the structured reply/);
+  assert.throws(() => readStoryMetadata({text:'Raw prose and a footer'}),/unreadable story metadata/);
+  assert.throws(() => readStoryMetadata({text:text.slice(0,-1),truncated:true}),/cut off the metadata response/);
 });

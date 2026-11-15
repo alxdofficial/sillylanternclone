@@ -1,8 +1,8 @@
 # OpenRouter models for fictional adult writing
 
-These are candidates for stories about fictional adults. OpenRouter's catalog and [roleplay guide](https://openrouter.ai/blog/tutorials/sillytavern-openrouter/) describe the models and their providers. Whether a particular scene is accepted depends on the chosen model and host. Cydonia passed a live non-explicit writing test in Story Studio. Explicit content behavior was not tested.
+These are candidates for stories about fictional adults. OpenRouter's catalog and [roleplay guide](https://openrouter.ai/blog/tutorials/sillytavern-openrouter/) describe the models and their providers. Whether a particular scene is accepted depends on the chosen model and host. Cydonia was tested on a fictional adult scene through OpenRouter. Its plain-prose responses followed the request more consistently than its schema-constrained responses in a small matched comparison.
 
-Prices checked on 15 November 2026. One estimated chapter uses 2,000 billed input tokens and 5,000 billed output tokens total. Extra context, retries, or splitting a chapter into multiple turns can add input tokens.
+Prices checked on 15 November 2026. One estimated chapter uses 2,000 billed input tokens and 5,000 billed output tokens total. The estimate covers the writing model. DeepSeek metadata calls add a separate charge, and extra context, retries, or splitting a chapter into multiple turns can add input tokens.
 
 | Model | What to try it for | Context | USD per million input / output tokens | Estimated USD per chapter |
 | --- | --- | ---: | ---: | ---: |
@@ -22,11 +22,11 @@ For local inference, a [quantized Cydonia GGUF](https://huggingface.co/bartowski
 
 The selected model receives one system message with narrator instructions, the full cast, world lore, relationship events, and the in-story clock. The recent eligible turns follow in order, ending with the current author direction. For short follow-ups such as “go into more detail,” the prompt tells the model to expand the latest narrated beat in place. OpenRouter can receive earlier explicit or unverified turns. **Keep this turn out of AI context** also excludes that turn from OpenRouter. To see the assembled messages, use **Prompt** with your direction still in the composer.
 
-Every OpenRouter request uses Chat Completions with strict JSON Schema for `text`, `input`, `reply`, `storyTime`, and `updates`. Story Studio checks for an endpoint advertising `structured_outputs` before sending the story. Custom model IDs must pass the same check. Routing requires support for the requested parameters and retains the app's data-collection preference. [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
+The writing call uses plain prose. The composer selects that model, and custom writing models can use this route without JSON Schema support.
 
-The model labels the writer input and assistant reply separately and records the in-story time to the minute. A regular reply can suggest up to five non-explicit map updates if suggestions are enabled. The shapes match the [MCP updates array](MCP.md#tool-contract). An alternate keeps the original scene time and has no map updates. Story Studio validates the response locally and keeps metadata separate from the prose.
+After a complete draft, Story Studio sends the exact prose, the author direction, and a smaller set of recent turns and continuity references to [DeepSeek V4.1 Flash](https://openrouter.ai/deepseek/deepseek-v4.1-flash). This second, separately billed call uses strict JSON Schema for `input`, `reply`, `storyTime`, and `updates`. DeepSeek labels the direction and actual draft independently, infers the time, and can propose up to five non-explicit map updates. The app validates the proposals against the cast. An alternate preserves the original scene time and has no map updates. [OpenRouter structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs)
 
-Unreadable or incomplete JSON produces a writing error. Replies with unverified labels stay outside MCP until reviewed. Invalid map entries are skipped with a warning. Correct labels with **Edit** and check accepted continuity under **Character & lore** before handing a story back to MCP. [OpenRouter API reference](https://openrouter.ai/docs/api_reference/overview)
+If analysis fails or the prose hits its length limit, Story Studio keeps the draft, marks the affected turns **Unverified · outside MCP**, and leaves map updates empty. Check the labels with **Edit** before passing the story to MCP. Both calls request providers that deny data collection, and may reach different hosting providers.
 
 ## Free routes checked on 15 November 2026
 

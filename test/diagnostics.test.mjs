@@ -12,7 +12,7 @@ import test from 'node:test';
 const fixture = 'PRIVATE_TEST_VALUE';
 const app = fileURLToPath(new URL('../server.mjs',import.meta.url));
 
-test('OpenRouter requires JSON Schema support and logs errors without recording story text', async () => {
+test('OpenRouter drafts with the selected model and extracts metadata separately', async () => {
   const directory = await mkdtemp(join(tmpdir(),'story-studio-diagnostics-'));
   const listener = createServer();
   listener.listen(0,'127.0.0.1');
@@ -27,27 +27,31 @@ test('OpenRouter requires JSON Schema support and logs errors without recording 
   };
   await writeFile(mock,`
     import assert from 'node:assert/strict';
-    const scene = ${JSON.stringify(scene)};
+    const {text, ...metadata} = ${JSON.stringify(scene)};
     globalThis.fetch = async (url, options) => {
-      if (url.endsWith('/endpoints')) {
-        if (url.includes('/fixture/offline/')) return new Response(null,{status:503});
-        const parameters = url.includes('/fixture/legacy/') ? ['response_format'] : ['structured_outputs'];
-        return Response.json({data:{endpoints:[{supported_parameters:parameters}]}});
-      }
+      assert.ok(url.endsWith('/chat/completions'));
       const request = JSON.parse(options.body);
-      assert.notEqual(request.model,'fixture/legacy');
-      assert.notEqual(request.model,'fixture/offline');
-      if (request.model !== 'fixture/schema') {
+      assert.equal(request.provider.data_collection,'deny');
+      if (request.model === 'fixture/prose') {
+        assert.equal(request.response_format,undefined);
+        assert.equal(request.provider.require_parameters,undefined);
+        assert.match(request.messages[0].content,/Return only the requested writing/);
+        assert.doesNotMatch(request.messages[0].content,/JSON Schema|Classify the author direction/);
+        return Response.json({choices:[{finish_reason:'stop',message:{content:text}}]});
+      }
+      if (request.model !== 'deepseek/deepseek-v4.1-flash') {
         return new Response(${JSON.stringify(fixture)}, {status:401});
       }
-      assert.equal(request.provider.data_collection,'deny');
+      const source = JSON.parse(request.messages.at(-1).content);
+      assert.equal(source.draft,text);
+      if (source.authorDirection === 'metadata outage') return new Response(null,{status:503});
       assert.equal(request.provider.require_parameters,true);
       assert.equal(request.response_format.type,'json_schema');
       assert.equal(request.response_format.json_schema.strict,true);
-      assert.deepEqual(request.response_format.json_schema.schema.required,Object.keys(scene));
+      assert.deepEqual(request.response_format.json_schema.schema.required,Object.keys(metadata));
       assert.equal(request.response_format.json_schema.schema.additionalProperties,false);
-      assert.ok(request.messages.some(message => message.content.includes('Return the schema object only')));
-      return Response.json({choices:[{message:{content:JSON.stringify(scene)}}]});
+      assert.match(request.messages[0].content,/Classify the author direction/);
+      return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(metadata)}}]});
     };
   `);
   const child = spawn(process.execPath,['--import',mock,app],{
@@ -64,29 +68,22 @@ test('OpenRouter requires JSON Schema support and logs errors without recording 
     const headers = {origin,'content-type':'application/json'};
     const invalid = await fetch(origin+'/api/state',{method:'PUT',headers,body:fixture});
     assert.equal(invalid.status,400);
-    const generate = model => fetch(origin+'/api/generate',{
+    const generate = (model, instruction = fixture) => fetch(origin+'/api/generate',{
       method:'POST',headers,body:JSON.stringify({
         project:{id:fixture,title:fixture,character:'',persona:'',lore:'',notes:'',messages:[]},
-        instruction:fixture, key:fixture, provider:'openrouter',model
+        instruction, key:fixture, provider:'openrouter',model
       })
     });
-    const capability = model => fetch(`${origin}/api/openrouter/format?model=${encodeURIComponent(model)}`);
-    assert.deepEqual(await (await capability('fixture/schema')).json(),{structuredOutput:true});
-    const success = await generate('fixture/schema');
+    const success = await generate('fixture/prose');
     const draft = await success.json();
     const {updates, ...expected} = scene;
     assert.equal(success.status,200,JSON.stringify(draft));
     assert.deepEqual(draft,{...expected,suggestions:updates});
-    for (const [model,status,reason] of [
-      ['fixture/legacy',422,/no endpoint with JSON Schema support/],
-      ['fixture/offline',503,/Could not check the model/]
-    ]) {
-      for (const request of [capability,generate]) {
-        const blocked = await request(model);
-        assert.equal(blocked.status,status);
-        assert.match((await blocked.json()).error,reason);
-      }
-    }
+    const partial = await generate('fixture/prose','metadata outage');
+    assert.equal(partial.status,200);
+    assert.deepEqual(await partial.json(),{
+      text:scene.text,input:'unclassified',reply:'unclassified',storyTime:'',suggestions:[],metadataFailed:true
+    });
     const response = await generate('custom/'+fixture);
     assert.equal(response.status,500);
     assert.match((await response.json()).error,/OpenRouter returned 401/);
@@ -105,7 +102,12 @@ test('OpenRouter requires JSON Schema support and logs errors without recording 
     assert.equal(failure?.upstreamStatus,401);
     assert.equal(failure.model,'custom');
     assert.equal(failure.requestId,response.headers.get('x-story-studio-request-id'));
+    const metadataFailure = events.find(event=>event.requestId===partial.headers.get('x-story-studio-request-id') && event.event==='request_completed');
+    assert.equal(metadataFailure?.upstreamStatus,200);
+    assert.equal(metadataFailure?.metadataUpstreamStatus,503);
+    assert.equal(metadataFailure?.metadataCode,'OPENROUTER_HTTP_ERROR');
     assert.doesNotMatch(contents,new RegExp(fixture));
+    assert.ok(!contents.includes(scene.text));
   } finally {
     child.kill();
     await done;
