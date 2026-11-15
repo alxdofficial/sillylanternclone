@@ -6,7 +6,7 @@ import { isStoryTime } from './public/prompt.js';
 
 const label = z.enum(['safe','explicit']);
 const replySchema = z.strictObject({
-  text:z.string().min(1).describe('Narrative prose only.'),
+  text:z.string().min(1).describe('The writing requested by the final author direction. For a continuation, start from the latest narrated scene and preserve its continuity.'),
   input:label.describe('Classification of the writer direction.'),
   reply:label.describe('Classification of the narrative prose.'),
   storyTime:z.string().describe('In-story date and time to the minute, YYYY-MM-DDTHH:mm.'),
