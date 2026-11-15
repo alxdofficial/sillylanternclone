@@ -42,9 +42,15 @@ Used a synthetic private marker and a non-explicit aftermath. The marker remaine
 
 Tested browser → server → simulated OpenRouter → browser → MCP stdio. The simulated provider labeled both the writer turn and reply explicit, then omitted the label on a second response. Both explicit turns and both unverified turns were displayed in the transcript and omitted from MCP preview and the real stdio tool context. OpenRouter still received the previous included scene for continuation. Labels persisted on reload. This verifies the app's routing and parsing, not a live model's classification accuracy.
 
+## Live OpenRouter route retest
+
+On 16 November 2026, sent three matched fictional-adult directions per preset through Story Studio’s live OpenRouter route. Ran two additional matched directions per custom model. Recorded host, HTTP status, and the DeepSeek reply label without retaining the drafts. The preset fixtures supplied no story date, so metadata flagged the time field while returning valid labels. The custom fixtures supplied a date and returned complete metadata. See [model results](MODELS.md).
+
 ## Story timeline and responsive review
 
 In Chromium, opened the graph from a synthetic ferry story and verified that a saved persona appeared as an ordinary cast member. Hovering over a character or edge opened a preview without changing the canvas width. The browser test set a shared setup time, added multiple events to one relationship line, edited an event across midnight, deleted it, and undid the deletion. Selecting a timeline entry opened that exact in-story moment. Saving and reloading preserved the timestamps.
+
+In Chromium at desktop and phone widths, a direction and immediate reply appeared as one entry. Its inspector showed both texts, a distinct timestamp when the direction differed from the reply, and the reply's saved graph changes and pending proposals. Keyboard selection and independent text collapse worked. Standalone prose and an unanswered direction each had their own entry, and the underlying turn IDs stayed intact.
 
 The responsive audit covered Chromium at 320–2560 pixels wide and WebKit at five desktop, tablet, and phone sizes. Tested manual writing and editing, Story drawer keyboard navigation, the inline model picker, Connection, and the Prompt preview. Touch emulation used a 100-story library with long titles, multilingual names, and unbroken prose. No physical phone was used.
 
