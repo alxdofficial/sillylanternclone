@@ -10,7 +10,7 @@ const metadataSchema = z.strictObject({
   reply:label.describe('Classification of the narrative prose.'),
   storyTime:z.string().describe('In-story date and time to the minute, YYYY-MM-DDTHH:mm.'),
   updates:z.array(z.union(updateSchema.options.map(option => option.required()))).max(5)
-    .describe('New non-explicit continuity facts, or an empty array when disabled or unnecessary.')
+    .describe('Only safe-for-work continuity facts. Omit NSFW, explicit, and graphic details from every field. Return an empty array if disabled or no safe fact remains.')
 });
 const {$schema, ...schema} = z.toJSONSchema(metadataSchema,{target:'draft-7'});
 export const storyMetadataFormat = {

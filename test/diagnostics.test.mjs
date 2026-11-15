@@ -81,6 +81,13 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       assert.deepEqual(request.response_format.json_schema.schema.required,Object.keys(metadata));
       assert.equal(request.response_format.json_schema.schema.additionalProperties,false);
       assert.match(request.messages[0].content,/Classify authorDirection as input and draft as reply/);
+      const graphSchema = request.response_format.json_schema.schema.properties.updates;
+      assert.match(graphSchema.description,/Omit NSFW, explicit, and graphic details from every field/);
+      if (source.authorDirection !== 'replacement direction' && source.authorDirection !== 'cutoff fixture') {
+        assert.match(request.messages[0].content,/Every field in every proposed graph update must be safe for work/);
+        assert.match(request.messages[0].content,/Never include NSFW, sexually explicit, or graphic details/);
+        assert.match(request.messages[0].content,/If a fact has no safe-for-work consequence or you are unsure, omit it/);
+      }
       if (source.authorDirection === 'replacement direction') {
         assert.match(request.messages[0].content,/empty updates array/);
         assert.equal(source.knownTime,'1998-10-25T00:10');
