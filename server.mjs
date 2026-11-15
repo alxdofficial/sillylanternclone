@@ -325,7 +325,10 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     diagnostics.replySensitivity = draft.reply;
     diagnostics.mapProposals = draft.suggestions.length;
     diagnostics.unverifiedLabels = draft.input === 'unclassified' || draft.reply === 'unclassified';
-    if (draft.updateProblems) diagnostics.invalidMapUpdates = draft.updateProblems;
+    if (draft.updateProblems) {
+      diagnostics.invalidMapUpdates = draft.updateProblems;
+      diagnostics.mapUpdateRejections = draft.updateRejections;
+    }
     return json(res, 200, draft);
   } catch (e) {
     diagnostics.code = errorCode(e,'GENERATION_FAILED');

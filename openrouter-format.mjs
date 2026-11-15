@@ -35,6 +35,6 @@ export function readStoryMetadata(output, checkUpdates) {
     reply:label.safeParse(value.reply).data || 'unclassified',
     storyTime:isStoryTime(value.storyTime) ? value.storyTime : '',
     suggestions:checked.updates,
-    ...(checked.problems.length ? {updateProblems:checked.problems.length} : {})
+    ...(checked.rejections.length ? {updateProblems:checked.rejections.length,updateRejections:checked.rejections} : {})
   };
 }

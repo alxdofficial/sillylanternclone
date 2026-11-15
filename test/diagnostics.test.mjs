@@ -50,6 +50,10 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       const source = JSON.parse(request.messages.at(-1).content);
       assert.equal(source.draft,text);
       if (source.authorDirection === 'metadata outage') return new Response(null,{status:503});
+      const updates = source.authorDirection === 'invalid proposals' ? [...metadata.updates,
+        {kind:'relationship',from:'PRIVATE_INVALID_NAME',to:'OTHER_INVALID_NAME',label:'They talk.',storyTime:'1998-10-25T00:13'},
+        {kind:'relationship',from:'Co-writer',to:'Co-writer',label:'They talk.',storyTime:'bad time'}
+      ] : metadata.updates;
       assert.equal(request.provider.require_parameters,true);
       assert.equal(request.response_format.type,'json_schema');
       assert.equal(request.response_format.json_schema.strict,true);
@@ -61,7 +65,7 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
         assert.match(request.messages[0].content,/empty updates array/);
       }
       return Response.json({provider:'Fixture Metadata Host',usage:{prompt_tokens:160,completion_tokens:45},
-        choices:[{finish_reason:'stop',message:{content:JSON.stringify(metadata)}}]});
+        choices:[{finish_reason:'stop',message:{content:JSON.stringify({...metadata,updates})}}]});
     };
   `);
   const child = spawn(process.execPath,['--import',mock,app],{
@@ -89,6 +93,15 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     const {updates, ...expected} = scene;
     assert.equal(success.status,200,JSON.stringify(draft));
     assert.deepEqual(draft,{...expected,suggestions:updates});
+    const withInvalid = await generate('fixture/prose','invalid proposals');
+    assert.equal(withInvalid.status,200);
+    const rejected = await withInvalid.json();
+    assert.equal(rejected.updateProblems,2);
+    assert.deepEqual(rejected.suggestions,updates);
+    assert.deepEqual(rejected.updateRejections,[
+      {index:1,code:'CAST_NAME_UNRESOLVED',fields:['from','to']},
+      {index:2,code:'INVALID_FIELDS',fields:[{field:'storyTime',issue:'custom'}]}
+    ]);
     const cutoff = await generate('thedrummer/cydonia-24b-v4.1','cutoff fixture');
     assert.equal(cutoff.status,200);
     assert.deepEqual(await cutoff.json(),{...expected,suggestions:[],truncated:true});
@@ -131,6 +144,10 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     assert.equal(classified?.metadata?.inputTokens,160);
     assert.equal(classified?.metadata?.status,200);
     assert.equal(metadataFailure?.metadata?.status,503);
+    const rejectedLog = events.find(event=>event.requestId===withInvalid.headers.get('x-story-studio-request-id') && event.event==='request_completed');
+    assert.equal(rejectedLog?.invalidMapUpdates,2);
+    assert.deepEqual(rejectedLog?.mapUpdateRejections,rejected.updateRejections);
+    assert.doesNotMatch(contents,/PRIVATE_INVALID_NAME|OTHER_INVALID_NAME|bad time/);
     assert.doesNotMatch(contents,new RegExp(fixture));
     assert.ok(!contents.includes(scene.text));
   } finally {

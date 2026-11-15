@@ -46,6 +46,14 @@ function status(text) {
     ? 'Demo · resets on reload' : text;
 }
 function error(text=''){const box=$('#error');box.hidden=!text;box.textContent=text}
+const graphRejectionLabels = {
+  CAST_NAME_UNRESOLVED:'unknown or ambiguous cast name',
+  DUPLICATE_CHARACTER:'character already exists',
+  SELF_RELATIONSHIP:'relationship refers to the same character twice',
+  INVALID_FIELDS:'missing or invalid fields',
+  TOO_MANY_UPDATES:'more than five proposals',
+  EXPECTED_UPDATES_ARRAY:'invalid proposal list'
+};
 async function api(url, options={}) {
   const response = await fetch(url,options);
   let result;
@@ -554,6 +562,7 @@ async function generate(mode) {
     if (!target || JSON.stringify(target.messages) !== originalHistory) {
       throw Error('The scene changed while writing. Try again from the updated scene.');
     }
+    let hasGraphChanges = false;
     if (mode === 'retry') {
       const message = target.messages.at(-1);
       message.alternatives ||= [message.content];
@@ -572,10 +581,11 @@ async function generate(mode) {
         contentSensitivity:validSensitivity(response.reply) ? response.reply : 'unclassified',
         storyTime:recordStoryTime(target,response.storyTime)});
       dateWriterTurn(target);
-      applyTurnGraphUpdates(target,target.messages.at(-1),suggestions,{
+      const {applied,pending} = applyTurnGraphUpdates(target,target.messages.at(-1),suggestions,{
         allowAutomatic:response.input === 'safe' && response.reply === 'safe'
           && !(target.id === current().id && $('#settingsDialog').open)
       });
+      hasGraphChanges = applied > 0 || pending > 0;
     }
     markDirty(target);
     if (response.truncated) {
@@ -585,7 +595,10 @@ async function generate(mode) {
     } else if (response.metadataFailed) {
       error('Your draft is in the story. DeepSeek could not verify its labels or suggest map updates. Check the labels with Edit before using this turn in MCP.');
     } else if (response.updateProblems) {
-      error('Some map updates did not match the cast or used the wrong format. See View graph changes for the valid updates.');
+      const reasons = [...new Set(response.updateRejections?.map(({code}) => graphRejectionLabels[code]).filter(Boolean))];
+      const reason = reasons.length ? ` (${reasons.join(', ')})` : '';
+      error(`Story Studio skipped graph proposals${reason}. The prose was saved.` +
+        (hasGraphChanges ? ' See View graph changes for the valid proposals.' : ''));
     }
   } catch (e) {
     error(`Couldn't write the next turn: ${e.message}` + (mode === 'send' ? ' Your turn is saved. To try again, click Send & write with an empty box.' : ''));

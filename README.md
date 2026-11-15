@@ -93,6 +93,8 @@ tail -n 30 -F "$HOME/Library/Logs/Story Studio/server.log"
 
 For a writing error with a **Log ID**, match it to `requestId` in `server.log`. In the completed request, the `prose` and `metadata` fields show each pass's model, HTTP status, timing, output cap, and finish reason. They include the host and token usage when OpenRouter reports them. `metadataCode` reports analysis failures. `inputSensitivity` and `replySensitivity` record the two classification labels.
 
+`mapUpdateRejections` shows why graph proposals were skipped, with the zero-based position in the model's proposal list and any affected fields. The log leaves out the proposed text and names.
+
 For an MCP handoff, look for `context_prepared` in `mcp.log`. It reports the queued turn number, how many history turns were included, and how many were omitted for the prompt budget or for each context rule. `recentPolicyOmissions` lists the last 24 turns omitted by the context rules and the reason for each. The same hashed `storyRef` appears in both logs so you can trace a story without putting its title in the logs. If the app never starts, check `setup.log` and the launcher Terminal. If the browser page opens but its controls fail, check the browser's developer console as well.
 
 Story Studio logs omit story text, directions, prompts, provider replies, and API keys. To redirect logs, set `STORY_STUDIO_LOG_DIR` in the server and MCP launcher environments. If you set only `STORY_STUDIO_DATA`, logs go in its `logs` subfolder.
