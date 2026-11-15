@@ -359,14 +359,6 @@ function renderMessages() {
     more.disabled = busy;
     more.onclick = () => openTurnMenu(more,index);
     actions.append(edit,remove,more);
-    const provider = $('#sceneProvider').value;
-    if (message.role === 'assistant' && !message.excludeFromContext && index === project.messages.length - 1
-        && provider !== 'manual' && (provider === 'openrouter' || !omittedFromMcp)) {
-      const retry = el('button','','Another take');
-      retry.disabled = busy;
-      retry.onclick = () => generate('retry');
-      actions.prepend(retry);
-    }
     head.append(actions);
     const text = el('div','message-text',message.content);
     body.append(...(name ? [head,text] : [text,head]));
@@ -474,24 +466,20 @@ function setBusy(value) {
   renderMessages();
 }
 
-async function generate(mode) {
+async function generate() {
   if (busy || !state) return;
   const project = current();
   const provider = $('#sceneProvider').value;
   const input = $('#instruction');
-  const direction = mode === 'send' ? input.value.trim() : '';
+  const direction = input.value.trim();
   // An empty composer answers a writer turn that has no reply yet, such as
   // after a failed request or a turn an agent handed back.
   const lastTurn = project.messages.at(-1);
-  const answering = mode === 'send' && !direction && provider !== 'manual' && lastTurn?.role === 'user' && !lastTurn.excludeFromContext;
-  if (mode === 'send' && !direction && !answering) return input.focus();
+  const answering = !direction && provider !== 'manual' && lastTurn?.role === 'user' && !lastTurn.excludeFromContext;
+  if (!direction && !answering) return input.focus();
   error();
   if (answering && provider === 'mcp' && !isAvailableToMcp(lastTurn)) {
     error('Your last turn is outside MCP context. Write this scene with OpenRouter, or change its label with Edit.');
-    return;
-  }
-  if (provider === 'manual' && mode !== 'send') {
-    error('Another take is available in MCP and OpenRouter modes.');
     return;
   }
   if (provider === 'openrouter' && (!connection.model || !connection.key)) {
@@ -500,11 +488,8 @@ async function generate(mode) {
     return;
   }
 
-  if (mode === 'retry' && (lastTurn?.role !== 'assistant' || lastTurn.excludeFromContext
-      || provider === 'mcp' && !isAvailableToMcp(lastTurn,precedingDirection(project.messages)))) return;
-
   const replacedQueue = Boolean(project.agentRequest);
-  const history = mode === 'retry' || answering ? project.messages.slice(0, -1) : project.messages.slice();
+  const history = answering ? project.messages.slice(0, -1) : project.messages.slice();
   // Any new request replaces an earlier queue and notice; MCP sets a new queue below.
   delete project.agentNotice;
   delete project.agentRequest;
@@ -513,18 +498,13 @@ async function generate(mode) {
     markDirty();
     return render();
   }
-  if (mode === 'send' && !answering) {
+  if (!answering) {
     const turnNumber = appendTurn(project, {role:'user', content:direction, ...(provider === 'openrouter' ? {contentSensitivity:'unclassified'} : {})});
     input.value = '';
     setSession(draftKey(project.id), '');
     if (provider === 'mcp') project.agentRequest = {mode:'send',speakerId:narrator.id,turnNumber};
     markDirty();
     if (provider !== 'openrouter') return render();
-  } else if (provider === 'mcp') {
-    const previous = project.messages.at(-1);
-    project.agentRequest = {mode:'alternate',speakerId:narrator.id,turnNumber:previous.turnNumber || project.messages.length};
-    markDirty();
-    return render();
   }
 
   const snapshot = {
@@ -533,7 +513,7 @@ async function generate(mode) {
     persona:project.persona, personaName:project.personaName, storyWriterId:project.storyWriterId,
     storyStartAt:project.storyStartAt, storyStartSource:project.storyStartSource, graphUpdates:project.graphUpdates,
     cast:project.cast, relationships:project.relationships,
-    replyTime:mode === 'retry' || answering ? lastTurn.storyTime : undefined,
+    replyTime:answering ? lastTurn.storyTime : undefined,
     messages:recentTurns(history,recentTokenCap,{includeSensitive:true})
   };
   const originalHistory = JSON.stringify(project.messages);
@@ -552,8 +532,7 @@ async function generate(mode) {
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
         project:snapshot, instruction:answering ? lastTurn.content : direction, provider,
-        mode: mode === 'retry' ? 'alternate' : mode,
-        ...(provider === 'openrouter' ? connection : {})
+        ...connection
       })
     });
     const {text} = response;
@@ -562,31 +541,17 @@ async function generate(mode) {
     if (!target || JSON.stringify(target.messages) !== originalHistory) {
       throw Error('The scene changed while writing. Try again from the updated scene.');
     }
-    let hasGraphChanges = false;
-    if (mode === 'retry') {
-      const message = target.messages.at(-1);
-      message.alternatives ||= [message.content];
-      message.alternativeSensitivities ||= message.alternatives.map((_,index) =>
-        index === (message.selectedAlternative || 0) ? message.contentSensitivity || null : 'unclassified');
-      message.alternatives.push(stripSpeakerName(text, narrator.name));
-      message.alternativeSensitivities.push(validSensitivity(response.reply) ? response.reply : 'unclassified');
-      message.selectedAlternative = message.alternatives.length - 1;
-      message.content = message.alternatives[message.selectedAlternative];
-      syncTakeSuggestions(message);
-      setSensitivity(message,message.alternativeSensitivities[message.selectedAlternative]);
-    } else {
-      setSensitivity(target.messages.at(-1),validSensitivity(response.input) ? response.input : 'unclassified');
-      const suggestions = target.graphUpdates === false ? [] : graphSuggestions(response.suggestions);
-      appendTurn(target, {role:'assistant', content:stripSpeakerName(text, narrator.name), ...speakerMetadata(narrator),
-        contentSensitivity:validSensitivity(response.reply) ? response.reply : 'unclassified',
-        storyTime:recordStoryTime(target,response.storyTime)});
-      dateWriterTurn(target);
-      const {applied,pending} = applyTurnGraphUpdates(target,target.messages.at(-1),suggestions,{
-        allowAutomatic:response.input === 'safe' && response.reply === 'safe'
-          && !(target.id === current().id && $('#settingsDialog').open)
-      });
-      hasGraphChanges = applied > 0 || pending > 0;
-    }
+    setSensitivity(target.messages.at(-1),validSensitivity(response.input) ? response.input : 'unclassified');
+    const suggestions = target.graphUpdates === false ? [] : graphSuggestions(response.suggestions);
+    appendTurn(target, {role:'assistant', content:stripSpeakerName(text, narrator.name), ...speakerMetadata(narrator),
+      contentSensitivity:validSensitivity(response.reply) ? response.reply : 'unclassified',
+      storyTime:recordStoryTime(target,response.storyTime)});
+    dateWriterTurn(target);
+    const {applied,pending} = applyTurnGraphUpdates(target,target.messages.at(-1),suggestions,{
+      allowAutomatic:response.input === 'safe' && response.reply === 'safe'
+        && !(target.id === current().id && $('#settingsDialog').open)
+    });
+    const hasGraphChanges = applied > 0 || pending > 0;
     markDirty(target);
     if (response.truncated) {
       const unverified = response.input === 'unclassified' || response.reply === 'unclassified';
@@ -601,7 +566,7 @@ async function generate(mode) {
         (hasGraphChanges ? ' See View graph changes for the valid proposals.' : ''));
     }
   } catch (e) {
-    error(`Couldn't write the next turn: ${e.message}` + (mode === 'send' ? ' Your turn is saved. To try again, click Send & write with an empty box.' : ''));
+    error(`Couldn't write the next turn: ${e.message} Your turn is saved. To try again, click Send & write with an empty box.`);
   } finally {
     generatingFor = null;
     setBusy(false);
@@ -1552,7 +1517,7 @@ $('#deleteProject').onclick = async () => {
   markDirty(project);
   render();
 };
-$('#sendButton').onclick=()=>generate('send');$('#instruction').oninput=()=>{if(state)setSession(draftKey(current().id),$('#instruction').value)};$('#instruction').onkeydown=e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();generate('send')}};
+$('#sendButton').onclick=()=>generate();$('#instruction').oninput=()=>{if(state)setSession(draftKey(current().id),$('#instruction').value)};$('#instruction').onkeydown=e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();generate()}};
 function promptForDraft() {
   const direction = $('#instruction').value.trim();
   const project = current();

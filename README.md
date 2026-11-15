@@ -37,7 +37,7 @@ The demo began as a blank story in the browser. The cast and setting were entere
    - **OpenRouter** sends the current scene to the selected model. Open **Connection**, enter your API key, select a model, and save. You can change the model beside **Write with** in the composer. The model list shows USD rates per million input and output tokens and estimated chapter cost at 2,000 input plus 5,000 output tokens. See [model notes and prices](MODELS.md).
    - **Manual** saves what you write without a model call. Use **Add reply** to enter the co-writer’s side yourself.
 
-Use **Edit** to revise a saved turn or **Another take** to generate an alternate reply on the latest eligible turn. Use **Previous** and **Next** to choose which take appears in the story and in future prompts.
+Use **Edit** to revise a saved turn. If a turn already has multiple takes, use **Previous** and **Next** to choose which one appears in the story and future prompts.
 
 Open **⋯** on a turn to explore a different path. **Branch from here** creates a separate story through that turn, including the selected take, the cast and world notes recorded then, and earlier relationship events. You can branch from the demo to keep writing a regular saved story. **Rewind to here** removes later turns and their events from the current story. Deleting a story or a turn, rewinding, removing a character or relationship event, and replacing your library all ask for confirmation. For older turns without a saved cast or world version, Story Studio uses the current notes.
 
