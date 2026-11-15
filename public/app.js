@@ -876,9 +876,11 @@ narrowGraph.onchange = shortGraph.onchange = () => {
 
 const timeLabel = time => time ? time.replace('T',' ') : 'Undated';
 const timelineDate = new Intl.DateTimeFormat('en', {year:'numeric',month:'short',day:'numeric',timeZone:'UTC'});
+const matchesTurn = (turn,{turn:primaryTurn,replyTurn}) => turn === primaryTurn || (replyTurn !== undefined && turn === replyTurn);
 const matchesTimeline = (edge,selection) => selection.kind === 'moment'
-  ? edge.turn && edge.storyTime === selection.time : (edge.turn || 0) === selection.turn;
+  ? edge.turn && edge.storyTime === selection.time : matchesTurn(edge.turn || 0,selection);
 const countEvents = count => `${count} relationship ${count === 1 ? 'event' : 'events'}`;
+const timelineTime = (message,reply) => reply?.storyTime || message?.storyTime || '';
 
 function renderGraphTurns() {
   const entries = [{time:draftStartAt, label:'Story setup', selection:{kind:'turn',turn:0},
@@ -894,14 +896,20 @@ function renderGraphTurns() {
     entries.push({time, label:edges.length === 1 ? `${nameOf(first.from)} → ${nameOf(first.to)}` : 'Relationship events',
       detail:edges.length === 1 ? first.label : countEvents(edges.length), selection:{kind:'moment',time}});
   }
+  const project = current();
   let previousDirection;
-  current().messages.forEach((message,index) => {
+  for (let index = 0; index < project.messages.length; index++) {
+    const message = project.messages[index];
     if (message.role === 'user') previousDirection = message;
     const turn = message.turnNumber || index + 1;
-    const kind = message.role === 'user' ? 'Direction' : attributedSpeaker(message) || 'Prose';
-    entries.push({time:message.storyTime || '', label:`${eventTime(turn)} · ${kind}`,
-      reason:mcpOmissionReason(message,previousDirection), selection:{kind:'turn',turn}});
-  });
+    const reply = pairedReply(project,index);
+    const selection = {kind:'turn',turn};
+    const kind = reply ? 'Direction and prose' : message.role === 'user' ? 'Direction' : attributedSpeaker(message) || 'Prose';
+    const reason = mcpOmissionReason(message,previousDirection) || (reply && mcpOmissionReason(reply,message));
+    if (reply) selection.replyTurn = reply.turnNumber || index + 2;
+    entries.push({time:timelineTime(message,reply), label:`${eventTime(turn)} · ${kind}`, reason, selection});
+    if (reply) index++;
+  }
   entries.sort((a,b) => Number(!a.time) - Number(!b.time) || a.time.localeCompare(b.time)
     || (a.selection.turn ?? Infinity) - (b.selection.turn ?? Infinity));
   const rail = $('#graphTurns');
@@ -962,6 +970,47 @@ function pinGraph(selection) {
   if (selection) $('#graphInspector').scrollTop = 0;
 }
 
+function timelineText(message, label, direction, time) {
+  const section = el('details','timeline-text');
+  section.open = true;
+  const summary = el('summary','',label);
+  appendTurnContextBadge(section,summary,mcpOmissionReason(message,direction));
+  section.append(summary);
+  if ((message.storyTime || '') !== time) {
+    const stamp = el(message.storyTime ? 'time' : 'p','event-stamp',timeLabel(message.storyTime));
+    if (message.storyTime) stamp.dateTime = message.storyTime;
+    section.append(stamp);
+  }
+  section.append(el('p','inspector-copy',message.content));
+  return section;
+}
+
+function appendTurnGraphChanges(preview, selection, edges) {
+  const changes = graphChangesByTurn(current());
+  const notes = [...(changes.get(selection.turn)?.notes || []), ...(changes.get(selection.replyTurn)?.notes || [])];
+  const pending = pendingGraphReview.filter(item => matchesTurn(item.turnNumber,selection) && !item.status);
+  const showEmpty = selection.kind === 'turn-changes';
+  if (notes.length || showEmpty) preview.append(el('h4','','Saved changes'));
+  for (const note of notes) {
+    const label = note.kind === 'character' ? 'Character added · ' + note.name
+      : note.kind === 'profile' ? 'Profile updated · ' + note.name
+      : note.kind === 'world' ? 'World setting' : 'Story memory';
+    const row = el('div','relationship-row');
+    row.append(el('strong','',label),el('p','relationship-copy',note.note));
+    preview.append(row);
+  }
+  if (showEmpty && !notes.length && !edges.length) preview.append(el('p','form-note','No graph changes have been saved for this turn.'));
+  if (pending.length) {
+    const review = el('button','button subtle',`Review ${pending.length} pending ${pending.length === 1 ? 'proposal' : 'proposals'}`);
+    review.type = 'button';
+    review.onclick = () => {
+      pinGraph({...selection,kind:'review'});
+      $('#closeInspector').focus();
+    };
+    preview.append(review);
+  }
+}
+
 function renderInspector() {
   const selection = pinnedGraph || hoverGraph;
   const panel = $('#graphInspector');
@@ -990,41 +1039,28 @@ function renderInspector() {
       preview.hidden = false;
     }
   } else if (['turn','moment'].includes(selection.kind)) {
-    const message = current().messages.find((item,index) => (item.turnNumber || index + 1) === selection.turn);
-    const time = selection.kind === 'moment' ? selection.time : selection.turn ? message?.storyTime : draftStartAt;
+    const messages = current().messages;
+    const message = messages.find((item,index) => (item.turnNumber || index + 1) === selection.turn);
+    const reply = selection.replyTurn && messages.find((item,index) => (item.turnNumber || index + 1) === selection.replyTurn);
+    const time = selection.kind === 'moment' ? selection.time : selection.turn ? timelineTime(message,reply) : draftStartAt;
     type.textContent = selection.kind === 'turn' ? eventTime(selection.turn) : 'Timeline';
     title.textContent = timeLabel(time);
+    const edges = draftRelationships.filter(edge => matchesTimeline(edge,selection));
     if (message) {
-      preview.replaceChildren(el('p','inspector-copy',message.content));
+      preview.replaceChildren();
+      if (reply) preview.append(timelineText(message,'Direction',message,time),
+        timelineText(reply,attributedSpeaker(reply) || 'Prose',message,time));
+      else preview.append(el('p','inspector-copy',message.content));
+      appendTurnGraphChanges(preview,selection,edges);
       preview.hidden = false;
     }
-    renderRelationships(draftRelationships.filter(edge => matchesTimeline(edge,selection)),true);
+    renderRelationships(edges,true);
   } else if (selection.kind === 'turn-changes') {
     type.textContent = eventTime(selection.turn);
     title.textContent = 'Graph changes';
-    const notes = graphChangesByTurn(current()).get(selection.turn)?.notes || [];
     const edges = draftRelationships.filter(edge => matchesTimeline(edge,selection));
-    const pending = pendingGraphReview.filter(item => item.turnNumber === selection.turn && !item.status);
     preview.replaceChildren();
-    preview.append(el('h4','','Saved changes'));
-    for (const note of notes) {
-      const label = note.kind === 'character' ? 'Character added · ' + note.name
-        : note.kind === 'profile' ? 'Profile updated · ' + note.name
-        : note.kind === 'world' ? 'World setting' : 'Story memory';
-      const row = el('div','relationship-row');
-      row.append(el('strong','',label),el('p','relationship-copy',note.note));
-      preview.append(row);
-    }
-    if (!notes.length && !edges.length) preview.append(el('p','form-note','No graph changes have been saved for this turn.'));
-    if (pending.length) {
-      const review = el('button','button subtle',`Review ${pending.length} pending ${pending.length === 1 ? 'proposal' : 'proposals'}`);
-      review.type = 'button';
-      review.onclick = () => {
-        pinGraph({kind:'review',turn:selection.turn});
-        $('#closeInspector').focus();
-      };
-      preview.append(review);
-    }
+    appendTurnGraphChanges(preview,selection,edges);
     preview.hidden = false;
     if (edges.length || deletedEvent && matchesTimeline(deletedEvent,selection)) renderRelationships(edges,true);
   } else if (selection.kind === 'review') {
@@ -1267,7 +1303,7 @@ function renderGraphReview() {
   const container = $('#graphSuggestions');
   const allPending = pendingGraphReview.filter(item => !item.status);
   const turn = pinnedGraph?.kind === 'review' ? pinnedGraph.turn : undefined;
-  const pending = turn ? allPending.filter(item => item.turnNumber === turn) : allPending;
+  const pending = turn ? allPending.filter(item => matchesTurn(item.turnNumber,pinnedGraph)) : allPending;
   container.hidden = !pending.length;
   $('#reviewGraphButton').textContent = allPending.length ? `Review updates (${allPending.length})` : 'Agent updates';
   container.replaceChildren();

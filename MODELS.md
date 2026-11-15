@@ -1,6 +1,10 @@
 # OpenRouter models for fictional adult writing
 
-These are candidates for stories about fictional adults. OpenRouter's catalog and [roleplay guide](https://openrouter.ai/blog/tutorials/sillytavern-openrouter/) describe the models and their providers. Whether a particular scene is accepted depends on the chosen model and host. Cydonia was tested on a fictional adult scene through OpenRouter. Its plain-prose responses followed the request more consistently than its schema-constrained responses in a small matched comparison.
+These are candidates for stories about fictional adults. OpenRouter's catalog and [roleplay guide](https://openrouter.ai/blog/tutorials/sillytavern-openrouter/) describe the models and their providers. Whether a particular scene is accepted depends on the prompt and hosting provider.
+
+In a 16 November 2026 retest through Story Studio, DeepSeek classified three of three Cydonia and MythoMax replies as explicit, two of three Magnum replies, and one of three UnslopNemo replies. Cydonia, MythoMax and UnslopNemo ran on Parasail. Magnum ran on Mancer 2. Cydonia was also the only preset tested here with Story Studio’s 8,000-token prose limit.
+
+Two additional test scenes produced explicit replies twice on [Weaver via Mancer 2](https://openrouter.ai/mancer/weaver), once on [Dolphin Mistral 24B via Venice](https://openrouter.ai/cognitivecomputations/dolphin-mistral-24b-venice-edition), and once on [Skyfall 36B v2 via Parasail](https://openrouter.ai/thedrummer/skyfall-36b-v2). These can be entered as custom model IDs. The counts reflect this small sample and these hosts.
 
 Prices checked on 15 November 2026. One estimated chapter uses 2,000 billed input tokens and 5,000 billed output tokens total. The estimate covers the writing model. DeepSeek metadata calls add a separate charge, and extra context, retries, or splitting a chapter into multiple turns can add input tokens.
 

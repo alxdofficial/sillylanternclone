@@ -584,6 +584,10 @@ form textarea { resize: vertical; }
 .inspector-title button { line-height: 1; }
 .graph-preview, .inspector-copy { overflow-wrap: anywhere; }
 .inspector-copy { white-space: pre-wrap; line-height: 1.5; }
+.timeline-text { padding: 8px 0; border-bottom: 1px solid #534652; }
+.timeline-text summary { cursor: pointer; font-weight: 650; }
+.timeline-text .context-badge { margin: 0 0 0 5px; }
+.timeline-text .event-stamp { display: block; margin: 8px 0 0; }
 .relationship-list { margin-top: 4px; }
 .relationship-list > .form-note { margin: 4px 0; }
 .relationship-copy { margin: 4px 0 2px; line-height: 1.5; overflow-wrap: anywhere; }
