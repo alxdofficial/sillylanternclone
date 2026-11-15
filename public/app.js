@@ -559,13 +559,8 @@ async function generate(mode) {
     markDirty(target);
     if (response.truncated) {
       error('This reply reached the model’s length limit and may end mid-scene. It stays outside MCP context until you check its label with Edit.');
-    } else {
-      const warnings = [];
-      if (response.reply === 'unclassified' || (mode !== 'retry' && response.input === 'unclassified')) {
-        warnings.push('OpenRouter did not return all content labels. Unverified turns stay outside MCP until you check them with Edit.');
-      }
-      if (response.updateProblems) warnings.push('Some suggested map updates could not be matched to the cast or used the wrong format. Valid suggestions are available in Character & lore.');
-      if (warnings.length) error(warnings.join(' '));
+    } else if (response.updateProblems) {
+      error('Some suggested map updates could not be matched to the cast or used the wrong format. Valid suggestions are available in Character & lore.');
     }
   } catch (e) {
     error(`Couldn't write the next turn: ${e.message}` + (mode === 'send' ? ' Your turn is saved. To try again, click Send & write with an empty box.' : ''));
