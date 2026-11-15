@@ -6,7 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { appendTurn, buildMessages, dateWriterTurn, stripSpeakerName, formatMessages, getCast, narrator, isAvailableToMcp, isStoryTime, mcpOmissionReason, precedingDirection, queuedTurn, recordStoryTime, replyInput, syncTakeSuggestions } from './public/prompt.js';
-import { applyTurnGraphUpdates } from './public/graph-history.js';
+import { applyTurnGraphUpdates, storyAtTurn } from './public/graph-history.js';
 
 import { checkMapUpdates, updateSchema } from './map-updates.mjs';
 import { createLogger, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
@@ -30,7 +30,7 @@ Watching: when the writer asks you to watch Story Studio, loop on wait_for_queue
 
 Chat drafts: for a direction the writer gives in this chat rather than in the app, call get_story_context with that direction, show the draft, and call submit_reply (with writerTurn) only if the writer asks to save it.
 
-Writing: follow the current direction as the narrator, using the cast for action and dialogue. Use the latest available passage for short follow-ups and the cast, world, story memory and dated relationships for continuity. Follow the requested style, point of view and tense. Put only the requested writing in reply. Reuse storyId and revision. Infer storyTime from the scene and elapsed in-story time. When enabled, pass only new, non-explicit facts in updates; valid updates normally enter the graph on save. Omit updates and storyTime for an alternate, and omit writerTurn when the turn is already queued.
+Writing: follow the current direction as the narrator, using the cast for action and dialogue. Use the latest available passage for short follow-ups and the cast, world, story memory and dated relationships for continuity. Follow the requested style, point of view and tense. Put only the requested writing in reply. Reuse storyId and revision. Infer storyTime from the scene and elapsed in-story time. When enabled, pass only new, non-explicit facts in updates; valid updates normally enter the graph on save. A replace request rewrites the paired reply from the revised direction. Omit updates and storyTime for an alternate or replacement, and omit writerTurn when the turn is already queued.
 
 Privacy boundary: these tools return only the turns cleared for agents. Explicit, unverified and manually excluded turns are withheld, along with unreviewed replies to those directions. Use saved non-explicit continuity to bridge any gaps. Never read Story Studio data any other way: not its data folder (~/Library/Application Support/Story Studio), library.json, exported ZIPs or transcripts, the local web API or the open page at 127.0.0.1, and not the app's source in search of stored text. If the context lacks something you need, ask the writer.
 
@@ -138,11 +138,17 @@ const saveHint = 'Write the reply, then call submit_reply with storyId and revis
 
 function storyContext(revision, project, direction = '') {
   const request = pendingRequest(project);
-  const alternate = request?.mode === 'alternate';
+  const rewritesReply = request?.mode === 'alternate' || request?.mode === 'replace';
+  let promptProject = project;
+  if (request?.mode === 'replace') {
+    const index = project.messages.findIndex(turn => turn.turnNumber === request.turnNumber);
+    promptProject = {...storyAtTurn(project,index),messages:project.messages,agentRequest:request};
+  }
   // A queued turn is laid out exactly as the browser's Prompt preview shows it.
-  const input = request ? replyInput(project, request.mode)
+  const input = request ? replyInput(promptProject, request.mode)
     : {project, direction, mode:direction.trim() ? 'send' : 'continue'};
-  const messages = buildMessages(input.project, input.direction, input.mode, {maintainGraph:project.graphUpdates !== false});
+  const maintainGraph = !rewritesReply && project.graphUpdates !== false;
+  const messages = buildMessages(input.project, input.direction, input.mode, {maintainGraph});
   const omitted = {allRoutes:0,explicit:0,unverified:0,directionWithheld:0};
   const recentPolicyOmissions = [];
   let priorDirection;
@@ -157,7 +163,7 @@ function storyContext(revision, project, direction = '') {
   const historyIncluded = messages.filter(message => message.role !== 'system').length - 1;
   const policyOmitted = Object.values(omitted).reduce((sum,count)=>sum + count,0);
   log('info','context_prepared',{
-    storyRef:storyReference(project.id),turnNumber:request?.turnNumber,mode:input.mode,historyIncluded,
+    storyRef:storyReference(project.id),turnNumber:request?.turnNumber,mode:request?.mode || input.mode,historyIncluded,
     historyOmittedForBudget:Math.max(0,input.project.messages.length - historyIncluded - policyOmitted),
     historyOmittedByPolicy:omitted,recentPolicyOmissions:recentPolicyOmissions.slice(-24)
   });
@@ -167,10 +173,10 @@ function storyContext(revision, project, direction = '') {
     revision,
     pendingRequest:request,
     speaker:narrator,
-    storyClock:alternate ? 'Keep the original take’s scene time; omit storyTime from submit_reply.' : 'Infer the reply’s in-story date and time from the setting and elapsed time; pass YYYY-MM-DDTHH:mm to submit_reply.',
-    mapUpdates:alternate || project.graphUpdates === false ? 'off for this reply' : 'optional; see the last [SYSTEM] block',
-    cast:getCast(project).map(({id,name}) => ({id,name})),
-    save:alternate ? 'Call submit_reply with storyId, revision, and the replacement prose as reply.' : saveHint,
+    storyClock:rewritesReply ? 'Keep the original reply’s scene time; omit storyTime from submit_reply.' : 'Infer the reply’s in-story date and time from the setting and elapsed time; pass YYYY-MM-DDTHH:mm to submit_reply.',
+    mapUpdates:maintainGraph ? 'optional; see the last [SYSTEM] block' : 'off for this reply',
+    cast:getCast(input.project).map(({id,name}) => ({id,name})),
+    save:rewritesReply ? 'Call submit_reply with storyId, revision, and the replacement prose as reply.' : saveHint,
     prompt:formatMessages(messages)
   };
 }
@@ -288,7 +294,7 @@ function readReply(reply) {
 }
 
 tool('submit_reply', {
-  description:'Save narrated prose for a queued turn or a chat draft the writer asked to save. Pass the revision from get_story_context or wait_for_queued_turn. Put only prose in reply; pass non-explicit continuity updates in updates. Valid updates normally enter the graph on save. Only pass writerTurn for a new, unsaved direction when no turn is queued. A queued alternate is added to the original turn as another take.',
+  description:'Save narrated prose for a queued turn or a chat draft the writer asked to save. Pass the revision from get_story_context or wait_for_queued_turn. Put only prose in reply; pass non-explicit continuity updates in updates. Valid updates normally enter the graph on save. Only pass writerTurn for a new, unsaved direction when no turn is queued. A queued alternate adds another take. A queued replacement rewrites the selected take in place from the revised direction.',
   inputSchema:{
     storyId:identifier,
     revision:z.string().regex(/^"[a-f0-9]{64}"$/),
@@ -296,7 +302,7 @@ tool('submit_reply', {
     reply:z.string().max(60000).refine(text => Boolean(text.trim())).describe('Story prose only.'),
     writerTurn:z.string().max(6000).optional(),
     storyTime:z.string().refine(isStoryTime).optional().describe('In-story scene date and time, YYYY-MM-DDTHH:mm. Infer it from the context.'),
-    updates:z.array(updateSchema).max(5).optional().describe('Up to five new, non-explicit continuity updates established by the latest writer turn or this reply. Use exact cast names. Omit when nothing new was established.')
+    updates:z.array(updateSchema).max(5).optional().describe('Up to five new, non-explicit continuity updates established by the latest writer turn or this reply. Use exact cast names. Omit for alternate and replacement requests, and when nothing new was established.')
   },
   annotations:{readOnlyHint:false, destructiveHint:false, idempotentHint:false, openWorldHint:false}
 }, async ({storyId, revision, reply, writerTurn, storyTime, updates = []}) => {
@@ -309,7 +315,7 @@ tool('submit_reply', {
   draft.text = stripSpeakerName(draft.text, narrator.name);
   if (!draft.text.trim()) throw Error('The reply must contain story prose.');
   const proposals = [...draft.suggestions, ...updates];
-  const mapOff = request?.mode === 'alternate' || project.graphUpdates === false;
+  const mapOff = request?.mode === 'alternate' || request?.mode === 'replace' || project.graphUpdates === false;
   if (proposals.length > 5) throw Error('Send at most five map updates per reply.');
   const checked = checkMapUpdates(project,mapOff ? [] : proposals);
   if (checked.problems.length) throw diagnosticError('MAP_UPDATES_INVALID','Nothing was saved. Fix these map updates or leave them out:\n' + checked.problems.join('\n'));
@@ -326,6 +332,18 @@ tool('submit_reply', {
     if (previous.alternativeSensitivities) previous.alternativeSensitivities.push(null);
     delete previous.contentSensitivity;
     turnNumber = request.turnNumber;
+  } else if (request?.mode === 'replace') {
+    const message = project.messages.find(turn => turn.turnNumber === request.replyTurnNumber);
+    Object.assign(message,{content:draft.text,speakerId:narrator.id,speakerName:narrator.name});
+    delete message.contentSensitivity;
+    delete message.graphSuggestions;
+    if (!message.selectedAlternative) delete message.firstTakeSuggestions;
+    if (message.alternatives?.length) {
+      const selected = message.selectedAlternative ?? 0;
+      message.alternatives[selected] = message.content;
+      if (message.alternativeSensitivities) message.alternativeSensitivities[selected] = null;
+    }
+    turnNumber = request.replyTurnNumber;
   } else {
     if (project.messages.length + (writerTurn?.trim() ? 2 : 1) > 3000) throw diagnosticError('TURN_LIMIT','This story has reached its turn limit.');
     if (writerTurn?.trim()) appendTurn(project, {role:'user',content:writerTurn.trim()});
@@ -380,8 +398,12 @@ tool('decline_turn', {
   const request = pendingRequest(project);
   if (!request) throw diagnosticError('QUEUE_MISSING','No turn is queued in this story.');
   if (writerTurn === 'explicit' && request.mode === 'send') project.messages.at(-1).contentSensitivity = 'explicit';
+  if (writerTurn === 'explicit' && request.mode === 'replace') {
+    project.messages.find(turn => turn.turnNumber === request.turnNumber).contentSensitivity = 'explicit';
+  }
   delete project.agentRequest;
-  project.agentNotice = {turnNumber:request.turnNumber, message:reason};
+  project.agentNotice = {turnNumber:request.turnNumber, message:reason,
+    ...(request.mode === 'replace' ? {mode:request.mode,replyTurnNumber:request.replyTurnNumber} : {})};
   const response = await fetch(origin + '/api/state', {
     method:'PUT',
     headers:{'content-type':'application/json',origin,'if-match':revision},

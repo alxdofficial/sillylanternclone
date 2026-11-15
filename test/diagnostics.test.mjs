@@ -41,8 +41,15 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
         assert.equal(request.provider.require_parameters,undefined);
         assert.match(request.messages[0].content,/For a scene, begin directly in the story/);
         assert.doesNotMatch(request.messages[0].content,/JSON Schema|Classify authorDirection/);
+        assert.doesNotMatch(JSON.stringify(request.messages),/PRIVATE_DIRECTION_SUFFIX/);
+        if (request.messages.at(-1).content.endsWith('replacement direction')) {
+          assert.match(request.messages[0].content,/Original take time:\\n1998-10-25T00:10/);
+        }
+        if (request.messages.at(-1).content.endsWith('late upstream error')) {
+          return Response.json({error:{code:429,message:'PRIVATE_UPSTREAM_ERROR'}});
+        }
         if (request.messages.at(-1).content.endsWith('removal fixture')) {
-          return Response.json({choices:[{finish_reason:'stop',message:{content:'[removed]'}}]});
+          return Response.json({choices:[{finish_reason:'stop',message:{content:"I've been instructed to write approximately 250 words.\\n\\n[removed]"}}]});
         }
         if (request.messages.at(-1).content.endsWith('refusal fixture')) {
           return Response.json({choices:[{finish_reason:'stop',message:{
@@ -62,6 +69,7 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       }
       const source = JSON.parse(request.messages.at(-1).content);
       assert.equal(source.draft,text);
+      assert.doesNotMatch(source.authorDirection,/PRIVATE_DIRECTION_SUFFIX/);
       if (source.authorDirection === 'metadata outage') return new Response(null,{status:503});
       const updates = source.authorDirection === 'invalid proposals' ? [...metadata.updates,
         {kind:'relationship',from:'PRIVATE_INVALID_NAME',to:'OTHER_INVALID_NAME',label:'They talk.',storyTime:'1998-10-25T00:13'},
@@ -73,12 +81,17 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       assert.deepEqual(request.response_format.json_schema.schema.required,Object.keys(metadata));
       assert.equal(request.response_format.json_schema.schema.additionalProperties,false);
       assert.match(request.messages[0].content,/Classify authorDirection as input and draft as reply/);
+      if (source.authorDirection === 'replacement direction') {
+        assert.match(request.messages[0].content,/empty updates array/);
+        assert.equal(source.knownTime,'1998-10-25T00:10');
+      }
       if (source.authorDirection === 'cutoff fixture') {
         assert.match(request.messages[0].content,/draft ends early.*Classify the text that is present/);
         assert.match(request.messages[0].content,/empty updates array/);
       }
+      const input = source.authorDirection === 'incomplete metadata' ? 'invalid fixture label' : metadata.input;
       return Response.json({provider:'Fixture Metadata Host',usage:{prompt_tokens:160,completion_tokens:45},
-        choices:[{finish_reason:'stop',message:{content:JSON.stringify({...metadata,updates})}}]});
+        choices:[{finish_reason:'stop',message:{content:JSON.stringify({...metadata,input,updates})}}]});
     };
   `);
   const child = spawn(process.execPath,['--import',mock,app],{
@@ -95,10 +108,11 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     const headers = {origin,'content-type':'application/json'};
     const invalid = await fetch(origin+'/api/state',{method:'PUT',headers,body:fixture});
     assert.equal(invalid.status,400);
-    const generate = (model, instruction = fixture) => fetch(origin+'/api/generate',{
+    const generate = (model, instruction = fixture, mode = 'send') => fetch(origin+'/api/generate',{
       method:'POST',headers,body:JSON.stringify({
-        project:{id:fixture,title:fixture,character:'',persona:'',lore:'',notes:'',messages:[]},
-        instruction, key:fixture, provider:'openrouter',model
+        project:{id:fixture,title:fixture,character:'',persona:'',lore:'',notes:'',messages:[],
+          ...(mode === 'replace' ? {replyTime:'1998-10-25T00:10'} : {})},
+        instruction, key:fixture, provider:'openrouter',model,mode
       })
     });
     const success = await generate('fixture/prose');
@@ -134,6 +148,18 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     assert.deepEqual(await partial.json(),{
       text:scene.text,input:'unclassified',reply:'unclassified',storyTime:'',suggestions:[],metadataFailed:true
     });
+    const incomplete = await generate('fixture/prose','incomplete metadata');
+    assert.deepEqual(await incomplete.json(),{...draft,input:'unclassified',metadataFailed:true});
+    const prefix = 'a'.repeat(6000);
+    const exact = await generate('fixture/prose',prefix);
+    assert.deepEqual(await exact.json(),draft);
+    const long = await generate('fixture/prose',prefix + 'PRIVATE_DIRECTION_SUFFIX');
+    assert.deepEqual(await long.json(),{...draft,input:'unclassified',inputTruncated:true});
+    const replacement = await generate('fixture/prose','replacement direction','replace');
+    assert.deepEqual(await replacement.json(),{...draft,suggestions:[]});
+    const providerError = await generate('fixture/prose','late upstream error');
+    assert.equal(providerError.status,500);
+    assert.match((await providerError.json()).error,/OpenRouter reported a provider error.*rate limited/);
     const response = await generate('custom/'+fixture);
     assert.equal(response.status,500);
     assert.match((await response.json()).error,/OpenRouter returned 401/);
@@ -156,6 +182,17 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     assert.equal(metadataFailure?.upstreamStatus,200);
     assert.equal(metadataFailure?.metadataUpstreamStatus,503);
     assert.equal(metadataFailure?.metadataCode,'OPENROUTER_HTTP_ERROR');
+    const incompleteLog = events.find(event=>event.requestId===incomplete.headers.get('x-story-studio-request-id') && event.event==='request_completed');
+    assert.equal(incompleteLog?.metadataCode,'OPENROUTER_METADATA_INCOMPLETE');
+    assert.deepEqual(incompleteLog?.metadataInvalidFields,['input']);
+    const longLog = events.find(event=>event.requestId===long.headers.get('x-story-studio-request-id') && event.event==='request_completed');
+    assert.equal(longLog?.inputTruncated,true);
+    assert.equal(longLog?.inputSensitivity,'unclassified');
+    const upstreamError = events.find(event=>event.code==='OPENROUTER_UPSTREAM_ERROR');
+    assert.equal(upstreamError?.prose?.status,200);
+    assert.equal(upstreamError?.prose?.errorStatus,429);
+    assert.equal(upstreamError?.metadata,undefined);
+    assert.doesNotMatch(contents,/PRIVATE_UPSTREAM_ERROR|PRIVATE_DIRECTION_SUFFIX|invalid fixture label/);
     const classified = events.find(event=>event.requestId===success.headers.get('x-story-studio-request-id') && event.event==='request_completed');
     assert.equal(classified?.inputSensitivity,'safe');
     assert.equal(classified?.replySensitivity,'explicit');

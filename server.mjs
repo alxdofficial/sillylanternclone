@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
 import { isModelId, models, proseOutputLimit } from './public/models.js';
-import { buildMessages, buildMetadataMessages, extraFields, getCast, getWriter, validCast, validRelationships, validSensitivity, isStoryTime } from './public/prompt.js';
+import { buildMessages, buildMetadataMessages, extraFields, getCast, getWriter, validCast, validRelationships, validSensitivity, isStoryTime, maxDirectionCharacters } from './public/prompt.js';
 import { maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory } from './examples/the-late-ferry.mjs';
 import { checkMapUpdates } from './map-updates.mjs';
@@ -144,6 +144,14 @@ function reportAgent(report) {
 
 const libraryLimit = 16_000_000;
 function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
+const openRouterStatusHints = {
+  401:'Check your API key.',
+  402:'Check your balance and key spending limit.',
+  403:'The request was denied by OpenRouter or its provider.',
+  404:'The selected model or an eligible provider is unavailable.',
+  429:'The selected model is rate limited. Try again later.'
+};
+
 async function generateOpenRouter(messages, model, key, diagnostics, metadata = false) {
   const started = Date.now();
   const maxOutputTokens = metadata ? 1536 : proseOutputLimit(model);
@@ -175,14 +183,8 @@ async function generateOpenRouter(messages, model, key, diagnostics, metadata = 
   details.durationMs = Date.now() - started;
   diagnostics[metadata ? 'metadataUpstreamStatus' : 'upstreamStatus'] = details.status = response.status;
   if (!response.ok) {
-    const messages = {
-      401: 'Check your API key.',
-      402: 'Check your balance and key spending limit.',
-      403: 'The request was denied by OpenRouter or its provider.',
-      404: 'The selected model or an eligible provider is unavailable.',
-      429: 'The selected model is rate limited. Try again later.'
-    };
-    throw diagnosticError('OPENROUTER_HTTP_ERROR','OpenRouter returned ' + response.status + '. ' + (messages[response.status] || 'Check the model and try again.'));
+    const hint = openRouterStatusHints[response.status] || 'Check the model and try again.';
+    throw diagnosticError('OPENROUTER_HTTP_ERROR',`OpenRouter returned ${response.status}. ${hint}`);
   }
   let result;
   try {
@@ -201,10 +203,17 @@ async function generateOpenRouter(messages, model, key, diagnostics, metadata = 
   if (Number.isSafeInteger(result?.usage?.completion_tokens) && result.usage.completion_tokens >= 0) {
     details.outputTokens = result.usage.completion_tokens;
   }
-  const choice = result.choices?.[0];
+  const choice = result?.choices?.[0];
   const finish = choice?.finish_reason;
   if (['stop','length','content_filter','error','tool_calls'].includes(finish)) {
     diagnostics[metadata ? 'metadataFinishReason' : 'finishReason'] = details.finishReason = finish;
+  }
+  const upstreamError = result?.error || choice?.error;
+  if (upstreamError) {
+    const {code} = upstreamError;
+    if (Number.isInteger(code) && code >= 400 && code <= 599) details.errorStatus = code;
+    const hint = openRouterStatusHints[details.errorStatus] || 'Check the model and try again.';
+    throw diagnosticError('OPENROUTER_UPSTREAM_ERROR',`OpenRouter reported a provider error. ${hint}`);
   }
   if (finish === 'content_filter') {
     throw diagnosticError('OPENROUTER_CONTENT_FILTERED','OpenRouter reported that the response was filtered.');
@@ -295,7 +304,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     diagnostics.code = 'INVALID_STORY_REQUEST';
     return json(res,400,{error:'Invalid story request.'});
   }
-  if (provider !== 'openrouter' || !['send','alternate'].includes(mode)) {
+  if (provider !== 'openrouter' || !['send','alternate','replace'].includes(mode)) {
     diagnostics.code = 'UNSUPPORTED_GENERATION_MODE';
     return json(res,400,{error:'Unsupported browser generation mode.'});
   }
@@ -315,25 +324,35 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     diagnostics.outputFormat = 'text';
     const messages = buildMessages(project,instruction,mode,{model,includeSensitive:true,openRouter:true});
     const output = await generateOpenRouter(messages,model,key,diagnostics);
-    if (/^\[(?:removed|redacted)\][.!]?$/i.test(output.text)) {
-      throw diagnosticError('OPENROUTER_REMOVAL_PLACEHOLDER','The writing provider returned a removal placeholder. No story reply came back.');
-    }
     const text = stripWritingPreamble(output.text);
     if (text !== output.text) diagnostics.prosePreambleRemoved = true;
+    if (/^\[(?:removed|redacted)\][.!]?$/i.test(text)) {
+      throw diagnosticError('OPENROUTER_REMOVAL_PLACEHOLDER','The writing provider returned a removal placeholder. No story reply came back.');
+    }
     if (!text) throw diagnosticError('OPENROUTER_EMPTY_REPLY','OpenRouter returned no story prose for this request.');
     diagnostics.truncated = output.truncated;
     const draft = {text,input:'unclassified',reply:'unclassified',storyTime:'',suggestions:[]};
     if (output.truncated) draft.truncated = true;
-    const suggest = !output.truncated && project.graphUpdates !== false && mode !== 'alternate';
+    const suggest = !output.truncated && project.graphUpdates !== false && mode === 'send';
     const validateUpdates = value => checkMapUpdates(project,suggest ? value : undefined);
     try {
       diagnostics.metadataModel = metadataModel;
       const metadataPrompt = buildMetadataMessages(project,instruction,text,mode,{truncated:output.truncated});
       const metadata = await generateOpenRouter(metadataPrompt,metadataModel,key,diagnostics,true);
-      Object.assign(draft,readStoryMetadata(metadata,validateUpdates));
+      const {invalidFields, ...parsed} = readStoryMetadata(metadata,validateUpdates);
+      Object.assign(draft,parsed);
+      if (invalidFields.length) {
+        diagnostics.metadataCode = 'OPENROUTER_METADATA_INCOMPLETE';
+        diagnostics.metadataInvalidFields = invalidFields;
+        draft.metadataFailed = true;
+      }
     } catch (e) {
       diagnostics.metadataCode = errorCode(e,'OPENROUTER_METADATA_FAILED');
       draft.metadataFailed = true;
+    }
+    if (mode !== 'alternate' && instruction.trim().length > maxDirectionCharacters) {
+      diagnostics.inputTruncated = draft.inputTruncated = true;
+      if (draft.input !== 'explicit') draft.input = 'unclassified';
     }
     diagnostics.inputSensitivity = draft.input;
     diagnostics.replySensitivity = draft.reply;

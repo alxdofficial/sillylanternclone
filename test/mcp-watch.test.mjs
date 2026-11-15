@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { captureGraphVersion } from '../public/graph-history.js';
 
 async function freePort() {
   const server = createServer();
@@ -137,6 +138,74 @@ test('agents watch for queued turns, decline them, and get checked map updates',
     assert.equal(quiet.status, 'idle', 'a declined turn is not picked up again');
     const context = toolData(await client.callTool({name:'get_story_context', arguments:{storyId:'first'}}));
     assert.doesNotMatch(context.prompt, /explicit version/, 'the declined explicit turn leaves MCP context');
+
+    const queueReplacement = async changes => {
+      const response = await fetch(origin + '/api/state');
+      const state = await response.json();
+      const target = state.projects.find(item => item.id === 'first');
+      changes(target);
+      target.agentRequest = {mode:'replace',speakerId:'story-studio:narrator',turnNumber:2,replyTurnNumber:3};
+      const saved = await fetch(origin + '/api/state', {method:'PUT',
+        headers:{...jsonHeaders, 'if-match':response.headers.get('etag')}, body:JSON.stringify(state)});
+      assert.equal(saved.status, 200);
+    };
+    await queueReplacement(target => {
+      Object.assign(target.messages[1],{content:'Revised: open a different ledger.',contentSensitivity:'reviewed-safe'});
+      captureGraphVersion(target,0);
+      target.lore = 'Later reveal: the harbor has a hidden tunnel.';
+      captureGraphVersion(target,4);
+      target.messages.push({
+        role:'assistant',turnNumber:3,content:'Old paired reply.',storyTime:'1904-09-23T08:00',
+        alternatives:['Other take.','Old paired reply.'],selectedAlternative:1,alternativeSensitivities:[null,'safe'],
+        graphSuggestions:[{kind:'fact',note:'Old proposal.'}],
+        firstTakeSuggestions:[{kind:'fact',note:'First take proposal.'}],
+        appliedGraphUpdates:[{kind:'fact',note:'Accepted fact.'}]
+      },{role:'user',turnNumber:4,content:'Later writer direction.'});
+      target.nextTurn = 5;
+      delete target.agentNotice;
+    });
+    const replacement = toolData(await client.callTool({name:'wait_for_queued_turn', arguments:{waitSeconds:5}}));
+    assert.deepEqual(replacement.pendingRequest,{mode:'replace',speakerId:'story-studio:narrator',turnNumber:2,replyTurnNumber:3});
+    assert.match(replacement.prompt,/Mara unlocks the archive/);
+    assert.match(replacement.prompt,/An old harbor/);
+    assert.match(replacement.prompt,/open a different ledger/);
+    assert.match(replacement.prompt,/1904-09-23T08:00/);
+    assert.doesNotMatch(replacement.prompt,/Old paired reply|Other take|Later writer direction|Later reveal|submit_reply’s updates array/);
+    const replaced = toolData(await client.callTool({name:'submit_reply', arguments:{
+      storyId:'first',revision:replacement.revision,reply:'Mara opens the second ledger.',storyTime:'1904-09-23T09:00',
+      updates:[{kind:'fact',note:'The second ledger is newer.'}]
+    }}));
+    assert.equal(replaced.turnNumber,3);
+    assert.equal(replaced.proposedUpdates,0);
+    const revised = await project('first');
+    assert.equal(revised.agentRequest,undefined);
+    assert.deepEqual(revised.messages.map(turn => turn.turnNumber),[1,2,3,4]);
+    assert.deepEqual(revised.messages[2].alternatives,['Other take.','Mara opens the second ledger.']);
+    assert.deepEqual(revised.messages[2].alternativeSensitivities,[null,null]);
+    assert.equal(revised.messages[2].content,'Mara opens the second ledger.');
+    assert.equal(revised.messages[2].storyTime,'1904-09-23T08:00');
+    assert.equal(revised.messages[2].graphSuggestions,undefined);
+    assert.deepEqual(revised.messages[2].firstTakeSuggestions,[{kind:'fact',note:'First take proposal.'}]);
+    assert.deepEqual(revised.messages[2].appliedGraphUpdates,[{kind:'fact',note:'Accepted fact.'}]);
+    assert.equal(revised.lore,'Later reveal: the harbor has a hidden tunnel.');
+    assert.equal(revised.messages[3].content,'Later writer direction.');
+
+    await queueReplacement(() => {});
+    const next = toolData(await client.callTool({name:'wait_for_queued_turn', arguments:{waitSeconds:5}}));
+    await client.callTool({name:'decline_turn',arguments:{
+      storyId:'first',revision:next.revision,writerTurn:'explicit',reason:'Use OpenRouter for this rewrite.'
+    }});
+    const declinedReplacement = await project('first');
+    assert.equal(declinedReplacement.agentRequest,undefined);
+    assert.equal(declinedReplacement.messages[1].contentSensitivity,'explicit');
+    assert.equal(declinedReplacement.messages[2].content,'Mara opens the second ledger.');
+    assert.deepEqual(declinedReplacement.agentNotice,{
+      mode:'replace',turnNumber:2,replyTurnNumber:3,message:'Use OpenRouter for this rewrite.'
+    });
+    await queueReplacement(() => {});
+    const blockedReplacement = await client.callTool({name:'get_story_context',arguments:{storyId:'first'}});
+    assert.equal(blockedReplacement.isError,true);
+    assert.match(blockedReplacement.content[0].text,/outside MCP context/);
   } finally {
     await client.close();
     if (childPid) process.kill(childPid);

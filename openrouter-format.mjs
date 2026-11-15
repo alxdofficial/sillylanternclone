@@ -50,12 +50,22 @@ export function readStoryMetadata(output, checkUpdates) {
     throw diagnosticError('OPENROUTER_INVALID_METADATA','OpenRouter returned an invalid story metadata object.');
   }
 
+  const input = label.safeParse(value.input).data;
+  const reply = label.safeParse(value.reply).data;
+  const storyTime = isStoryTime(value.storyTime) ? value.storyTime : '';
+  const invalidFields = [
+    ...(!input ? ['input'] : []),
+    ...(!reply ? ['reply'] : []),
+    ...(!storyTime ? ['storyTime'] : []),
+    ...(!Array.isArray(value.updates) ? ['updates'] : [])
+  ];
   const checked = checkUpdates(value.updates);
   return {
-    input:label.safeParse(value.input).data || 'unclassified',
-    reply:label.safeParse(value.reply).data || 'unclassified',
-    storyTime:isStoryTime(value.storyTime) ? value.storyTime : '',
+    input:input || 'unclassified',
+    reply:reply || 'unclassified',
+    storyTime,
     suggestions:checked.updates,
+    invalidFields,
     ...(checked.rejections.length ? {updateProblems:checked.rejections.length,updateRejections:checked.rejections} : {})
   };
 }

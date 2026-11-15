@@ -68,7 +68,32 @@ function mergeMessages(base, local, server) {
   return {value:unchanged ? local : merged, conflicts};
 }
 
+function directionChanged(direction, candidate) {
+  return candidate?.role !== 'user' || candidate.content !== direction.content
+    || Boolean(candidate.excludeFromContext) !== Boolean(direction.excludeFromContext);
+}
+
+function conflictsWithQueuedReply(base, revised, completed) {
+  const request = base.agentRequest;
+  if (!request || !['send','replace'].includes(request.mode)) return false;
+  const index = base.messages.findIndex(turn => turn.turnNumber === request.turnNumber);
+  const direction = base.messages[index];
+  if (direction?.role !== 'user' || !directionChanged(direction,revised.messages.find(turn => turn.turnNumber === request.turnNumber))) return false;
+  const completedIndex = completed.messages.findIndex(turn => turn.turnNumber === request.turnNumber);
+  if (completedIndex < 0 || directionChanged(direction,completed.messages[completedIndex])) return false;
+  const reply = completed.messages[completedIndex + 1];
+  if (reply?.role !== 'assistant') return false;
+  if (request.mode === 'send') return index === base.messages.length - 1;
+  const oldReply = base.messages[index + 1];
+  return oldReply?.role === 'assistant' && oldReply.turnNumber === request.replyTurnNumber
+    && reply.turnNumber === request.replyTurnNumber && !sameValue(oldReply,reply)
+    && !sameValue(request,completed.agentRequest);
+}
+
 function mergeProject(base = {}, local, server) {
+  if (conflictsWithQueuedReply(base,local,server) || conflictsWithQueuedReply(base,server,local)) {
+    return {conflicts:[`turn ${base.agentRequest.turnNumber} was changed while its reply was being written`]};
+  }
   const messages = mergeMessages(base.messages || [], local.messages || [], server.messages || []);
   const {value, conflicts} = mergeFields(base, local, server, {
     messages:() => messages.conflicts.length ? unresolved : messages.value,

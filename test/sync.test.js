@@ -56,6 +56,36 @@ test('agent reply merges with cast edits', () => {
   assert.equal(story.agentRequest, undefined);
 });
 
+test('a queued reply conflicts with a concurrent edit or deletion of its direction', () => {
+  const base = library(), edited = clone(base), deleted = clone(base), completed = agentReply(clone(base));
+  delete edited.projects[0].agentRequest;
+  delete deleted.projects[0].agentRequest;
+  edited.projects[0].messages[2].content = 'Ada leaves the hatch closed.';
+  deleted.projects[0].messages.pop();
+  // This reply did not change the author turn, so a field-by-field merge alone would accept both.
+  delete completed.projects[0].messages[2].storyTime;
+  for (const revised of [edited,deleted]) {
+    for (const pair of [[revised,completed],[completed,revised]]) {
+      const {library:merged,conflicts} = mergeLibrary(base,...pair);
+      assert.equal(merged,null);
+      assert.match(conflicts.join(),/turn 3 was changed while its reply was being written/);
+    }
+  }
+});
+
+test('a queued in-place replacement conflicts with another revision of its direction', () => {
+  const base = agentReply(library());
+  const original = base.projects[0];
+  original.agentRequest = {mode:'replace',speakerId:'story-studio:narrator',turnNumber:3,replyTurnNumber:4};
+  const edited = clone(base), completed = clone(base);
+  edited.projects[0].messages[2].content = 'Ada steps away from the hatch.';
+  completed.projects[0].messages[3].content = 'Ada lifts the hatch and finds a ladder.';
+  delete completed.projects[0].agentRequest;
+  const {library:merged,conflicts} = mergeLibrary(base,edited,completed);
+  assert.equal(merged,null);
+  assert.match(conflicts.join(),/turn 3 was changed while its reply was being written/);
+});
+
 test('automatic graph updates merge with a concurrent edit to writing notes', () => {
   const base = library(), local = clone(base), server = agentReply(clone(base));
   local.projects[0].notes = 'Stay in Ada’s point of view.';

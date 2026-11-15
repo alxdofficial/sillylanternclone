@@ -71,6 +71,8 @@ Leave shell and file access as the client normally has them. Story Studio needs 
 
 Open Story Studio first. Use the launcher, or ask the agent “Start Story Studio using its MCP tool and give me the browser link.” Choose **MCP** beside **Write with**, write a direction, and click **Queue turn**. A queued turn is your request for the agent to write and save that reply. The agent does not ask again.
 
+Saving a revised, MCP-eligible direction can queue a rewrite of the reply immediately after it. The agent receives the eligible transcript up to the revised direction. It rewrites the selected take in place and keeps the reply’s scene time. Existing accepted map changes stay in the story. Pending proposals for the rewritten take are cleared when the replacement is saved.
+
 ### Automatic: the agent watches for queued turns
 
 In your signed-in Codex or Claude desktop session, or in a CLI session with Story Studio connected, say once:
@@ -113,7 +115,7 @@ With each reply, the agent may send up to five non-explicit updates: a new chara
 | `list_stories` | Story IDs and titles, the active story, and any queued request. |
 | `wait_for_queued_turn` | Wait for a request, starting with the active story. The default is 50 seconds, or 300 for Claude Code. A queued result includes the writing context and revision. An idle result can list invalid requests under `skipped`. |
 | `get_story_context` | The assembled narrator prompt, queued request and library revision. Omit the story ID to use the active story. Pass a fresh `direction` for a chat draft. |
-| `submit_reply` | Save narrated prose for a queued turn or a chat draft the writer asked to save. Pass the story ID and revision from the context, `storyTime` as `YYYY-MM-DDTHH:mm`, and optional `updates`. Supply `writerTurn` only for a chat direction that has not been saved. A queued alternate attaches to the original reply as another take. |
+| `submit_reply` | Save narrated prose for a queued turn or a chat draft the writer asked to save. Pass the story ID and revision from the context, `storyTime` as `YYYY-MM-DDTHH:mm`, and optional `updates`. Omit `storyTime` and `updates` for an alternate or replacement. Supply `writerTurn` only for a chat direction that has not been saved. An alternate adds a take. A replacement rewrites the selected take. |
 | `decline_turn` | Hand a queued turn back with a short reason. `writerTurn: "explicit"` labels the queued writer turn explicit. |
 
 The context's `speaker` always identifies Narrator. Older clients can still pass `speakerId` for compatibility.
