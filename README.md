@@ -82,8 +82,8 @@ Open **Finder → Go → Go to Folder** and enter `~/Library/Logs/Story Studio`.
 | File | What to look for |
 | --- | --- |
 | `setup.log` | The runtime download, dependency install, server readiness, and launcher failures with their stage and exit code. |
-| `server.log` | Startup and port errors, save and export requests, and OpenRouter status, timeout, or response errors. |
-| `mcp.log` | MCP startup, watcher activity, tool outcomes, and errors connecting to the local server or saving a reply. |
+| `server.log` | Startup, saves, exports, and both OpenRouter passes with routing, usage, and classification diagnostics. |
+| `mcp.log` | Watcher activity, tool outcomes, the context sent for each handoff, and counts of omitted turns by reason. |
 
 For example, this shows the latest server events as they arrive.
 
@@ -91,7 +91,9 @@ For example, this shows the latest server events as they arrive.
 tail -n 30 -F "$HOME/Library/Logs/Story Studio/server.log"
 ```
 
-For a writing error with a **Log ID**, match it to `requestId` in `server.log`. `upstreamStatus` is the HTTP status from OpenRouter, separate from the local `status`. `finishReason` and `metadataFinishReason` report how the prose and metadata calls ended. `metadataCode` reports analysis failures. `inputSensitivity` and `replySensitivity` record the two classification labels. If the app never starts, check `setup.log` and the launcher Terminal. If the browser page opens but its controls fail, check the browser's developer console as well.
+For a writing error with a **Log ID**, match it to `requestId` in `server.log`. In the completed request, the `prose` and `metadata` fields show each pass's model, HTTP status, timing, output cap, and finish reason. They include the host and token usage when OpenRouter reports them. `metadataCode` reports analysis failures. `inputSensitivity` and `replySensitivity` record the two classification labels.
+
+For an MCP handoff, look for `context_prepared` in `mcp.log`. It reports the queued turn number, how many history turns were included, and how many were omitted for the prompt budget or for each context rule. `recentPolicyOmissions` lists the last 24 turns omitted by the context rules and the reason for each. The same hashed `storyRef` appears in both logs so you can trace a story without putting its title in the logs. If the app never starts, check `setup.log` and the launcher Terminal. If the browser page opens but its controls fail, check the browser's developer console as well.
 
 Story Studio logs omit story text, directions, prompts, provider replies, and API keys. To redirect logs, set `STORY_STUDIO_LOG_DIR` in the server and MCP launcher environments. If you set only `STORY_STUDIO_DATA`, logs go in its `logs` subfolder.
 

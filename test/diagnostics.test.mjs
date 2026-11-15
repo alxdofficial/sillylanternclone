@@ -41,7 +41,8 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
         assert.equal(request.provider.require_parameters,undefined);
         assert.match(request.messages[0].content,/Return only the requested writing/);
         assert.doesNotMatch(request.messages[0].content,/JSON Schema|Classify the author direction/);
-        return Response.json({choices:[{finish_reason:endsEarly ? 'length' : 'stop',message:{content:text}}]});
+        return Response.json({provider:'Fixture Writing Host',usage:{prompt_tokens:120,completion_tokens:30},
+          choices:[{finish_reason:endsEarly ? 'length' : 'stop',message:{content:text}}]});
       }
       if (request.model !== 'deepseek/deepseek-v4.1-flash') {
         return new Response(${JSON.stringify(fixture)}, {status:401});
@@ -59,7 +60,8 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
         assert.match(request.messages[0].content,/draft ends early.*Classify the text that is present/);
         assert.match(request.messages[0].content,/empty updates array/);
       }
-      return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(metadata)}}]});
+      return Response.json({provider:'Fixture Metadata Host',usage:{prompt_tokens:160,completion_tokens:45},
+        choices:[{finish_reason:'stop',message:{content:JSON.stringify(metadata)}}]});
     };
   `);
   const child = spawn(process.execPath,['--import',mock,app],{
@@ -120,6 +122,15 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     const classified = events.find(event=>event.requestId===success.headers.get('x-story-studio-request-id') && event.event==='request_completed');
     assert.equal(classified?.inputSensitivity,'safe');
     assert.equal(classified?.replySensitivity,'explicit');
+    assert.match(classified?.storyRef,/^[a-f0-9]{12}$/);
+    assert.equal(classified?.mapProposals,1);
+    assert.equal(classified?.prose?.host,'Fixture Writing Host');
+    assert.equal(classified?.prose?.outputTokens,30);
+    assert.equal(classified?.prose?.finishReason,'stop');
+    assert.equal(classified?.metadata?.host,'Fixture Metadata Host');
+    assert.equal(classified?.metadata?.inputTokens,160);
+    assert.equal(classified?.metadata?.status,200);
+    assert.equal(metadataFailure?.metadata?.status,503);
     assert.doesNotMatch(contents,new RegExp(fixture));
     assert.ok(!contents.includes(scene.text));
   } finally {

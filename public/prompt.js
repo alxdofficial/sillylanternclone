@@ -313,9 +313,16 @@ export function replyInput(project, mode, {includeSensitive = false} = {}) {
 }
 
 export function isAvailableToMcp(turn, direction) {
-  if (turn.excludeFromContext || ['explicit','unclassified'].includes(turn.contentSensitivity)) return false;
-  return turn.role !== 'assistant' || turn.contentSensitivity === 'reviewed-safe'
-    || !direction || isAvailableToMcp(direction);
+  return !mcpOmissionReason(turn,direction);
+}
+
+export function mcpOmissionReason(turn, direction) {
+  if (turn.excludeFromContext) return 'allRoutes';
+  if (turn.contentSensitivity === 'explicit') return 'explicit';
+  if (turn.contentSensitivity === 'unclassified') return 'unverified';
+  if (turn.role === 'assistant' && turn.contentSensitivity !== 'reviewed-safe'
+    && direction && !isAvailableToMcp(direction)) return 'directionWithheld';
+  return '';
 }
 
 const sceneInstruction = 'Use the most recent narrated passage in the history as the immediate scene reference for short follow-ups. “Continue” means pick up where that passage ends. “Go into more detail” means expand the relevant beat in place. Unless the writer directs a change, preserve the scene, characters, point of view, tense, and established facts.';

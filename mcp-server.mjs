@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { appendTurn, buildMessages, dateWriterTurn, stripSpeakerName, formatMessages, getCast, narrator, isStoryTime, queuedTurn, recordStoryTime, replyInput, syncTakeSuggestions } from './public/prompt.js';
+import { appendTurn, buildMessages, dateWriterTurn, stripSpeakerName, formatMessages, getCast, narrator, isStoryTime, mcpOmissionReason, queuedTurn, recordStoryTime, replyInput, syncTakeSuggestions } from './public/prompt.js';
 
 import { checkMapUpdates, updateSchema } from './map-updates.mjs';
-import { createLogger, diagnosticError, errorCode } from './diagnostics.mjs';
+import { createLogger, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
 
 const log = createLogger('mcp');
 const port = Number(process.env.PORT || 4317);
@@ -51,7 +51,10 @@ function tool(name, config, handler) {
     try {
       const payload = await handler(args, extra);
       if (name !== 'wait_for_queued_turn' || payload.status === 'queued') {
-        log('info','tool_completed',{tool:name,durationMs:Date.now()-started});
+        log('info','tool_completed',{tool:name,durationMs:Date.now()-started,
+          storyRef:storyReference(payload.storyId),
+          turnNumber:payload.turnNumber ?? payload.pendingRequest?.turnNumber,
+          proposedUpdates:payload.proposedUpdates});
       }
       return result(payload);
     } catch (error) {
@@ -139,6 +142,24 @@ function storyContext(revision, project, direction = '') {
   const input = request ? replyInput(project, request.mode)
     : {project, direction, mode:direction.trim() ? 'send' : 'continue'};
   const messages = buildMessages(input.project, input.direction, input.mode, {maintainGraph:project.graphUpdates !== false});
+  const omitted = {allRoutes:0,explicit:0,unverified:0,directionWithheld:0};
+  const recentPolicyOmissions = [];
+  let priorDirection;
+  for (const [index,turn] of input.project.messages.entries()) {
+    if (turn.role === 'user') priorDirection = turn;
+    const reason = mcpOmissionReason(turn,priorDirection);
+    if (!reason) continue;
+    omitted[reason]++;
+    const turnNumber = Number.isSafeInteger(turn.turnNumber) && turn.turnNumber > 0 ? turn.turnNumber : index + 1;
+    recentPolicyOmissions.push({turnNumber,reason});
+  }
+  const historyIncluded = messages.filter(message => message.role !== 'system').length - 1;
+  const policyOmitted = Object.values(omitted).reduce((sum,count)=>sum + count,0);
+  log('info','context_prepared',{
+    storyRef:storyReference(project.id),turnNumber:request?.turnNumber,mode:input.mode,historyIncluded,
+    historyOmittedForBudget:Math.max(0,input.project.messages.length - historyIncluded - policyOmitted),
+    historyOmittedByPolicy:omitted,recentPolicyOmissions:recentPolicyOmissions.slice(-24)
+  });
   return {
     storyId:project.id,
     title:project.title,

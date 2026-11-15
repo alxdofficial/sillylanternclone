@@ -10,7 +10,7 @@ import { maxLibraryStories, starterStoryId, withoutStarter } from './public/libr
 import { createStarterStory } from './examples/the-late-ferry.mjs';
 import { checkMapUpdates } from './map-updates.mjs';
 import { metadataModel, readStoryMetadata, storyMetadataFormat } from './openrouter-format.mjs';
-import { createLogger, diagnosticError, errorCode } from './diagnostics.mjs';
+import { createLogger, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root=dirname(fileURLToPath(import.meta.url));
@@ -145,9 +145,12 @@ function reportAgent(report) {
 const libraryLimit = 16_000_000;
 function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
 async function generateOpenRouter(messages, model, key, diagnostics, metadata = false) {
+  const started = Date.now();
   const maxOutputTokens = metadata ? 1536 : proseOutputLimit(model);
-  log('info','generation_started',{requestId:diagnostics.requestId,provider:'openrouter',
-    model:metadata ? metadataModel : diagnostics.model, stage:metadata ? 'metadata' : 'prose'});
+  const stage = metadata ? 'metadata' : 'prose';
+  const details = diagnostics[stage] = {model:metadata ? metadataModel : diagnostics.model,maxOutputTokens};
+  log('info','generation_started',{requestId:diagnostics.requestId,storyRef:diagnostics.storyRef,
+    provider:'openrouter',stage,...details});
   let response;
   try {
     response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -164,11 +167,13 @@ async function generateOpenRouter(messages, model, key, diagnostics, metadata = 
       })
     });
   } catch (error) {
+    details.durationMs = Date.now() - started;
     const timeout = errorCode(error) === 'TIMEOUT';
     throw diagnosticError(timeout ? 'OPENROUTER_TIMEOUT' : 'OPENROUTER_CONNECTION_FAILED',
       timeout ? 'OpenRouter took too long to reply.' : 'Could not connect to OpenRouter.');
   }
-  diagnostics[metadata ? 'metadataUpstreamStatus' : 'upstreamStatus'] = response.status;
+  details.durationMs = Date.now() - started;
+  diagnostics[metadata ? 'metadataUpstreamStatus' : 'upstreamStatus'] = details.status = response.status;
   if (!response.ok) {
     const messages = {
       401: 'Check your API key.',
@@ -184,11 +189,22 @@ async function generateOpenRouter(messages, model, key, diagnostics, metadata = 
     result = await response.json();
   } catch {
     throw diagnosticError('OPENROUTER_INVALID_RESPONSE','OpenRouter returned an unreadable response.');
+  } finally {
+    details.durationMs = Date.now() - started;
+  }
+  if (typeof result?.provider === 'string' && /^[A-Za-z0-9][A-Za-z0-9 .+&()/\-]{0,59}$/.test(result.provider)) {
+    details.host = result.provider;
+  }
+  if (Number.isSafeInteger(result?.usage?.prompt_tokens) && result.usage.prompt_tokens >= 0) {
+    details.inputTokens = result.usage.prompt_tokens;
+  }
+  if (Number.isSafeInteger(result?.usage?.completion_tokens) && result.usage.completion_tokens >= 0) {
+    details.outputTokens = result.usage.completion_tokens;
   }
   const choice = result.choices?.[0];
   const finish = choice?.finish_reason;
   if (['stop','length','content_filter','error','tool_calls'].includes(finish)) {
-    diagnostics[metadata ? 'metadataFinishReason' : 'finishReason'] = finish;
+    diagnostics[metadata ? 'metadataFinishReason' : 'finishReason'] = details.finishReason = finish;
   }
   if (finish === 'content_filter' || finish === 'error') {
     throw diagnosticError('OPENROUTER_INCOMPLETE_REPLY','OpenRouter reported an incomplete response.');
@@ -277,6 +293,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
   }
   diagnostics.provider = 'openrouter';
   diagnostics.mode = mode;
+  diagnostics.storyRef = storyReference(project.id);
   try {
     if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
       diagnostics.code = 'OPENROUTER_KEY_REQUIRED';
@@ -306,6 +323,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     }
     diagnostics.inputSensitivity = draft.input;
     diagnostics.replySensitivity = draft.reply;
+    diagnostics.mapProposals = draft.suggestions.length;
     diagnostics.unverifiedLabels = draft.input === 'unclassified' || draft.reply === 'unclassified';
     if (draft.updateProblems) diagnostics.invalidMapUpdates = draft.updateProblems;
     return json(res, 200, draft);

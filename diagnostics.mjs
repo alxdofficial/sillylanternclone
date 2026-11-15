@@ -1,4 +1,5 @@
 import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -22,6 +23,10 @@ export function errorCode(error, fallback) {
   if (systemCodes.has(error?.cause?.code)) return error.cause.code;
   if (error?.name === 'TimeoutError') return 'TIMEOUT';
   return fallback;
+}
+
+export function storyReference(id) {
+  return typeof id === 'string' && id ? createHash('sha256').update(id).digest('hex').slice(0,12) : undefined;
 }
 
 // Pass only fixed event names and explicitly selected, content-free diagnostics.

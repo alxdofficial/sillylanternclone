@@ -153,6 +153,16 @@ test('native MCP handshake, private context, queued replies, alternates and revi
       assert.match(handoff.prompt,/Write their conversation at the café/);
       assert.doesNotMatch(JSON.stringify(handoff),/PROSE MARKER|ALL ROUTES PRIVATE MARKER|WITHHELD DIRECTION MARKER|UNREVIEWED GRAPH MARKER/);
     }
+    const handoffLog = await readFile(join(directory,'logs','mcp.log'),'utf8');
+    const handoffEvents = handoffLog.trim().split('\n').map(line=>JSON.parse(line));
+    const prepared = handoffEvents.find(event=>event.event === 'context_prepared' && event.turnNumber === 8);
+    assert.match(prepared?.storyRef,/^[a-f0-9]{12}$/);
+    assert.equal(prepared?.historyIncluded,1);
+    assert.equal(prepared?.historyOmittedForBudget,0);
+    assert.deepEqual(prepared?.historyOmittedByPolicy,{allRoutes:1,explicit:2,unverified:1,directionWithheld:2});
+    assert.deepEqual(prepared?.recentPolicyOmissions.at(-1),{turnNumber:6,reason:'directionWithheld'});
+    assert.ok(handoffEvents.some(event=>event.tool === 'wait_for_queued_turn' && event.storyRef === prepared.storyRef && event.turnNumber === 8));
+    assert.doesNotMatch(handoffLog,/PROSE MARKER|conversation at the café|The Morning After/);
 
     const disk = await readFile(join(directory,'library.json'),'utf8');
     const demo = toolData(await client.callTool({name:'get_story_context',arguments:{storyId:starterStoryId}}));
