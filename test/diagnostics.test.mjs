@@ -117,6 +117,9 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     assert.equal(metadataFailure?.upstreamStatus,200);
     assert.equal(metadataFailure?.metadataUpstreamStatus,503);
     assert.equal(metadataFailure?.metadataCode,'OPENROUTER_HTTP_ERROR');
+    const classified = events.find(event=>event.requestId===success.headers.get('x-story-studio-request-id') && event.event==='request_completed');
+    assert.equal(classified?.inputSensitivity,'safe');
+    assert.equal(classified?.replySensitivity,'explicit');
     assert.doesNotMatch(contents,new RegExp(fixture));
     assert.ok(!contents.includes(scene.text));
   } finally {

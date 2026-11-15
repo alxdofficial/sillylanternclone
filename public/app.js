@@ -1,7 +1,7 @@
 import { captureGraphVersion, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
 import { maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
 import { mergeLibrary } from './sync.js';
-import { buildMessages, formatMessages, extraFields, getCast, narrator, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
+import { buildMessages, formatMessages, extraFields, getCast, narrator, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
 import { models, chapterCost, isModelId } from './models.js';
 import { dateWriterTurn, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
@@ -296,8 +296,11 @@ function renderMessages() {
     box.append(empty);
     return;
   }
+  let previousDirection;
   project.messages.forEach((message,index) => {
     const fromAuthor = message.role === 'user';
+    if (fromAuthor) previousDirection = message;
+    const availableToMcp = isAvailableToMcp(message,previousDirection);
     const turn = message.turnNumber || index + 1;
     const row = el('article','message ' + (fromAuthor ? 'user' : 'assistant'));
     row.setAttribute('aria-label',`${fromAuthor ? 'Your input' : 'Story'} · Turn ${turn}`);
@@ -305,7 +308,7 @@ function renderMessages() {
     const body = el('div','message-body'), head = el('div',name ? 'message-header' : 'message-footer');
     if (name) head.append(el('strong',fromAuthor ? 'author-label' : '',name));
     if (message.excludeFromContext) head.append(el('span','context-badge','Outside AI context'));
-    else if (!isAvailableToMcp(message)) head.append(el('span','context-badge',
+    else if (!availableToMcp) head.append(el('span','context-badge',
       message.contentSensitivity === 'explicit' ? 'Explicit · outside MCP' : 'Unverified · outside MCP'));
     if (!message.excludeFromContext && message.graphSuggestions?.length) {
       const review = el('button','text-button','Review map updates');
@@ -335,7 +338,7 @@ function renderMessages() {
     actions.append(edit,remove,more);
     const provider = $('#sceneProvider').value;
     if (message.role === 'assistant' && !message.excludeFromContext && index === project.messages.length - 1
-        && provider !== 'manual' && (provider === 'openrouter' || isAvailableToMcp(message))) {
+        && provider !== 'manual' && (provider === 'openrouter' || availableToMcp)) {
       const retry = el('button','','Another take');
       retry.disabled = busy;
       retry.onclick = () => generate('retry');
@@ -475,7 +478,7 @@ async function generate(mode) {
   }
 
   if (mode === 'retry' && (lastTurn?.role !== 'assistant' || lastTurn.excludeFromContext
-      || provider === 'mcp' && !isAvailableToMcp(lastTurn))) return;
+      || provider === 'mcp' && !isAvailableToMcp(lastTurn,precedingDirection(project.messages)))) return;
 
   const replacedQueue = Boolean(project.agentRequest);
   const history = mode === 'retry' || answering ? project.messages.slice(0, -1) : project.messages.slice();
@@ -1218,22 +1221,27 @@ function readCast() {
 }
 
 let editingSensitivity;
-function showEditSensitivity(value) {
+function showEditSensitivity(value, heldForReview = false) {
   editingSensitivity = value;
-  $('#turnSensitivity').value = isAvailableToMcp({contentSensitivity:value}) ? 'include' : 'omit';
+  $('#turnSensitivity').value = !heldForReview && isAvailableToMcp({contentSensitivity:value}) ? 'include' : 'omit';
   const status = $('#editSensitivityStatus');
-  status.hidden = value !== 'unclassified';
-  status.textContent = value === 'unclassified' ? 'This text has not been verified.' : '';
+  status.hidden = !heldForReview && value !== 'unclassified';
+  status.textContent = heldForReview ? 'This reply follows a direction outside MCP. Review the text before including it.'
+    : value === 'unclassified' ? 'This text has not been verified.' : '';
 }
 
 function openEdit(index) {
   editingIndex = index;
-  const message = current().messages[index];
+  const {messages} = current();
+  const message = messages[index];
   $('#editText').value = message.content;
   $('#editStoryTime').value = message.storyTime || '';
   $('#editStoryTime').setCustomValidity('');
   $('#excludeTurn').checked = Boolean(message.excludeFromContext);
-  showEditSensitivity(message.contentSensitivity);
+  const sensitivity = message.contentSensitivity;
+  const heldForReview = (!sensitivity || sensitivity === 'safe')
+    && !isAvailableToMcp({...message,excludeFromContext:false},precedingDirection(messages,index));
+  showEditSensitivity(sensitivity,heldForReview);
   $('#editDialog').showModal();
 }
 function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return migratePersona({id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(typeof p.storyWriterId==='string'?{storyWriterId:p.storyWriterId}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentRequest&&['send','alternate'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300)}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
@@ -1414,9 +1422,9 @@ $('#settingsForm').onsubmit = event => {
 $('#settingsForm').elements.title.oninput = event => event.target.setCustomValidity('');
 $('#closeEdit').onclick = $('#cancelEdit').onclick = () => $('#editDialog').close();
 $('#editText').oninput = () => {
-  if (editingSensitivity === 'safe') showEditSensitivity('unclassified');
+  if (['safe','reviewed-safe'].includes(editingSensitivity)) showEditSensitivity('unclassified');
 };
-$('#turnSensitivity').onchange = event => showEditSensitivity(event.target.value === 'include' ? 'safe' : 'explicit');
+$('#turnSensitivity').onchange = event => showEditSensitivity(event.target.value === 'include' ? 'reviewed-safe' : 'explicit');
 $('#editStoryTime').oninput = event => event.target.setCustomValidity('');
 $('#editForm').onsubmit = event => {
   event.preventDefault();

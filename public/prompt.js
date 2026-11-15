@@ -239,7 +239,11 @@ function relationshipContext(project, scan, tokens, expand) {
   selected.sort((a,b) => a.time.localeCompare(b.time) || a.turn - b.turn);
   return selected.length ? heading + selected.map(event => event.line).join('\n') : '';
 }
-export const validSensitivity = value => ['safe','explicit','unclassified'].includes(value);
+export const validSensitivity = value => ['safe','reviewed-safe','explicit','unclassified'].includes(value);
+
+export function precedingDirection(turns, index = turns.length - 1) {
+  return turns.slice(0,index).findLast(turn => turn.role === 'user');
+}
 
 // A browser handoff points at an exact saved turn. A request that no longer
 // matches the story must never change the turn an agent writes.
@@ -255,7 +259,7 @@ export function queuedTurn(project) {
   if (request.speakerId !== narrator.id && !getCast(project).some(member => member.id === request.speakerId)) {
     return {request:null, problem:'The queued speaker is no longer in the cast. Queue the turn again.'};
   }
-  if (!isAvailableToMcp(last)) {
+  if (!isAvailableToMcp(last,precedingDirection(project.messages))) {
     return {request:null, problem:request.mode === 'alternate'
       ? 'That reply is outside MCP context. Queue a new non-explicit continuation instead.'
       : 'The queued writer turn is outside MCP context. Write this scene with OpenRouter, or change its label with Edit.'};
@@ -308,15 +312,21 @@ export function replyInput(project, mode, {includeSensitive = false} = {}) {
   return {project, direction:'', mode:'continue'};
 }
 
-export function isAvailableToMcp(turn) {
-  return !turn.excludeFromContext && !['explicit','unclassified'].includes(turn.contentSensitivity);
+export function isAvailableToMcp(turn, direction) {
+  if (turn.excludeFromContext || ['explicit','unclassified'].includes(turn.contentSensitivity)) return false;
+  return turn.role !== 'assistant' || turn.contentSensitivity === 'reviewed-safe'
+    || !direction || isAvailableToMcp(direction);
 }
 
 const sceneInstruction = 'Use the most recent narrated passage in the history as the immediate scene reference for short follow-ups. “Continue” means pick up where that passage ends. “Go into more detail” means expand the relevant beat in place. Unless the writer directs a change, preserve the scene, characters, point of view, tense, and established facts.';
 const safeUpdates = 'Suggest at most five new continuity facts in updates. Include new characters, changes to characters or the world, plot facts, or relationship events established by the latest direction or your reply. Keep each fact self-contained and non-explicit. For a relationship event, use exact cast names and say what happened between them in one sentence, with its in-story date and time (YYYY-MM-DDTHH:mm). Skip guesses and facts already in the map, story memory, or profiles.';
 
 export function contextTurns(turns, {includeSensitive = false} = {}) {
-  return turns.filter(turn => includeSensitive ? !turn.excludeFromContext : isAvailableToMcp(turn)).map(turn => ({
+  let direction;
+  return turns.filter(turn => {
+    if (turn.role === 'user') direction = turn;
+    return includeSensitive ? !turn.excludeFromContext : isAvailableToMcp(turn,direction);
+  }).map(turn => ({
     role:turn.role,
     content:turn.content,
     speakerId:turn.speakerId,

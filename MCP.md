@@ -28,6 +28,8 @@ The default port is 4317. If you set a custom `PORT` for the browser app, set th
 
 Story Studio's tools give the agent the cast, world, notes and eligible recent turns. Turns marked explicit, unverified or kept out of AI context are omitted from the tool result. The original text stays in the library, exports and browser transcript. Keep the agent in the Story Studio tools throughout the writing session.
 
+Replies to a direction outside MCP also stay out of MCP until you review the reply and choose **Include as non-explicit** in **Edit → MCP context**. Saved graph events can still carry the scene's non-explicit continuity into the prompt.
+
 - **Claude Writer (recommended for Claude Code):** double-click **Start Claude Writer.command** after starting Story Studio. It opens Claude Code with only the Story Studio tools (no shell, file or web tools) and starts watching for queued turns. The first time, sign in to Claude Code if asked.
 - **An existing Claude Code setup:** to block direct file and web reads with their native tools, add deny rules to `~/.claude/settings.json` for example `"permissions": {"deny": ["Read(~/Library/Application Support/Story Studio/**)", "WebFetch(domain:127.0.0.1)"]}`. Shell commands can still reach those, so prefer the Claude Writer for writing sessions.
 - **Codex** has no equivalent setting in this guide. Rely on the server instructions, start a dedicated session for writing, and avoid asking that session to inspect files.

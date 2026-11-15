@@ -91,7 +91,7 @@ For example, this shows the latest server events as they arrive.
 tail -n 30 -F "$HOME/Library/Logs/Story Studio/server.log"
 ```
 
-For a writing error with a **Log ID**, match it to `requestId` in `server.log`. `upstreamStatus` is the HTTP status from OpenRouter, separate from the local `status`. `finishReason` and `metadataFinishReason` report how the prose and metadata calls ended. `metadataCode` reports analysis failures. If the app never starts, check `setup.log` and the launcher Terminal. If the browser page opens but its controls fail, check the browser's developer console as well.
+For a writing error with a **Log ID**, match it to `requestId` in `server.log`. `upstreamStatus` is the HTTP status from OpenRouter, separate from the local `status`. `finishReason` and `metadataFinishReason` report how the prose and metadata calls ended. `metadataCode` reports analysis failures. `inputSensitivity` and `replySensitivity` record the two classification labels. If the app never starts, check `setup.log` and the launcher Terminal. If the browser page opens but its controls fail, check the browser's developer console as well.
 
 Story Studio logs omit story text, directions, prompts, provider replies, and API keys. To redirect logs, set `STORY_STUDIO_LOG_DIR` in the server and MCP launcher environments. If you set only `STORY_STUDIO_DATA`, logs go in its `logs` subfolder.
 

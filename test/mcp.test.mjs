@@ -53,9 +53,13 @@ test('native MCP handshake, private context, queued replies, alternates and revi
         graphSuggestions:[{kind:'fact',note:'UNREVIEWED GRAPH MARKER'}]},
       {role:'assistant',content:'UNVERIFIED PROSE MARKER',turnNumber:2,contentSensitivity:'unclassified'},
       {role:'assistant',content:'ALL ROUTES PRIVATE MARKER',turnNumber:3,excludeFromContext:true},
-      {role:'user',content:'Write their conversation at the café.',turnNumber:4}
+      {role:'user',content:'WITHHELD DIRECTION MARKER',turnNumber:4,contentSensitivity:'explicit'},
+      {role:'assistant',content:'MISLABELED PROSE MARKER',turnNumber:5,contentSensitivity:'safe'},
+      {role:'assistant',content:'UNLABELED PROSE MARKER',turnNumber:6},
+      {role:'assistant',content:'They walked to the café.',turnNumber:7,contentSensitivity:'reviewed-safe'},
+      {role:'user',content:'Write their conversation at the café.',turnNumber:8}
     ],
-    agentRequest:{mode:'send',speakerId:narrator.id,turnNumber:4}
+    agentRequest:{mode:'send',speakerId:narrator.id,turnNumber:8}
   });
   await writeFile(join(directory, 'library.json'), JSON.stringify(book));
   const source = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -145,8 +149,9 @@ test('native MCP handshake, private context, queued replies, alternates and revi
       const handoff = toolData(await client.callTool(call));
       assert.equal(handoff.storyId,'handoff');
       assert.match(handoff.prompt,/Relationship map:[\s\S]*They agreed to meet at the harbor café/);
+      assert.match(handoff.prompt,/They walked to the café/);
       assert.match(handoff.prompt,/Write their conversation at the café/);
-      assert.doesNotMatch(JSON.stringify(handoff),/EXPLICIT PROSE MARKER|UNVERIFIED PROSE MARKER|ALL ROUTES PRIVATE MARKER|UNREVIEWED GRAPH MARKER/);
+      assert.doesNotMatch(JSON.stringify(handoff),/PROSE MARKER|ALL ROUTES PRIVATE MARKER|WITHHELD DIRECTION MARKER|UNREVIEWED GRAPH MARKER/);
     }
 
     const disk = await readFile(join(directory,'library.json'),'utf8');

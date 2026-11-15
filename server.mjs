@@ -304,6 +304,8 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
       diagnostics.metadataCode = errorCode(e,'OPENROUTER_METADATA_FAILED');
       draft.metadataFailed = true;
     }
+    diagnostics.inputSensitivity = draft.input;
+    diagnostics.replySensitivity = draft.reply;
     diagnostics.unverifiedLabels = draft.input === 'unclassified' || draft.reply === 'unclassified';
     if (draft.updateProblems) diagnostics.invalidMapUpdates = draft.updateProblems;
     return json(res, 200, draft);
