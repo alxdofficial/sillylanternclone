@@ -30,7 +30,9 @@ MCP agents can propose new characters, relationship events, and updates to profi
 
 All model routes use the same strategy: recent included prose, character and world detail, and relevant relationship events and reviewed facts. The recent-prose cap is approximately 16,000 tokens, using a text-size estimate. Story Studio reduces the total for known smaller model windows and leaves room for the reply. Older prose remains in the transcript. The graph carries forward the facts that were captured and kept.
 
-To keep a passage out of future prompts, use **Edit → Keep this turn out of AI context → Save turn**. Leave a short, non-explicit plot fact under **World → Story memory**, or add a non-explicit relationship event. Check **Prompt**, use a fresh native agent session if it already saw the original, and ask for the next non-explicit scene. Exclusion applies to that turn, so check any nearby turns or notes that quote it. The original stays in the library and exports.
+New OpenRouter requests ask the selected model to label the latest writer message and its reply separately. Turns labeled explicit, or left unverified when a label is missing, are omitted from MCP prompts. They remain available to OpenRouter. This is a model judgment and can be wrong. **Edit → MCP context** lets you correct the label. Existing and manually written turns are not checked retroactively.
+
+To keep a passage out of every model's future prompts, use **Edit → Keep this turn out of AI context → Save turn**. Leave a short, non-explicit plot fact under **World → Story memory**, or add a non-explicit relationship event. Check **Prompt**, use a fresh native agent session if it already saw the original, and ask for the next non-explicit scene. Exclusion applies to that turn, so check any nearby turns or notes that quote it. The original stays in the library and exports.
 
 ## Back up and migrate
 

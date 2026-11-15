@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { appendTurn, buildMessages, formatMessages, getCast, getSpeaker, splitAgentReply } from './public/prompt.js';
+import { appendTurn, buildMessages, formatMessages, getCast, getSpeaker, splitAgentReply, isAvailableToMcp } from './public/prompt.js';
 
 const port = Number(process.env.PORT || 4317);
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -75,6 +75,9 @@ function pendingRequest(project) {
   const kind = request.mode === 'send' ? 'user' : request.mode === 'alternate' ? 'assistant' : null;
   if (!last || request.turnNumber !== turnNumber || last.role !== kind) {
     throw Error('The queued turn changed. Queue a new handoff in Story Studio, then try again.');
+  }
+  if (request.mode === 'alternate' && !isAvailableToMcp(last)) {
+    throw Error('That reply is outside MCP context. Queue a new non-explicit continuation instead.');
   }
   return {mode:request.mode,speakerId:request.speakerId,turnNumber};
 }
@@ -152,6 +155,8 @@ tool('submit_reply', {
     previous.alternatives = [...alternatives,draft.text.trim()];
     previous.selectedAlternative = previous.alternatives.length - 1;
     previous.content = draft.text.trim();
+    if (previous.alternativeSensitivities) previous.alternativeSensitivities.push(null);
+    delete previous.contentSensitivity;
     turnNumber = request.turnNumber;
   } else {
     if (project.messages.length + (writerTurn?.trim() ? 2 : 1) > 3000) throw Error('This story has reached its turn limit.');

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMessages, formatMessages } from '../public/prompt.js';
+import { buildMessages, formatMessages, splitOpenRouterReply } from '../public/prompt.js';
 
 const story = {
   characterName: 'Iona', personaName: 'Ren',
@@ -96,4 +96,30 @@ test('known small model gets a tighter budget without losing the latest directio
   assert.ok(large.length > small.length);
   assert.equal(small.at(-1).content,'Board the ferry');
   assert.ok(small.reduce((n,m)=> n + Math.ceil(Buffer.byteLength(m.content)/3) + 8,0) <= 5600);
+});
+
+test('OpenRouter labels are stripped from prose and missing or invalid labels stay unverified', () => {
+  assert.deepEqual(splitOpenRouterReply('Scene text.\n\n```story-safety\n{"input":"safe","reply":"explicit"}\n```'),
+    {text:'Scene text.',input:'safe',reply:'explicit'});
+  assert.deepEqual(splitOpenRouterReply('Scene text.\n```story-safety\n{"input":"safe"'),
+    {text:'Scene text.',input:'unclassified',reply:'unclassified'});
+  assert.deepEqual(splitOpenRouterReply('Scene text without any label.'),
+    {text:'Scene text without any label.',input:'unclassified',reply:'unclassified'});
+});
+
+test('auto-flagged turns stop at the MCP boundary while OpenRouter keeps scene continuity', () => {
+  const project = {...story,messages:[
+    {role:'user',content:'PRIVATE_WRITER',contentSensitivity:'explicit'},
+    {role:'assistant',content:'UNVERIFIED_REPLY',contentSensitivity:'unclassified'},
+    {role:'assistant',content:'HIDDEN_EVERYWHERE',excludeFromContext:true},
+    {role:'user',content:'NEXT_SCENE',contentSensitivity:'safe'}
+  ]};
+  const mcp = formatMessages(buildMessages(project));
+  const router = formatMessages(buildMessages(project,'', 'send',{includeSensitive:true,classifySafety:true}));
+  assert.doesNotMatch(mcp,/PRIVATE_WRITER|UNVERIFIED_REPLY|HIDDEN_EVERYWHERE/);
+  assert.match(mcp,/NEXT_SCENE/);
+  assert.match(router,/PRIVATE_WRITER/);
+  assert.match(router,/UNVERIFIED_REPLY/);
+  assert.doesNotMatch(router,/HIDDEN_EVERYWHERE/);
+  assert.match(router,/fenced story-safety block/);
 });

@@ -1,5 +1,5 @@
 import { captureGraphVersion, normalizeGraphHistory } from './graph-history.js';
-import { buildMessages, formatMessages, extraFields, getCast, getSpeaker, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns } from './prompt.js';
+import { buildMessages, formatMessages, extraFields, getCast, getSpeaker, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp } from './prompt.js';
 
 import { models, chapterCost, isModelId } from './models.js';
 
@@ -85,8 +85,19 @@ function render() {
   }
   renderMessages();
 }
-function renderMessages(){const p=current(), box=$('#messages');box.replaceChildren();if(!p.messages.length){const empty=el('div','empty');empty.append(el('div','empty-mark','\u2733'),el('strong','','Every story starts somewhere.'),el('p','','Set the scene below, or ask your co-writer to begin.'));box.append(empty);return}p.messages.forEach((m,index)=>{const row=el('article','message '+(m.role==='user'?'user':'assistant'));const avatar=el('div','avatar',m.role==='user'?'Y':'\u2733');avatar.setAttribute('aria-hidden','true');const body=el('div','message-body'), head=el('div','message-header');head.append(el('strong','',m.role==='user'?(p.personaName||'You'):(m.speakerName||p.characterName||'Co-writer')));if(m.excludeFromContext)head.append(el('span','context-badge','Outside AI context'));else if(m.graphSuggestions?.length){const review=el('button','text-button','Review map updates');review.onclick=()=>{openSettings();$('#graphSuggestions').scrollIntoView({block:'nearest'});};head.append(review)}const actions=el('div','message-actions');const edit=el('button','','Edit');edit.onclick=()=>openEdit(index);const del=el('button','','Delete');del.onclick=()=>{if(!confirm('Delete this turn?'))return;p.messages.splice(index,1);markDirty();renderMessages()};actions.append(edit,del);if(m.role==='assistant'&&!m.excludeFromContext&&index===p.messages.length-1&&$('#sceneProvider').value!=='manual'){const retry=el('button','','Another take');retry.disabled=busy;retry.onclick=()=>generate('retry');actions.prepend(retry)}head.append(actions);body.append(head,el('div','message-text',m.content));if(m.role==='assistant' && m.alternatives?.length>1){const nav=el('div','alternatives');const prev=el('button','','← Previous');const count=el('span','',`${m.selectedAlternative+1} of ${m.alternatives.length} takes`);const next=el('button','','Next →');prev.disabled=busy||m.selectedAlternative===0;next.disabled=busy||m.selectedAlternative===m.alternatives.length-1;prev.onclick=()=>selectAlternative(m,m.selectedAlternative-1);next.onclick=()=>selectAlternative(m,m.selectedAlternative+1);nav.append(prev,count,next);body.append(nav)}row.append(avatar,body);box.append(row)});box.scrollTop=box.scrollHeight}
-function selectAlternative(message,index){if(!message.alternatives || index<0 || index>=message.alternatives.length)return;message.selectedAlternative=index;message.content=message.alternatives[index];markDirty();renderMessages()}
+function renderMessages(){const p=current(), box=$('#messages');box.replaceChildren();if(!p.messages.length){const empty=el('div','empty');empty.append(el('div','empty-mark','\u2733'),el('strong','','Every story starts somewhere.'),el('p','','Set the scene below, or ask your co-writer to begin.'));box.append(empty);return}p.messages.forEach((m,index)=>{const row=el('article','message '+(m.role==='user'?'user':'assistant'));const avatar=el('div','avatar',m.role==='user'?'Y':'\u2733');avatar.setAttribute('aria-hidden','true');const body=el('div','message-body'), head=el('div','message-header');head.append(el('strong','',m.role==='user'?(p.personaName||'You'):(m.speakerName||p.characterName||'Co-writer')));if(m.excludeFromContext)head.append(el('span','context-badge','Outside AI context'));else if(!isAvailableToMcp(m))head.append(el('span','context-badge',m.contentSensitivity==='explicit'?'Explicit · outside MCP':'Unverified · outside MCP'));else if(m.graphSuggestions?.length){const review=el('button','text-button','Review map updates');review.onclick=()=>{openSettings();$('#graphSuggestions').scrollIntoView({block:'nearest'});};head.append(review)}const actions=el('div','message-actions');const edit=el('button','','Edit');edit.onclick=()=>openEdit(index);const del=el('button','','Delete');del.onclick=()=>{if(!confirm('Delete this turn?'))return;p.messages.splice(index,1);markDirty();renderMessages()};actions.append(edit,del);if(m.role==='assistant'&&!m.excludeFromContext&&index===p.messages.length-1&&$('#sceneProvider').value!=='manual'&&($('#sceneProvider').value==='openrouter'||isAvailableToMcp(m))){const retry=el('button','','Another take');retry.disabled=busy;retry.onclick=()=>generate('retry');actions.prepend(retry)}head.append(actions);body.append(head,el('div','message-text',m.content));if(m.role==='assistant' && m.alternatives?.length>1){const nav=el('div','alternatives');const prev=el('button','','← Previous');const count=el('span','',`${m.selectedAlternative+1} of ${m.alternatives.length} takes`);const next=el('button','','Next →');prev.disabled=busy||m.selectedAlternative===0;next.disabled=busy||m.selectedAlternative===m.alternatives.length-1;prev.onclick=()=>selectAlternative(m,m.selectedAlternative-1);next.onclick=()=>selectAlternative(m,m.selectedAlternative+1);nav.append(prev,count,next);body.append(nav)}row.append(avatar,body);box.append(row)});box.scrollTop=box.scrollHeight}
+function setSensitivity(message, value) {
+  if (validSensitivity(value)) message.contentSensitivity = value;
+  else delete message.contentSensitivity;
+}
+function selectAlternative(message, index) {
+  if (!message.alternatives || index < 0 || index >= message.alternatives.length) return;
+  message.selectedAlternative = index;
+  message.content = message.alternatives[index];
+  if (message.alternativeSensitivities) setSensitivity(message, message.alternativeSensitivities[index] ?? null);
+  markDirty();
+  renderMessages();
+}
 function syncRoute() {
   const project = current();
   const savedRoute = getSession(routeKey(project.id));
@@ -150,7 +161,7 @@ async function generate(mode) {
   let speaker = getSpeaker(project);
   if (mode === 'retry') {
     const previous = project.messages.at(-1);
-    if (previous?.role !== 'assistant' || previous.excludeFromContext) return;
+    if (previous?.role !== 'assistant' || previous.excludeFromContext || provider === 'mcp' && !isAvailableToMcp(previous)) return;
     const originalId = previous.speakerId || primarySpeaker;
     speaker = getCast(project).find(member => member.id === originalId);
     if (!speaker) {
@@ -161,7 +172,7 @@ async function generate(mode) {
 
   const history = mode === 'retry' ? project.messages.slice(0, -1) : project.messages.slice();
   if (mode === 'send') {
-    const turnNumber = appendTurn(project, {role:'user', content:direction});
+    const turnNumber = appendTurn(project, {role:'user', content:direction, ...(provider === 'openrouter' ? {contentSensitivity:'unclassified'} : {})});
     input.value = '';
     setSession(draftKey(project.id), '');
     if (provider === 'mcp') project.agentRequest = {mode:'send',speakerId:speaker.id,turnNumber};
@@ -178,7 +189,7 @@ async function generate(mode) {
     id:project.id,
     ...Object.fromEntries(settingsFields.map(key => [key,project[key] || ''])),
     cast:project.cast, relationships:project.relationships, speakerId:speaker.id,
-    messages:recentTurns(history)
+    messages:recentTurns(history,recentTokenCap,{includeSensitive:true})
   };
   const originalHistory = JSON.stringify(project.messages);
   setBusy(true);
@@ -201,11 +212,18 @@ async function generate(mode) {
     if (mode === 'retry') {
       const message = target.messages.at(-1);
       message.alternatives ||= [message.content];
+      message.alternativeSensitivities ||= message.alternatives.map((_,index) =>
+        index === (message.selectedAlternative || 0) ? message.contentSensitivity || null : 'unclassified');
       message.alternatives.push(text.trim());
+      message.alternativeSensitivities.push(validSensitivity(response.reply) ? response.reply : 'unclassified');
       message.selectedAlternative = message.alternatives.length - 1;
       message.content = message.alternatives[message.selectedAlternative];
+      setSensitivity(message,message.alternativeSensitivities[message.selectedAlternative]);
     } else {
-      appendTurn(target, {role:'assistant', content:text.trim(), ...speakerMetadata(speaker)});
+      setSensitivity(target.messages.at(-1),validSensitivity(response.input) ? response.input : 'unclassified');
+      appendTurn(target, {role:'assistant', content:text.trim(), ...speakerMetadata(speaker),
+        contentSensitivity:validSensitivity(response.reply) ? response.reply : 'unclassified'});
+
     }
     markDirty();
   } catch (e) {
@@ -490,7 +508,7 @@ function openSettings(initialTab = $('#castTab')) {
   for (const details of form.querySelectorAll('details')) details.open = false;
   draftRelationships = structuredClone(project.relationships || []);
   showOlderEvents = false;
-  pendingGraphReview = project.messages.flatMap((message, turn) => message.excludeFromContext ? [] :
+  pendingGraphReview = project.messages.flatMap((message, turn) => !isAvailableToMcp(message) ? [] :
     (message.graphSuggestions || []).map((suggestion, index) => ({turn,index,suggestion, turnNumber:message.turnNumber || turn + 1, status:''})));
   pendingGraphReview = pendingGraphReview.slice(-30);
   $('#graphUpdates').checked = project.graphUpdates !== false;
@@ -558,10 +576,11 @@ function openEdit(index) {
   const message = current().messages[index];
   $('#editText').value = message.content;
   $('#excludeTurn').checked = Boolean(message.excludeFromContext);
+  $('#turnSensitivity').value = message.contentSensitivity || '';
   $('#editDialog').showModal();
 }
-function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>100)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(({from,to,label,turn})=>({from,to,label,turn:turn||0}))} : {}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentRequest&&['send','alternate'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)?{agentRequest:p.agentRequest}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(m.excludeFromContext===true)result.excludeFromContext=true;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;
-if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}}return result})}});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
+function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>100)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(({from,to,label,turn})=>({from,to,label,turn:turn||0}))} : {}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentRequest&&['send','alternate'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)?{agentRequest:p.agentRequest}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;
+if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})}});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 
 const modelChoice = $('#modelPreset');
 const sceneModelChoice = $('#sceneModel');
@@ -726,13 +745,22 @@ $('#settingsForm').onsubmit = event => {
 };
 $('#settingsForm').elements.title.oninput = event => event.target.setCustomValidity('');
 $('#closeEdit').onclick = $('#cancelEdit').onclick = () => $('#editDialog').close();
+$('#editText').oninput = () => {
+  if ($('#turnSensitivity').value === 'safe') $('#turnSensitivity').value = 'unclassified';
+};
 $('#editForm').onsubmit = event => {
   event.preventDefault();
   const message = current().messages[editingIndex];
   message.content = $('#editText').value;
+  setSensitivity(message,$('#turnSensitivity').value);
   if ($('#excludeTurn').checked) message.excludeFromContext = true;
   else delete message.excludeFromContext;
-  if (message.alternatives) message.alternatives[message.selectedAlternative] = message.content;
+  if (message.alternatives) {
+    message.alternatives[message.selectedAlternative] = message.content;
+    if (message.alternativeSensitivities) message.alternativeSensitivities[message.selectedAlternative] = message.contentSensitivity || null;
+    else if (message.contentSensitivity) message.alternativeSensitivities = message.alternatives.map((_,index)=>
+      index===message.selectedAlternative ? message.contentSensitivity : 'unclassified');
+  }
   markDirty();
   $('#editDialog').close();
   renderMessages();
@@ -746,7 +774,9 @@ function promptForDraft() {
   const snapshot = queued ? {...project, speakerId:queued.speakerId,
     messages:queued.mode === 'alternate' ? project.messages.slice(0,-1) : project.messages} : project;
   return buildMessages(snapshot, direction, queued?.mode === 'alternate' ? 'alternate' : direction ? 'send' : 'continue', {
-    maintainGraph: provider === 'mcp' && project.graphUpdates !== false, model: provider === 'openrouter' ? connection.model : ''
+    maintainGraph: provider === 'mcp' && project.graphUpdates !== false,
+    model: provider === 'openrouter' ? connection.model : '',
+    includeSensitive:provider === 'openrouter',classifySafety:provider === 'openrouter'
   });
 }
 $('#promptPreview').onclick = () => {

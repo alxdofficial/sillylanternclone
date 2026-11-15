@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
 import { isModelId } from './public/models.js';
-import { buildMessages, extraFields, validCast, validRelationships } from './public/prompt.js';
+import { buildMessages, extraFields, validCast, validRelationships, validSensitivity, splitOpenRouterReply } from './public/prompt.js';
 import { fileURLToPath } from 'node:url';
 
 const root=dirname(fileURLToPath(import.meta.url));
@@ -44,7 +44,7 @@ async function body(req, limit = 2_000_000) {
 }
 
 const libraryLimit = 16_000_000;
-function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=100 && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean')));}
+function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=100 && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
 async function generateOpenRouter(messages, model, key) {
   if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
     throw Error('Enter an OpenRouter API key in Connections.');
@@ -123,8 +123,10 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     return json(res, 400, {error:'Unsupported browser generation mode.'});
   }
   try {
-    const messages = buildMessages(project,instruction,mode,{model});
-    return json(res, 200, {text:await generateOpenRouter(messages,model,key)});
+    const messages = buildMessages(project,instruction,mode,{model,includeSensitive:true,classifySafety:true});
+    const draft = splitOpenRouterReply(await generateOpenRouter(messages,model,key));
+    if (!draft.text) throw Error('OpenRouter returned a label without a story reply.');
+    return json(res, 200, draft);
   } catch (e) {
     return json(res, 500, {error:e.message});
   }
