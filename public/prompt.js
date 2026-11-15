@@ -210,7 +210,10 @@ export function appendTurn(project, message) {
   return turnNumber;
 }
 
-function relationshipContext(project, scan) {
+function relationshipContext(project, scan, tokens, expand) {
+  const heading = 'Relationship map:\n';
+  let remaining = (tokens - 8) * 3 - encoder.encode(heading).length;
+  if (remaining <= 0 || !project.relationships?.length) return '';
   const cast = getCast(project);
   const castById = new Map(cast.map(member => [member.id,member.name]));
   const priorityMembers = new Set();
@@ -222,16 +225,17 @@ function relationshipContext(project, scan) {
   const start = project.storyStartAt || localStoryTime();
   const score = edge => Number(priorityMembers.has(edge.from)) + Number(priorityMembers.has(edge.to));
   events.sort((a,b) => score(b) - score(a) || (b.turn || 0) - (a.turn || 0));
-  let remaining = 2200;
   const selected = [];
   for (const edge of events) {
     const time = relationshipTime(project,edge,start);
-    const line = `${time.replace('T',' ')} · ${clip(castById.get(edge.from),100)} → ${clip(castById.get(edge.to),100)}: ${edge.label}`;
-    if (line.length + 1 > remaining) continue;
+    const line = expand(`${time.replace('T',' ')} · ${clip(castById.get(edge.from),100)} → ${clip(castById.get(edge.to),100)}: ${edge.label}`);
+    const bytes = encoder.encode(line).length + (selected.length ? 1 : 0);
+    if (bytes > remaining) continue;
     selected.push({time,turn:edge.turn || 0,line});
-    remaining -= line.length + 1;
+    remaining -= bytes;
   }
-  return selected.sort((a,b) => a.time.localeCompare(b.time) || a.turn - b.turn).map(event => event.line).join('\n');
+  selected.sort((a,b) => a.time.localeCompare(b.time) || a.turn - b.turn);
+  return selected.length ? heading + selected.map(event => event.line).join('\n') : '';
 }
 export const validSensitivity = value => ['safe','explicit','unclassified'].includes(value);
 
@@ -415,7 +419,6 @@ export function buildMessages(project, instruction = '', mode = 'continue', {mai
   add('Writer character', [clip(writer.name, 100), writer.description].filter(Boolean).join('\n'), 3000);
   add('Character description', [clip(name, 100), clipEnds(lead.description, 11800)].filter(Boolean).join('\n'), 12000);
   add('Character nickname', lead.nickname, 120);
-  add('Relationship map', relationshipContext(project, scan), 2200);
   add('Character personality', lead.personality, 1300);
   add('Scenario', lead.scenario, 1700);
   const supporting = otherCast.filter(member => member.id !== project.storyWriterId);
@@ -467,9 +470,13 @@ export function buildMessages(project, instruction = '', mode = 'continue', {mai
     }, direction);
   }
   const messages = limitPrompt(context, modelLimit);
-  if (!classifySafety) return messages;
+  const graphBudget = modelLimit - messages.reduce((tokens,message) => tokens + estimate(message.content),0);
+  const graph = relationshipContext(project,scan,graphBudget,expand);
   const firstTurn = messages.findIndex(message => message.role !== 'system');
-  return [{role:'system',content:messages.slice(0,firstTurn).map(message => message.content).join('\n\n')}, ...messages.slice(firstTurn)];
+  if (graph) messages.splice(firstTurn,0,{role:'system',content:graph});
+  if (!classifySafety) return messages;
+  const historyStart = firstTurn + Number(Boolean(graph));
+  return [{role:'system',content:messages.slice(0,historyStart).map(message => message.content).join('\n\n')}, ...messages.slice(historyStart)];
 }
 
 export function formatMessages(messages) {

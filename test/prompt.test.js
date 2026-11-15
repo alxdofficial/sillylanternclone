@@ -103,6 +103,25 @@ test('known small model gets a tighter budget without losing the latest directio
   assert.ok(small.reduce((n,m)=> n + Math.ceil(Buffer.byteLength(m.content)/3) + 8,0) <= 5600);
 });
 
+test('the prompt fits relationship history around the recent prose', () => {
+  const project = {
+    ...story,
+    cast:[{id:'ren',name:'Ren'},{id:'mara',name:'Mara'}],
+    relationships:Array.from({length:300},(_,index) => ({
+      from:'primary',to:index === 0 ? 'ren' : 'mara',turn:index + 1,
+      storyTime:'1998-10-25T00:13',label:`Event ${index}: An agreement to share the lighthouse watch whenever high seas delay the ferry.`
+    }))
+  };
+  const large = buildMessages(project,'Ren takes the watch.','send',{model:'sao10k/l3.1-euryale-70b',classifySafety:true});
+  const events = messages => [...messages[0].content.matchAll(/Event (\d+):/g)].map(match => Number(match[1]));
+  assert.deepEqual(events(large),Array.from({length:300},(_,index)=>index));
+  const small = buildMessages(project,'Ren takes the watch.','send',{model:'gryphe/mythomax-l2-13b',classifySafety:true});
+  assert.ok(events(small).length < 300);
+  assert.equal(events(small)[0],0);
+  assert.deepEqual(small.slice(1),large.slice(1));
+  assert.ok(small.reduce((n,m)=> n + Math.ceil(Buffer.byteLength(m.content)/3) + 8,0) <= 5600);
+});
+
 test('auto-flagged turns stop at the MCP boundary while OpenRouter keeps scene continuity', () => {
   const project = {...story,messages:[
     {role:'user',content:'PRIVATE_WRITER',contentSensitivity:'explicit'},
