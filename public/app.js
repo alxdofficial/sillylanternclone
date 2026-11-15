@@ -62,8 +62,12 @@ function selectAlternative(message,index){if(!message.alternatives || index<0 ||
 function syncRoute() {
   const route = getSession(routeKey(current().id)) || 'codex';
   $('#sceneProvider').value = route;
-  $('#routeSummary').textContent = route === 'openrouter'
-    ? connection.model || 'Configure an OpenRouter model'
+  const usesOpenRouter = route === 'openrouter';
+  $('#sceneModelControl').hidden = !usesOpenRouter;
+  sceneModelChoice.disabled = busy;
+  syncSceneModel();
+  $('#routeSummary').textContent = usesOpenRouter
+    ? connection.key ? '' : 'Add an API key in Connection'
     : route === 'manual' ? 'Copy prompt, then add the reply' : 'Uses your ChatGPT sign-in';
   $('#sceneProvider').disabled = busy;
   $('#sendButton').disabled = busy;
@@ -155,12 +159,27 @@ function openEdit(index){editingIndex=index;$('#editText').value=current().messa
 function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>100)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map(m=>{const result={role:m.role,content:m.content};if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}}return result})}});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 function showProviderFields(){const isRouter=$('#providerSelect').value==='openrouter';$('#routerFields').hidden=!isRouter;$('#codexNote').hidden=isRouter;}
 const modelChoice = $('#modelPreset');
+const sceneModelChoice = $('#sceneModel');
 for (const model of models) {
   const cost = chapterCost(model).toFixed(5);
-  const option = el('option', '', `${model.name} · ~$${cost} / chapter`);
-  option.value = model.id;
-  modelChoice.append(option);
+  modelChoice.add(new Option(`${model.name} · ~$${cost} / chapter`, model.id));
+  sceneModelChoice.add(new Option(model.name, model.id));
 }
+const sceneCustomOption = new Option();
+let customModelId = '';
+function syncSceneModel() {
+  if (customModelId && sceneCustomOption.value !== customModelId) {
+    sceneCustomOption.value = customModelId;
+    sceneCustomOption.textContent = customModelId;
+    sceneModelChoice.add(sceneCustomOption);
+  }
+  sceneModelChoice.value = connection.model;
+}
+sceneModelChoice.onchange = () => {
+  if (busy || !state || !isModelId(sceneModelChoice.value)) return;
+  connection.model = sceneModelChoice.value;
+  syncRoute();
+};
 const customOption = el('option', '', 'Enter another model ID…');
 customOption.value = 'custom';
 modelChoice.append(customOption);
@@ -181,7 +200,7 @@ function openConnection(preferred) {
   $('#providerSelect').value = preferred === 'openrouter' ? 'openrouter' : 'codex';
   modelChoice.value = models.some(item => item.id === connection.model)
     ? connection.model : connection.model ? 'custom' : '';
-  $('#modelInput').value = modelChoice.value === 'custom' ? connection.model : '';
+  $('#modelInput').value = modelChoice.value === 'custom' ? connection.model : customModelId;
   showModelPrice();
   $('#modelError').textContent = '';
   $('#keyInput').value = connection.key;
@@ -204,6 +223,7 @@ $('#providerForm').onsubmit = event => {
       (modelChoice.value === 'custom' ? $('#modelInput') : modelChoice).focus();
       return;
     }
+    if (!models.some(item => item.id === model)) customModelId = model;
     connection = {model, key:$('#keyInput').value.trim()};
   }
   setSession(routeKey(current().id), route);

@@ -46,3 +46,7 @@
   .route-bar { flex-wrap: wrap; }
   #routeSummary { white-space: normal; overflow-wrap: anywhere; }
 }
+
+#sceneModelControl { display: flex; align-items: center; gap: 7px; min-width: 0; }
+#sceneModel { max-width: min(220px, 68vw); }
+#routeSummary:empty { display: none; }
