@@ -7,7 +7,6 @@ Prices checked on 15 November 2026. One estimated chapter uses 2,000 billed inpu
 | Model | What to try it for | Context | USD per million input / output tokens | Estimated USD per chapter |
 | --- | --- | ---: | ---: | ---: |
 | [Cydonia 24B v4.1](https://openrouter.ai/thedrummer/cydonia-24b-v4.1) | First choice for creative prose | 131K | $0.30 / $0.50 | $0.00310 |
-| [Euryale 70B v2.2](https://openrouter.ai/sao10k/l3.1-euryale-70b) | Character voice and dialogue | 131K | $0.85 / $0.85 | $0.00595 |
 | [Magnum v4 72B](https://openrouter.ai/anthracite-org/magnum-v4-72b) | More expensive prose comparison | 32K | $2.50 / $5.00 | $0.03000 |
 | [UnslopNemo 12B](https://openrouter.ai/thedrummer/unslopnemo-12b) | Lightweight adventure writing and roleplay | 1,024K | $0.40 / $0.40 | $0.00280 |
 | [MythoMax 13B](https://openrouter.ai/gryphe/mythomax-l2-13b) | Cheap short scenes with compact context | 8K | $0.08 / $0.11 | $0.00071 |

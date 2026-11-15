@@ -112,7 +112,7 @@ test('the prompt fits relationship history around the recent prose', () => {
       storyTime:'1998-10-25T00:13',label:`Event ${index}: An agreement to share the lighthouse watch whenever high seas delay the ferry.`
     }))
   };
-  const large = buildMessages(project,'Ren takes the watch.','send',{model:'sao10k/l3.1-euryale-70b',openRouter:true});
+  const large = buildMessages(project,'Ren takes the watch.','send',{model:'thedrummer/cydonia-24b-v4.1',openRouter:true});
   const events = messages => [...messages[0].content.matchAll(/Event (\d+):/g)].map(match => Number(match[1]));
   assert.deepEqual(events(large),Array.from({length:300},(_,index)=>index));
   const small = buildMessages(project,'Ren takes the watch.','send',{model:'gryphe/mythomax-l2-13b',openRouter:true});
@@ -148,7 +148,7 @@ test('OpenRouter grounds a short follow-up in the latest narration', () => {
     {role:'assistant',content:'Iona set the broken radio on the ticket counter.',contentSensitivity:'explicit'}
   ]};
   const messages = buildMessages(project,'go into more detail','send',{
-    model:'sao10k/l3.1-euryale-70b',includeSensitive:true,openRouter:true
+    model:'thedrummer/cydonia-24b-v4.1',includeSensitive:true,openRouter:true
   });
   assert.deepEqual(messages.map(message=>message.role),['system','user','assistant','user']);
   assert.match(messages[0].content,/“Go into more detail” means expand the relevant beat in place/);

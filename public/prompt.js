@@ -417,7 +417,7 @@ export function buildMessages(project, instruction = '', mode = 'continue', {mai
   };
   const modelLimit = model === 'gryphe/mythomax-l2-13b' ? 5600
     : model === 'anthracite-org/magnum-v4-72b' ? 29_500
-    : model && !['thedrummer/cydonia-24b-v4.1','sao10k/l3.1-euryale-70b','thedrummer/unslopnemo-12b'].includes(model) ? 28_000 : 48_000;
+    : model && !['thedrummer/cydonia-24b-v4.1','thedrummer/unslopnemo-12b'].includes(model) ? 28_000 : 48_000;
   const history = recentTurns(project.messages, Math.min(recentTokenCap, modelLimit - 2900), {includeSensitive}).map(turn => ({
     role:turn.role,
     content:turn.role === 'assistant' && turn.speakerId !== narrator.id && turn.speakerName
