@@ -558,7 +558,9 @@ async function generate(mode) {
     }
     markDirty(target);
     if (response.truncated) {
-      error('This reply reached the model’s length limit and may end mid-scene. It stays outside MCP context until you check its label with Edit.');
+      const unverified = response.input === 'unclassified' || response.reply === 'unclassified';
+      error('This reply reached Story Studio’s output limit and may end mid-scene.' +
+        (unverified ? ' Any unverified text stays outside MCP until you check its label with Edit.' : ''));
     } else if (response.metadataFailed) {
       error('Your draft is in the story. DeepSeek could not verify its labels or suggest map updates. Check the labels with Edit before using this turn in MCP.');
     } else if (response.updateProblems) {

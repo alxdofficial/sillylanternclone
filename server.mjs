@@ -25,7 +25,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/agent','/api/generate','/api/export']);
 const methodNames = new Set(['GET','POST','PUT']);
-const modelIds = new Set(models.map(model => model.id));
+const writingModels = new Map(models.map(model => [model.id,model]));
 let starter = createStarterStory();
 let starterSelected = false;
 let starterGeneration = randomUUID();
@@ -145,6 +145,7 @@ function reportAgent(report) {
 const libraryLimit = 16_000_000;
 function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
 async function generateOpenRouter(messages, model, key, diagnostics, metadata = false) {
+  const maxOutputTokens = metadata ? 1536 : writingModels.get(model)?.maxOutputTokens ?? 2048;
   log('info','generation_started',{requestId:diagnostics.requestId,provider:'openrouter',
     model:metadata ? metadataModel : diagnostics.model, stage:metadata ? 'metadata' : 'prose'});
   let response;
@@ -153,11 +154,11 @@ async function generateOpenRouter(messages, model, key, diagnostics, metadata = 
       method: 'POST',
       redirect: 'error',
       headers: {authorization: 'Bearer ' + key, 'content-type': 'application/json'},
-      signal: AbortSignal.timeout(metadata ? 45_000 : 120_000),
+      signal: AbortSignal.timeout(metadata ? 45_000 : maxOutputTokens > 2048 ? 180_000 : 120_000),
       body: JSON.stringify({
         model,
         messages,
-        max_tokens: metadata ? 1536 : 2048,
+        max_tokens:maxOutputTokens,
         provider: {data_collection:'deny',...(metadata ? {require_parameters:true} : {})},
         ...(metadata ? {response_format:storyMetadataFormat,reasoning:{enabled:false}} : {})
       })
@@ -285,20 +286,18 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
       diagnostics.code = 'OPENROUTER_MODEL_INVALID';
       return json(res,400,{error:'Enter a specific OpenRouter model ID (author/model).'});
     }
-    diagnostics.model = modelIds.has(model) ? model : 'custom';
+    diagnostics.model = writingModels.has(model) ? model : 'custom';
     diagnostics.outputFormat = 'text';
     const messages = buildMessages(project,instruction,mode,{model,includeSensitive:true,openRouter:true});
     const output = await generateOpenRouter(messages,model,key,diagnostics);
     diagnostics.truncated = output.truncated;
     const draft = {text:output.text,input:'unclassified',reply:'unclassified',storyTime:'',suggestions:[]};
-    if (output.truncated) {
-      diagnostics.unverifiedLabels = true;
-      return json(res,200,{...draft,truncated:true});
-    }
-    const validateUpdates = value => checkMapUpdates(project,project.graphUpdates === false || mode === 'alternate' ? undefined : value);
+    if (output.truncated) draft.truncated = true;
+    const suggest = !output.truncated && project.graphUpdates !== false && mode !== 'alternate';
+    const validateUpdates = value => checkMapUpdates(project,suggest ? value : undefined);
     try {
       diagnostics.metadataModel = metadataModel;
-      const metadataPrompt = buildMetadataMessages(project,instruction,output.text,mode);
+      const metadataPrompt = buildMetadataMessages(project,instruction,output.text,mode,{truncated:output.truncated});
       const metadata = await generateOpenRouter(metadataPrompt,metadataModel,key,diagnostics,true);
       Object.assign(draft,readStoryMetadata(metadata,validateUpdates));
     } catch (e) {

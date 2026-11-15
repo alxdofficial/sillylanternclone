@@ -32,12 +32,14 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       assert.ok(url.endsWith('/chat/completions'));
       const request = JSON.parse(options.body);
       assert.equal(request.provider.data_collection,'deny');
-      if (request.model === 'fixture/prose') {
+      if (request.model === 'fixture/prose' || request.model === 'thedrummer/cydonia-24b-v4.1') {
+        const endsEarly = request.messages.at(-1).content.endsWith('cutoff fixture');
+        assert.equal(request.max_tokens,request.model === 'fixture/prose' ? 2048 : 5000);
         assert.equal(request.response_format,undefined);
         assert.equal(request.provider.require_parameters,undefined);
         assert.match(request.messages[0].content,/Return only the requested writing/);
         assert.doesNotMatch(request.messages[0].content,/JSON Schema|Classify the author direction/);
-        return Response.json({choices:[{finish_reason:'stop',message:{content:text}}]});
+        return Response.json({choices:[{finish_reason:endsEarly ? 'length' : 'stop',message:{content:text}}]});
       }
       if (request.model !== 'deepseek/deepseek-v4.1-flash') {
         return new Response(${JSON.stringify(fixture)}, {status:401});
@@ -51,6 +53,10 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       assert.deepEqual(request.response_format.json_schema.schema.required,Object.keys(metadata));
       assert.equal(request.response_format.json_schema.schema.additionalProperties,false);
       assert.match(request.messages[0].content,/Classify the author direction/);
+      if (source.authorDirection === 'cutoff fixture') {
+        assert.match(request.messages[0].content,/draft ends early.*Classify the text that is present/);
+        assert.match(request.messages[0].content,/empty updates array/);
+      }
       return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(metadata)}}]});
     };
   `);
@@ -79,6 +85,9 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     const {updates, ...expected} = scene;
     assert.equal(success.status,200,JSON.stringify(draft));
     assert.deepEqual(draft,{...expected,suggestions:updates});
+    const cutoff = await generate('thedrummer/cydonia-24b-v4.1','cutoff fixture');
+    assert.equal(cutoff.status,200);
+    assert.deepEqual(await cutoff.json(),{...expected,suggestions:[],truncated:true});
     const partial = await generate('fixture/prose','metadata outage');
     assert.equal(partial.status,200);
     assert.deepEqual(await partial.json(),{
