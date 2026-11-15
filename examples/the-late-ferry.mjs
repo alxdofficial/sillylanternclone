@@ -42,9 +42,10 @@ const cast = [
   }
 ];
 
-const ellisReply = "Ellis had the wiring diagram under his mug. He slid it free with one finger. “The lights can stay on. The gate itself is on the second breaker from the right. Switch that off before you try the key.” He waited for the click on the other end of the line, then drew a box around the breaker on his copy.\n\nA few minutes later the radio on his workbench came alive. “Bellwether terminal, this is Tomas. Gate’s open, Mae. Hold the passengers.” There was a pause long enough for Ellis to hear the gutter dripping outside. “The east beacon just flashed twice. Ask Noor what they can see from shore.”";
-const lastTake = "Mae tucked the radio under her arm and carried the station book to the lamp at the ticket window. Three minutes after Tomas’s call, she found the place where the twenty-fourth should have been. A narrow strip of paper, with half a pencil line on it, still clung to the stitching.\n\nShe turned the book so Sam could see. “Noor keeps a duplicate above East Pier. Shall I call the weather desk?” She set the radio within reach and waited for channel three to clear.";
-const alternative = "The log book opened too easily to the twenty-fifth. Mae ran her finger down the inside of the binding and felt a rough edge where the previous leaf had been cut. She laid the book beside Sam’s flashlight and tilted it toward the beam.\n\n“Noor will have the other copy,” she said. “I can ask them over the radio.” Mae nudged her bag of rolls away from the speaker and waited for the voice on channel three to finish.";
+// These takes were submitted through the structured MCP reply tool. See TESTING.md.
+const ellisReply = "Ellis flattened the wiring diagram with his palm. Someone had pencilled LIGHTS beside both breakers. He scratched a thumbnail over the newer mark. “Leave the lights on,” he said into the phone. “Second breaker from the right. That kills the motor. Then the key can turn the latch.”\n\nSix minutes past midnight, his workbench radio clicked. “Terminal, this is Tomas. Gate’s open, Mae. Keep everybody where it’s warm.” Through the hiss Ellis heard water knocking under the pier. “East beacon’s doing that double flash again. See if Noor can confirm it from shore.”";
+const lastTake = "By the time the minute hand reached nine past, Mae had found the twenty-fifth in the station book but no twenty-fourth. A scrap of ruled paper stuck up from the stitching. She held it flat with her thumb and slid the book across the counter toward Sam.\n\n“Noor made a duplicate after the last fault,” she said. A voice on channel three faded into the hiss. Mae left the book under the lamp and picked up the radio. “Shall I ask them to read us their copy?”";
+const alternative = "Mae set the book so the light fell along the stitching. The pages for the twenty-third and twenty-fifth faced each other, and between them a torn edge caught her nail. She moved her hand aside so Sam could see the gap.\n\n“There's a copy at the weather desk,” she said. “I watched Noor make it.” The radio squelched and went quiet. Mae turned the volume down a notch. “Shall I call?”";
 
 export function createStarterStory() {
   const story = {
@@ -69,13 +70,13 @@ export function createStarterStory() {
     loreRules:'beacon, east pier | The east beacon should flash once every six seconds. Two close flashes signal a relay fault, and only the weather desk has a duplicate incident log.\nradio, channel | The terminal, skipper and weather desk share channel three. Give a clear callsign and wait for the other person to finish.\nmechanical key, gate latch | The backup key is in the red dispatch drawer. Isolate the gate circuit before using it.',
     continuity:'',
     relationships:[
-      {from:'primary',to:'tomas',label:'Lina dispatches the ferry and trusts Tomas to make the final safety call.',turn:0,storyTime:storyStartAt},
-      {from:'mae',to:'primary',label:'Mae usually brings Lina bread left over from the evening bake.',turn:0,storyTime:storyStartAt},
-      {from:'ellis',to:'sam',label:'Ellis taught Sam where the terminal keeps its electrical diagrams.',turn:0,storyTime:storyStartAt},
-      {from:'noor',to:'ellis',label:'Noor files beacon fault reports with Ellis at Harbor Works.',turn:0,storyTime:storyStartAt},
-      {from:'tomas',to:'mae',label:'Tomas hands Mae the spare radio and asks her to relay dock updates.',turn:3,storyTime:'1998-10-24T23:55'},
-      {from:"ellis",to:"sam",label:"Ellis tells Sam to isolate the gate circuit before using the mechanical key.",turn:5,storyTime:"1998-10-25T00:02"},
-      {from:"tomas",to:"mae",label:"Tomas radios Mae that the gate is open and asks her to hold passengers while they check the beacon.",turn:5,storyTime:"1998-10-25T00:06"}
+      {from:"primary",to:"tomas",label:"Lina dispatches the ferry and trusts Tomas to make the final safety call.",turn:0,storyTime:"1998-10-24T23:40"},
+      {from:"mae",to:"primary",label:"Mae usually brings Lina bread left over from the evening bake.",turn:0,storyTime:"1998-10-24T23:40"},
+      {from:"ellis",to:"sam",label:"Ellis taught Sam where the terminal keeps its electrical diagrams.",turn:0,storyTime:"1998-10-24T23:40"},
+      {from:"noor",to:"ellis",label:"Noor files beacon fault reports with Ellis at Harbor Works.",turn:0,storyTime:"1998-10-24T23:40"},
+      {from:"tomas",to:"mae",label:"Tomas hands Mae the spare radio and asks her to relay dock updates.",turn:3,storyTime:"1998-10-24T23:55"},
+      {from:"ellis",to:"sam",label:"Ellis tells Sam which breaker to switch off before using the manual key.",turn:5,storyTime:"1998-10-25T00:02"},
+      {from:"tomas",to:"mae",label:"Tomas radios Mae that the gate is open and asks her to keep passengers inside while they check the beacon.",turn:5,storyTime:"1998-10-25T00:06"}
     ],
     messages:[
       {role:'assistant',speakerId:'primary',speakerName:'Lina Park',turnNumber:1,storyTime:storyStartAt,
@@ -90,12 +91,12 @@ export function createStarterStory() {
         content:ellisReply},
       {role:'assistant',speakerId:'mae',speakerName:'Mae Chen',turnNumber:6,storyTime:'1998-10-25T00:09',
         content:lastTake,alternatives:[lastTake,alternative],selectedAlternative:0,
-        graphSuggestions:[{kind:"relationship",from:"Mae Chen",to:"Sam Bell",label:"Mae shows Sam the missing log page and offers to ask Noor for the duplicate.",storyTime:"1998-10-25T00:09"}]}
+        graphSuggestions:[{kind:"relationship",from:"Mae Chen",to:"Sam Bell",label:"Mae shows Sam the missing page and offers to radio Noor for the duplicate.",storyTime:"1998-10-25T00:09"}]}
     ],
     nextTurn:7
   };
   captureGraphVersion(story,0);
-  story.continuity = "Turn 5: The mechanical key opened the dock gate after its circuit was isolated. The crossing is on hold while the crew verifies the beacon's double flash.";
+  story.continuity = "Turn 5: The gate opened after its motor was isolated. The crossing is still on hold while the crew verifies the east beacon's double flash.";
   captureGraphVersion(story,5);
   return story;
 }

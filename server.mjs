@@ -8,6 +8,7 @@ import { isModelId } from './public/models.js';
 import { buildMessages, extraFields, getCast, getWriter, validCast, validRelationships, validSensitivity, splitOpenRouterReply, isStoryTime } from './public/prompt.js';
 import { maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory } from './examples/the-late-ferry.mjs';
+import { checkMapUpdates } from './map-updates.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root=dirname(fileURLToPath(import.meta.url));
@@ -16,7 +17,7 @@ const statePath=join(dataDir,'library.json');
 const port=Number(process.env.PORT || 4317);
 let starter = createStarterStory();
 let starterSelected = false;
-let starterGeneration = 0;
+let starterGeneration = randomUUID();
 const json=(res,status,body)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(body));};
 async function readSavedLibrary() {
   try {
@@ -77,6 +78,7 @@ function saveState(value, expectedRevision, starterOnly) {
 function sendLibrary(req,res,library) {
   const revision = liveRevision(library);
   res.setHeader('etag', revision);
+  res.setHeader('x-story-studio-demo-generation',starterGeneration);
   if (req.headers['if-none-match'] === revision) {
     res.writeHead(304);
     return res.end();
@@ -173,7 +175,7 @@ if (url.pathname === '/api/starter/reset' && req.method === 'POST') {
   return await updateState(async () => {
     const saved = await readSavedLibrary();
     // A delayed write from a demo that just reloaded cannot restore its old draft.
-    if (starterSelected || !saved.projects.length) starterGeneration++;
+    if (starterSelected || !saved.projects.length) starterGeneration = randomUUID();
     starter = createStarterStory();
     return sendLibrary(req,res,withStarter(saved));
   });
@@ -231,7 +233,14 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
   try {
     const messages = buildMessages(project,instruction,mode,{model,includeSensitive:true,classifySafety:true});
     const output = await generateOpenRouter(messages,model,key);
-    const draft = {...splitOpenRouterReply(output.text), ...(output.truncated ? {truncated:true} : {})};
+    const draft = splitOpenRouterReply(output.text, value =>
+      checkMapUpdates(project,project.graphUpdates === false || mode === 'alternate' ? undefined : value));
+    if (output.truncated) {
+      draft.truncated = true;
+      if (draft.input === 'safe') draft.input = 'unclassified';
+      if (draft.reply === 'safe') draft.reply = 'unclassified';
+      draft.suggestions = [];
+    }
     if (!draft.text) throw Error('OpenRouter returned a label without a story reply.');
     return json(res, 200, draft);
   } catch (e) {

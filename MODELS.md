@@ -19,6 +19,22 @@ To compare, use the same short scene with consenting fictional adults and the sa
 
 For local inference, a [quantized Cydonia GGUF](https://huggingface.co/bartowski/TheDrummer_Cydonia-24B-v4.1-GGUF) can run with llama.cpp on a machine with enough memory for the weights and context. Story Studio currently has no local-model adapter. [SillyTavern supports both llama.cpp and OpenRouter](https://docs.sillytavern.app/usage/api-connections/).
 
+## What Story Studio sends and expects
+
+The selected model receives the current direction, recent eligible turns, speaker and cast, world lore, relationship events, and the in-story clock. OpenRouter can receive earlier explicit or unverified turns. **Keep this turn out of AI context** also excludes that turn from OpenRouter.
+
+Story Studio asks OpenRouter for prose followed by one fenced `story-safety` JSON block. It labels the writer input and assistant reply separately and records the in-story time to the minute. A regular reply can suggest up to five non-explicit map updates in that same block if suggestions are enabled. The shapes match the [MCP updates array](MCP.md#tool-contract). An alternate keeps the original scene time and has no map updates.
+
+````text
+Story prose appears here.
+
+```story-safety
+{"input":"safe","reply":"safe","storyTime":"1998-10-25T00:11","updates":[{"kind":"fact","note":"The log copy is at East Pier."}]}
+```
+````
+
+Missing labels and length-limited replies stay outside MCP until reviewed. Invalid map entries are skipped with a warning. Correct labels with **Edit** and check accepted continuity under **Character & lore** before handing a story back to MCP. [OpenRouter API reference](https://openrouter.ai/docs/api_reference/overview)
+
 ## Free routes checked on 15 November 2026
 
 I found no currently verifiable free route intended for explicit fiction. OpenRouter still shows the historical [Venice Dolphin free model card](https://openrouter.ai/cognitivecomputations/dolphin-mistral-24b-venice-edition:free), but its [provider endpoint response](https://openrouter.ai/api/v1/models/cognitivecomputations/dolphin-mistral-24b-venice-edition:free/endpoints) returned an empty list and the ID was absent from the public model catalog. The paid variant is still listed. A catalog page alone does not establish that a hosted model is callable.

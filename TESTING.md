@@ -82,3 +82,11 @@ Checked on an isolated library on port 4418 with a scripted MCP client that iden
 - A turn queued while the agent was watching showed “Claude is watching and will pick it up in a moment.” When the agent then disconnected, the line fell back to “no agent is watching” and the turn stayed queued.
 - The status line wraps cleanly at 375 px. The OpenRouter **Writing** placeholder was checked by code review only, since no OpenRouter request was made.
 - `npm test` checks that the MCP server reports watching, writing, watching again after saving, and nothing after disconnecting, and that the status endpoint rejects malformed reports and other origins.
+
+## Share-ready sweep
+
+Reviewed both the queued-agent and presence changes. Replayed The Late Ferry from its authored fourth turn. The browser queued Ellis, a real stdio MCP SDK client returned the request and its dated writer turn, and this Codex session sent the prose, inferred time, and three structured map updates. Kept those updates in the browser and verified the next MCP prompt inherited the accepted story memory. Submitted Mae's reply and a browser-queued alternate through the same tools. The shipped turns, times, relationship events, and graph history match the replay.
+
+In Chromium at desktop and phone widths, exercised red confirmation dialogs for stories, turns, character removal, relationship events, rewind, and library import. Verified cancel and Escape, the safe initial focus, event undo, and persistence of confirmed actions. In two tabs, verified that an older tab could no longer write back a reset demo. The clean installer copy installed dependencies, served the new six-turn demo, and requested the browser URL. The Claude Writer flags and shell syntax were checked. Live Claude generation still requires sign-in.
+
+The browser sent a queued turn to a simulated OpenRouter upstream after clearing the MCP request. Verified the assembled prompt, exact cast validation, preserved valid updates, and omission of flagged prose from MCP preview. Verified that a length-limited response stayed unverified even when its footer said safe. The OpenRouter catalog prices in the picker matched the published listings. This sweep made no paid provider call and did not verify live explicit-content generation.

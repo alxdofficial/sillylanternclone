@@ -1,6 +1,7 @@
 // Three-way merge of the story library. The browser uses it when an agent (or another tab)
 // saved while the page had unsaved edits: base is the library the page last loaded or saved,
 // local is the page's library and server is the latest saved library.
+import { starterStoryId } from './library.js';
 
 const unresolved = Symbol('conflict');
 
@@ -81,12 +82,16 @@ function mergeProject(base = {}, local, server) {
 }
 
 // Returns {library, conflicts}. library is null when any change could not be combined.
-export function mergeLibrary(base, local, server) {
+export function mergeLibrary(base, local, server, {demoReset = false} = {}) {
   const byId = projects => new Map((projects || []).map(project => [project.id, project]));
   const b = byId(base?.projects), l = byId(local.projects), s = byId(server.projects);
   const projects = [], conflicts = [];
   for (const id of new Set([...l.keys(), ...s.keys()])) {
     const before = b.get(id), mine = l.get(id), theirs = s.get(id);
+    if (demoReset && id === starterStoryId && theirs) {
+      projects.push(theirs);
+      continue;
+    }
     const title = `“${(mine || theirs).title}”`;
     if (mine && theirs) {
       const story = mergeProject(before, mine, theirs);

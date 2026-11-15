@@ -25,6 +25,8 @@ New libraries open on **The Late Ferry**, a late-night harbor mystery with six c
 3. Open **Prompt** to see the beacon and radio lore in context. Try writing a line in **Manual**, or ask **MCP** or **OpenRouter** to continue with Noor checking the beacon. Follow the relevant connection instructions below to use a model.
 4. For a story you want to keep or export, choose **Stories → New story**.
 
+The cast, setting, and first four turns were authored as a starting point. The last two turns, Mae’s alternate, and the later relationship events were replayed through Story Studio’s MCP tools. [See the verification notes](TESTING.md#share-ready-sweep).
+
 ## Write a scene
 
 1. Open **Stories** and choose **New story**. Add your cast under **Character & lore → Cast** and add the setting under **World**. Choose the next co-writer with **Reply as**.
@@ -37,7 +39,7 @@ New libraries open on **The Late Ferry**, a late-night harbor mystery with six c
 
 Use **Edit** to revise a saved turn or **Another take** to generate an alternate reply on the latest eligible turn. Use **Previous** and **Next** to choose which take appears in the story and in future prompts.
 
-Open **⋯** on a turn to explore a different path. **Branch from here** creates a separate story through that turn, including the selected take, the cast and world notes recorded then, and earlier relationship events. You can branch from the demo to keep writing a regular saved story. **Rewind to here** removes later turns and their events from the current story after confirmation. For older turns without a saved cast or world version, Story Studio uses the current notes.
+Open **⋯** on a turn to explore a different path. **Branch from here** creates a separate story through that turn, including the selected take, the cast and world notes recorded then, and earlier relationship events. You can branch from the demo to keep writing a regular saved story. **Rewind to here** removes later turns and their events from the current story. Deleting a story or a turn, rewinding, removing a character or relationship event, and replacing your library all ask for confirmation. For older turns without a saved cast or world version, Story Studio uses the current notes.
 
 ## Character & lore
 
@@ -45,7 +47,7 @@ The **Story timeline** on the left groups setup, dated scenes, and relationship 
 
 Hover over a character or line for a preview in the right pane. Click or tap it to keep its details open and edit.
 
-- **+ Character** creates a profile. Click a node to edit its name, aliases, description, and optional personality, scenario, and sample dialogue. **I write this character** identifies the character you control. The profile also supports importing basic details from a JSON character card.
+- **+ Character** creates a profile. Click a node to edit its name, aliases, description, and optional personality, scenario, and sample dialogue. **I write this character** identifies the character you control. The profile also supports importing basic details from a JSON character card. Removing a supporting character removes their relationship events when you save. Their existing dialogue stays in the transcript.
 - **+ Relationship** lets you select two characters in the order of the event. Write one sentence describing what happened and choose its **In-story date and time**. Several events between the same two characters share a graph line. Its count shows how many are saved. Click the line to edit or delete individual events. **Undo last deletion** is available in the inspector before you save.
 - **World** holds the setting, start date and time, short continuity facts under **Story memory**, and optional keyword lore. Enter one rule per line, such as `harbor, dock | The tide cuts off the old footpath.` Use `* | lore` for a rule that is always active. **Writing** holds prose directions, style notes, and the title.
 
@@ -57,7 +59,7 @@ Both MCP and OpenRouter can propose new characters, profile updates, world detai
 
 The shared prompt builder includes the selected character, other cast, setting, applicable lore, and recent eligible prose. It limits recent prose to an estimated 16,000 tokens, with a smaller allowance on models with known shorter windows. Older prose stays in the transcript. Future prompts carry forward relevant relationship events and facts you saved in the graph and story memory.
 
-When you send a new OpenRouter turn, Story Studio asks the selected model to label your input and its reply separately. Turns marked **Explicit** or **Unverified** are omitted from future MCP prompts. They remain available to OpenRouter and in your transcript. Labels are model judgments and can be wrong. Missing labels count as unverified. A reply that reaches the model's length limit shows a warning, because its labels, scene time and suggested updates may be cut off. An MCP agent that hands back an explicit request can label your turn **Explicit** so it stays out of MCP prompts. Existing, manually added, and edited passages need your review.
+When you send a new OpenRouter turn, Story Studio asks the selected model to label your input and its reply separately. Turns marked **Explicit** or **Unverified** are omitted from future MCP prompts. They remain available to OpenRouter and in your transcript. Labels are model judgments and can be wrong. Missing labels count as unverified. A length-limited reply shows a warning and remains outside MCP until reviewed. Story Studio checks map suggestions against the cast and warns if it skips invalid entries. An MCP agent that hands back an explicit request can label your turn **Explicit** so it stays out of MCP prompts. Existing, manually added, and edited passages need your review. [OpenRouter output format](MODELS.md#what-story-studio-sends-and-expects).
 
 To move a story back to MCP after an explicit scene:
 
@@ -65,7 +67,7 @@ To move a story back to MCP after an explicit scene:
 2. Keep any needed continuity in a short, non-explicit relationship event or **World → Story memory**. Check nearby turns and notes for copies of the sensitive prose.
 3. Switch to **MCP**, check **Prompt**, then queue the next scene. Start a fresh native agent session if the previous session already saw the original text.
 
-The saved library and exports include the original passages. MCP agents are told never to read them, the local app or the open page directly, because explicit text in an agent's context can trip its provider's safety limits. The Claude Writer enforces this by giving Claude no file, shell or web tools. See [what the agent can see](MCP.md#keep-the-agent-to-what-story-studio-shows-it). Character cards, world notes, story memory and relationship events always reach MCP agents, so keep them non-explicit. Model and provider policies apply to generation. See [verified test results](TESTING.md) for what was exercised with a simulated provider and what was tried in a live agent session.
+The saved library and exports include the original passages. MCP agents are told never to read them, the local app or the open page directly, because explicit text in an agent's context can trip its provider's safety limits. The Claude Writer enforces this by giving Claude no file, shell or web tools. See [what the agent can see](MCP.md#keep-the-agent-to-what-story-studio-shows-it). Character cards, world notes, story memory and relationship events are eligible for MCP context, so keep them non-explicit. Model and provider policies apply to generation. See [verified test results](TESTING.md) for what was exercised with a simulated provider and what was tried in a live agent session.
 
 ## Back up and move your library
 

@@ -1,7 +1,7 @@
 import { captureGraphVersion, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
 import { maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
 import { mergeLibrary } from './sync.js';
-import { buildMessages, formatMessages, extraFields, getCast, getSpeaker, getWriter, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
+import { buildMessages, formatMessages, extraFields, getCast, getSpeaker, getWriter, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
 import { models, chapterCost, isModelId } from './models.js';
 import { dateWriterTurn, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
@@ -12,7 +12,7 @@ const $ = s => document.querySelector(s);
 let state, revision, pendingWrites = 0, timer, pendingSave = Promise.resolve(), dirty = false, busy = false, editingIndex = null;
 let libraryDirty = false, pendingLibraryWrites = 0;
 // The library as last loaded from or saved to the server, the base for merging agent writes.
-let baseLibrary = null;
+let baseLibrary = null, demoGeneration;
 let connection = {model:'',key:''};
 let editingCharacter = primarySpeaker;
 let draftRelationships = [], connectingFrom = '', editingRelationship = null;
@@ -117,11 +117,13 @@ async function mergeServerLibrary() {
   const response = await fetch('/api/state');
   if (!response.ok) throw Error(`Couldn't read the latest library (${response.status}).`);
   const etag = response.headers.get('etag');
+  const generation = response.headers.get('x-story-studio-demo-generation');
   const server = normalize(await response.json());
-  const {library, conflicts} = mergeLibrary(baseLibrary, state, server);
+  const {library, conflicts} = mergeLibrary(baseLibrary, state, server,{demoReset:generation !== demoGeneration});
   if (!library) throw Error(`Your agent or another tab changed the same part of ${conflicts.join('; ')}. Nothing was overwritten. Export your work in this tab before reloading.`);
   baseLibrary = structuredClone(server);
   revision = etag;
+  demoGeneration = generation;
   adoptLibrary(library);
   render();
 }
@@ -159,6 +161,22 @@ function render() {
 }
 const turnMenu = $('#turnMenu');
 let turnMenuTrigger, turnMenuIndex;
+
+function confirmDanger(title, detail, action) {
+  const dialog = $('#confirmDanger');
+  const previousFocus = document.activeElement;
+  $('#dangerTitle').textContent = title;
+  $('#dangerDetail').textContent = detail;
+  $('#dangerConfirm').textContent = action;
+  dialog.returnValue = 'cancel';
+  return new Promise(resolve => {
+    dialog.addEventListener('close', () => {
+      previousFocus?.focus({preventScroll:true});
+      resolve(dialog.returnValue === 'confirm');
+    },{once:true});
+    dialog.showModal();
+  });
+}
 
 function closeTurnMenu(returnFocus = false) {
   turnMenu.hidden = true;
@@ -233,7 +251,7 @@ $('#branchTurn').onclick = () => {
   void save();
 };
 
-$('#rewindTurn').onclick = () => {
+$('#rewindTurn').onclick = async () => {
   const index = turnMenuIndex;
   closeTurnMenu(true);
   if (index == null || busy) return;
@@ -241,7 +259,8 @@ $('#rewindTurn').onclick = () => {
   const count = project.messages.length - index - 1;
   if (count < 1) return;
   const turn = project.messages[index].turnNumber || index + 1;
-  if (!confirm(`Rewind “${project.title}” to turn ${turn}? This removes ${count} later ${count === 1 ? 'turn' : 'turns'} and their relationship events from this story. This cannot be undone.`)) return;
+  if (!await confirmDanger(`Rewind to turn ${turn}?`,
+    `This permanently removes ${count} later ${count === 1 ? 'turn' : 'turns'} and their relationship events from “${project.title}”.`, 'Rewind story')) return;
   const rewound = storyAtTurn(project,index);
   state.projects[state.projects.indexOf(project)] = rewound;
   markDirty(rewound);
@@ -278,9 +297,11 @@ function renderMessages() {
     const actions = el('div','message-actions');
     const edit = el('button','','Edit');
     edit.onclick = () => openEdit(index);
-    const remove = el('button','','Delete');
-    remove.onclick = () => {
-      if (!confirm('Delete this turn?')) return;
+    const remove = el('button','danger','Delete');
+    remove.setAttribute('aria-label',`Delete turn ${message.turnNumber || index + 1}`);
+    remove.onclick = async () => {
+      if (!await confirmDanger(`Delete turn ${message.turnNumber || index + 1}?`,
+        'This permanently removes the text and its alternate takes from the story.', 'Delete turn')) return;
       project.messages.splice(index,1);
       markDirty(project);
       renderMessages();
@@ -462,6 +483,7 @@ async function generate(mode) {
     }
   }
 
+  const replacedQueue = Boolean(project.agentRequest);
   const history = mode === 'retry' || answering ? project.messages.slice(0, -1) : project.messages.slice();
   // Any new request replaces an earlier queue and notice; MCP sets a new queue below.
   delete project.agentNotice;
@@ -491,12 +513,20 @@ async function generate(mode) {
     persona:project.persona, personaName:project.personaName, storyWriterId:project.storyWriterId,
     storyStartAt:project.storyStartAt, storyStartSource:project.storyStartSource, graphUpdates:project.graphUpdates,
     cast:project.cast, relationships:project.relationships, speakerId:speaker.id,
+    replyTime:mode === 'retry' || answering ? lastTurn.storyTime : undefined,
     messages:recentTurns(history,recentTokenCap,{includeSensitive:true})
   };
   const originalHistory = JSON.stringify(project.messages);
   generatingFor = {projectId:project.id, speaker:speaker.name, model:connection.model};
   setBusy(true);
   try {
+    if (replacedQueue) {
+      markDirty(project);
+      await save();
+      if (dirty || JSON.stringify(project.messages) !== originalHistory) {
+        throw Error('The queued turn changed before OpenRouter could start. Check the transcript and try again.');
+      }
+    }
     const response = await api('/api/generate', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -533,7 +563,16 @@ async function generate(mode) {
       dateWriterTurn(target);
     }
     markDirty(target);
-    if (response.truncated) error('This reply reached the model’s length limit, so it may end mid-scene and its content labels, scene time or map updates may be missing. It stays outside MCP context until you check its label with Edit.');
+    if (response.truncated) {
+      error('This reply reached the model’s length limit and may end mid-scene. It stays outside MCP context until you check its label with Edit.');
+    } else {
+      const warnings = [];
+      if (response.reply === 'unclassified' || (mode !== 'retry' && response.input === 'unclassified')) {
+        warnings.push('OpenRouter did not return all content labels. Unverified turns stay outside MCP until you check them with Edit.');
+      }
+      if (response.updateProblems) warnings.push('Some suggested map updates could not be matched to the cast or used the wrong format. Valid suggestions are available in Character & lore.');
+      if (warnings.length) error(warnings.join(' '));
+    }
   } catch (e) {
     error(`Couldn't write the next turn: ${e.message}` + (mode === 'send' ? ' Your turn is saved. To try again, click Send & write with an empty box.' : ''));
   } finally {
@@ -882,9 +921,10 @@ function renderRelationships(edges, editable) {
       const edit = el('button','text-button','Edit event');
       edit.type = 'button';
       edit.onclick = () => openRelationship(edge.from,edge.to,edge);
-      const remove = el('button','text-button','Delete event');
+      const remove = el('button','text-button danger','Delete event');
       remove.type = 'button';
-      remove.onclick = () => {
+      remove.onclick = async () => {
+        if (!await confirmDanger('Delete relationship event?', edge.label, 'Delete event')) return;
         deletedEvent = edge;
         draftRelationships = draftRelationships.filter(item => item !== edge);
         refreshCastGraph();
@@ -994,12 +1034,9 @@ $('#castGraph').onclick = event => {
   if (event.target === $('#castGraph') && !connecting) pinGraph(null);
 };
 function resolveName(name) {
-  const wanted = name.trim().toLowerCase();
-  const matches = castEditors().filter(editor => {
-    const aliases = editor.querySelector('[data-field="nickname"]').value.split(',');
-    return [editorName(editor), ...aliases].some(item => item.trim().toLowerCase() === wanted);
-  });
-  return matches.length === 1 ? matches[0].dataset.id : null;
+  return resolveCastName(castEditors().map(editor => ({
+    id:editor.dataset.id, name:editorName(editor), nickname:editor.querySelector('[data-field="nickname"]').value
+  })),name);
 }
 // A fact counts as recorded when its text appears on any line, whatever turn
 // it was dated with, so a re-proposed fact is not added twice.
@@ -1149,9 +1186,13 @@ function addCastEditor(character) {
     (['scenario','examples'].includes(field) ? details : card).append(label);
   }
   card.append(details);
-  const remove = el('button', 'button subtle', 'Remove from cast');
+  const remove = el('button', 'button subtle danger', 'Remove from cast');
   remove.type = 'button';
-  remove.onclick = () => {
+  remove.onclick = async () => {
+    const count = draftRelationships.filter(edge => edge.from === card.dataset.id || edge.to === card.dataset.id).length;
+    const detail = count ? `This also removes ${count} relationship ${count === 1 ? 'event' : 'events'} when you save. The character’s existing turns stay in the transcript.`
+      : 'The character will be removed when you save. Their existing turns stay in the transcript.';
+    if (!await confirmDanger(`Remove ${editorName(card)} from the cast?`, detail, 'Remove character')) return;
     if (draftWriterId === card.dataset.id) draftWriterId = '';
     draftRelationships = draftRelationships.filter(edge => edge.from !== card.dataset.id && edge.to !== card.dataset.id);
     card.remove();
@@ -1273,7 +1314,7 @@ $('#sceneProvider').onchange = event => {
   if (event.target.value === 'openrouter' && !connection.key) openConnection('openrouter');
   renderMessages();
 };
-$('#pasteReply').onclick=()=>{$('#pasteText').value='';$('#pasteDialog').showModal()};$('#closePaste').onclick=$('#cancelPaste').onclick=()=>$('#pasteDialog').close();$('#pasteForm').onsubmit=e=>{e.preventDefault();const text=$('#pasteText').value.trim();if(!text)return;const project=current();appendTurn(project,{role:'assistant',content:text,...speakerMetadata(getSpeaker(project))});markDirty();$('#pasteDialog').close();renderMessages()};
+$('#pasteReply').onclick=()=>{$('#pasteText').value='';$('#pasteDialog').showModal()};$('#closePaste').onclick=$('#cancelPaste').onclick=()=>$('#pasteDialog').close();$('#pasteForm').onsubmit=e=>{e.preventDefault();const text=$('#pasteText').value.trim();if(!text)return;const project=current();delete project.agentRequest;delete project.agentNotice;appendTurn(project,{role:'assistant',content:text,...speakerMetadata(getSpeaker(project))});markDirty();$('#pasteDialog').close();renderMessages()};
 // Import fills only the selected profile draft. Saving is still explicit.
 const cardButton = el('button', 'button subtle', 'Import JSON card');
 cardButton.type = 'button';
@@ -1415,10 +1456,11 @@ $('#newProject').onclick = () => {
   $('#sidebar').close();
   openSettings();
 };
-$('#deleteProject').onclick = () => {
+$('#deleteProject').onclick = async () => {
   if (!state) return;
   const project = current();
-  if (project.id === starterStoryId || !confirm(`Delete “${project.title}” and all its turns? This cannot be undone.`)) return;
+  if (project.id === starterStoryId || !await confirmDanger(`Delete “${project.title}”?`,
+    'This permanently removes the story, its turns, and its character and relationship history from the library.', 'Delete story')) return;
   state.projects = state.projects.filter(item => item.id !== project.id);
   state.activeId = state.projects[0].id;
   markDirty(project);
@@ -1438,7 +1480,7 @@ function promptForDraft() {
   // Without a new direction, show what a queued turn or a reply to the last
   // writer turn sends, laid out exactly as the MCP server lays it out.
   const queued = provider === 'mcp' ? queuedTurn(project).request : null;
-  const input = replyInput(queued ? {...project, speakerId:queued.speakerId} : project, queued?.mode === 'alternate' ? 'alternate' : 'send');
+  const input = replyInput(queued ? {...project, speakerId:queued.speakerId} : project, queued?.mode === 'alternate' ? 'alternate' : 'send', options);
   return buildMessages(input.project, input.direction, input.mode, options);
 }
 $('#promptPreview').onclick = () => {
@@ -1488,7 +1530,8 @@ $('#importFile').onchange = async event => {
       reserved.id = id();
       if (incoming.activeId === starterStoryId) incoming.activeId = reserved.id;
     }
-    if (!confirm('Replace your current library with this file? Export first if you want a backup.')) return;
+    if (!await confirmDanger('Replace your library?',
+      'Import replaces your saved stories with the contents of this file. Cancel and export your current library first if you want a backup.', 'Replace library')) return;
     const demo = state.projects.find(project => project.id === starterStoryId);
     const replacement = incoming.projects.find(project => project.id === incoming.activeId);
     for (const project of [...state.projects,...incoming.projects]) {
@@ -1520,6 +1563,7 @@ storyDrawer.addEventListener('click', event => {
     });
     if (!response.ok) throw Error(`HTTP ${response.status}`);
     revision = response.headers.get('etag');
+    demoGeneration = response.headers.get('x-story-studio-demo-generation');
     state = normalize(await response.json());
     baseLibrary = structuredClone(state);
     setSession(draftKey(starterStoryId),'');
@@ -1563,10 +1607,12 @@ setInterval(async () => {
     if (response.status !== 200) return;
     const updated = normalize(await response.json());
     if (dirty || pendingWrites || busy || document.querySelector('dialog[open]')) return;
-    const {library} = mergeLibrary(baseLibrary, state, updated);
+    const generation = response.headers.get('x-story-studio-demo-generation');
+    const {library} = mergeLibrary(baseLibrary, state, updated,{demoReset:generation !== demoGeneration});
     if (!library) return;
     baseLibrary = structuredClone(updated);
     revision = response.headers.get('etag');
+    demoGeneration = generation;
     adoptLibrary(library);
     render();
     status('Saved locally');

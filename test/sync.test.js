@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mergeLibrary, sameValue } from '../public/sync.js';
+import { starterStoryId } from '../public/library.js';
 
 const clone = value => structuredClone(value);
 
@@ -139,4 +140,15 @@ test('stories added or removed on one side follow that side', () => {
   server.projects.splice(1, 1);
   const {library:merged} = mergeLibrary(base, local, server);
   assert.deepEqual(merged.projects.map(p => p.id), ['ferry', 'new']);
+});
+
+test('an open tab cannot revive stale demo edits but keeps concurrent regular story edits', () => {
+  const base = library();
+  base.projects.push({id:starterStoryId,title:'The demo',messages:[]});
+  const local = clone(base), server = clone(base);
+  local.projects[0].notes = 'Unrelated saved-story notes.';
+  local.projects.at(-1).messages.push({turnNumber:1,role:'user',content:'Stale demo edit'});
+  const {library:merged} = mergeLibrary(base,local,server,{demoReset:true});
+  assert.deepEqual(merged.projects.at(-1).messages,[]);
+  assert.equal(merged.projects[0].notes,'Unrelated saved-story notes.');
 });

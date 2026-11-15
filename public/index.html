@@ -68,8 +68,18 @@
 </div>
 <div id="turnMenu" class="turn-menu" role="group" aria-label="Turn actions" hidden>
   <button type="button" id="branchTurn">Branch from here</button>
-  <button type="button" id="rewindTurn">Rewind to here</button>
+  <button type="button" class="danger" id="rewindTurn">Rewind to here</button>
 </div>
+<dialog id="confirmDanger" class="form-dialog" aria-labelledby="dangerTitle" aria-describedby="dangerDetail">
+  <form method="dialog">
+    <header class="dialog-top"><h2 id="dangerTitle"></h2></header>
+    <div class="dialog-body"><p id="dangerDetail"></p></div>
+    <footer class="dialog-actions">
+      <button class="button subtle" value="cancel" autofocus>Cancel</button>
+      <button class="button primary danger" id="dangerConfirm" value="confirm"></button>
+    </footer>
+  </form>
+</dialog>
 <dialog id="settingsDialog" aria-labelledby="settingsHeading">
 <form id="settingsForm">
   <header class="dialog-top settings-head">

@@ -93,8 +93,7 @@ textarea { caret-color: #f0c6de; }
   font-weight: 650;
 }
 .save-status { color: var(--muted); font-size: 11px; line-height: 1.35; min-width: 0; }
-#deleteProject { background: transparent; color: var(--muted); border-color: transparent; flex: none; }
-#deleteProject:hover { color: #ffe0e7; background: #4b3038; }
+#deleteProject { background: transparent; border-color: transparent; flex: none; }
 .messages {
   flex: 1;
   min-height: 0;
@@ -202,6 +201,12 @@ textarea { caret-color: #f0c6de; }
 .button:hover { background: #484349; }
 .button.primary { background: #67515f; border-color: #846778; color: #fff; }
 .button.primary:hover { background: #806371; }
+.button.danger, .message-actions .danger, .text-button.danger, .turn-menu .danger { color: #ffb0be; }
+.button.danger:hover:not(:disabled), .message-actions .danger:hover, .text-button.danger:hover, .turn-menu .danger:hover:not(:disabled) { color: #ffe5ea; background: #4b2832; }
+.button.primary.danger { color: #fff; background: #a12f45; border-color: #cf5668; }
+.button.primary.danger:hover { background: #b83d54; }
+#confirmDanger { width: min(430px, calc(100vw - 24px)); }
+#dangerDetail { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
 .button:disabled { opacity: .55; }
 .error {
   flex: none;
