@@ -104,8 +104,11 @@ textarea { caret-color: #f0c6de; }
 .message { padding: 12px 16px 16px; border-bottom: 1px solid #303034; }
 .message.user { background: #1d1d20; }
 .message-body { max-width: 76ch; margin-inline: auto; }
-.message-header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 9px; margin-bottom: 5px; }
+.message-header, .message-footer { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 9px; }
+.message-header { margin-bottom: 5px; }
+.message-footer { margin-top: 3px; }
 .message-header strong { min-width: 0; overflow-wrap: anywhere; font-size: 15px; }
+.message-header .author-label { color: var(--muted); font-size: 13px; }
 .message-actions { display: flex; flex-wrap: wrap; gap: 4px 7px; margin-inline-start: auto; }
 .turn-menu {
   position: fixed;
@@ -603,9 +606,8 @@ form textarea { resize: vertical; }
 }
 
 /* A turn that is queued for, or being written by, a model. */
-.message.pending { border-left: 3px solid var(--border); }
-.message.pending .pending-detail { color: var(--muted); font-size: 13px; }
-.pending-state { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.message.pending { padding-block: 10px; border-left: 3px solid var(--border); }
+.pending-state { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
 .pending-state.active { color: var(--focus); }
 .pending-state.active::before {
   content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor;

@@ -98,3 +98,7 @@ On a 390 px browser viewport, opened The Late Ferry, added a standing style in W
 ## Deployment diagnostics
 
 A clean launcher copy recorded dependency installation and server readiness. An invalid port and an occupied port produced startup failure entries. Rotation moved a 1 MiB file to `.1` and wrote the next entry to a fresh log. The server test verifies a simulated OpenRouter 401 can be matched to its HTTP request ID without logging request text, the key, custom model text, or the provider response. The MCP integration test verifies a save conflict is logged without recording the reply or draft.
+
+## Transcript labels
+
+Checked the demo at desktop and phone widths. Story prose appeared without a Narrator heading, author inputs used **You**, and the queued placeholder showed only its status. The timeline used turn numbers for narration and an input label for author turns. Sam Bell remained visible in the cast graph.

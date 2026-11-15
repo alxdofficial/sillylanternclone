@@ -1,7 +1,7 @@
 import { captureGraphVersion, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
 import { maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
 import { mergeLibrary } from './sync.js';
-import { buildMessages, formatMessages, extraFields, getCast, narrator, getWriter, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
+import { buildMessages, formatMessages, extraFields, getCast, narrator, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
 import { models, chapterCost, isModelId } from './models.js';
 import { dateWriterTurn, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
@@ -279,6 +279,12 @@ $('#rewindTurn').onclick = async () => {
   void save();
 };
 
+function attributedSpeaker(message) {
+  const name = message.speakerName?.trim();
+  return message.role === 'assistant' && message.speakerId !== narrator.id && name?.toLowerCase() !== 'narrator'
+    ? name : '';
+}
+
 function renderMessages() {
   closeTurnMenu();
   const project = current(), box = $('#messages');
@@ -291,10 +297,13 @@ function renderMessages() {
     return;
   }
   project.messages.forEach((message,index) => {
-    const row = el('article','message ' + (message.role === 'user' ? 'user' : 'assistant'));
-    const body = el('div','message-body'), head = el('div','message-header');
-    const name = message.role === 'user' ? getWriter(project).name || 'You' : message.speakerName || project.characterName || 'Co-writer';
-    head.append(el('strong','',name));
+    const fromAuthor = message.role === 'user';
+    const turn = message.turnNumber || index + 1;
+    const row = el('article','message ' + (fromAuthor ? 'user' : 'assistant'));
+    row.setAttribute('aria-label',`${fromAuthor ? 'Your input' : 'Story'} · Turn ${turn}`);
+    const name = fromAuthor ? 'You' : attributedSpeaker(message);
+    const body = el('div','message-body'), head = el('div',name ? 'message-header' : 'message-footer');
+    if (name) head.append(el('strong',fromAuthor ? 'author-label' : '',name));
     if (message.excludeFromContext) head.append(el('span','context-badge','Outside AI context'));
     else if (!isAvailableToMcp(message)) head.append(el('span','context-badge',
       message.contentSensitivity === 'explicit' ? 'Explicit · outside MCP' : 'Unverified · outside MCP'));
@@ -308,9 +317,9 @@ function renderMessages() {
     const edit = el('button','','Edit');
     edit.onclick = () => openEdit(index);
     const remove = el('button','danger','Delete');
-    remove.setAttribute('aria-label',`Delete turn ${message.turnNumber || index + 1}`);
+    remove.setAttribute('aria-label',`Delete turn ${turn}`);
     remove.onclick = async () => {
-      if (!await confirmDanger(`Delete turn ${message.turnNumber || index + 1}?`,
+      if (!await confirmDanger(`Delete turn ${turn}?`,
         'This permanently removes the text and its alternate takes from the story.', 'Delete turn')) return;
       project.messages.splice(index,1);
       markDirty(project);
@@ -318,7 +327,7 @@ function renderMessages() {
     };
     const more = el('button','turn-more','…');
     more.type = 'button';
-    more.setAttribute('aria-label',`More actions for turn ${message.turnNumber || index + 1}`);
+    more.setAttribute('aria-label',`More actions for turn ${turn}`);
     more.setAttribute('aria-controls','turnMenu');
     more.setAttribute('aria-expanded','false');
     more.disabled = busy;
@@ -333,7 +342,8 @@ function renderMessages() {
       actions.prepend(retry);
     }
     head.append(actions);
-    body.append(head,el('div','message-text',message.content));
+    const text = el('div','message-text',message.content);
+    body.append(...(name ? [head,text] : [text,head]));
     if (message.role === 'assistant' && message.alternatives?.length > 1) {
       const nav = el('div','alternatives');
       const prev = el('button','','← Previous'), next = el('button','','Next →');
@@ -373,19 +383,18 @@ function mcpStatus(project) {
   const queue = queuedTurn(project).request;
   const watcher = agentActivity.find(agent => agent.state === 'watching');
   if (queue) {
-    const speaker = narrator.name;
     const writer = agentActivity.find(agent => agent.state === 'writing' && agent.storyId === project.id && agent.turnNumber === queue.turnNumber);
     if (writer) return {
       line:`${writer.client} picked up your turn ${ago(writer.since)} and is writing the continuation.`,
-      pending:{speaker, state:'Writing', active:true, detail:'The reply appears here when it is saved.'}
+      pending:{state:'Writing', active:true}
     };
     if (watcher) return {
       line:`Turn queued. ${watcher.client} is watching and will pick it up in a moment.`,
-      pending:{speaker, state:'Queued', active:true, detail:`${watcher.client} will pick this up in a moment.`}
+      pending:{state:'Queued', active:true}
     };
     return {
       line:'Turn queued, but no agent is watching. Open Start Claude Writer, or ask your agent to write the queued turn.',
-      pending:{speaker, state:'Waiting for an agent', active:false, detail:'Your turn stays queued until an agent picks it up.'}
+      pending:{state:'Waiting for an agent', active:false}
     };
   }
   if (project.agentRequest) return {line:'The queued turn no longer matches the story, so no agent will write it. Queue a new turn when you are ready.'};
@@ -402,14 +411,13 @@ function renderPending() {
   const project = current();
   if (!project) return;
   const pending = generatingFor?.projectId === project.id
-    ? {speaker:narrator.name, state:'Writing', active:true, detail:'OpenRouter is writing this reply.'}
+    ? {state:'Writing', active:true}
     : mcpStatus(project).pending;
   if (!pending) return;
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  const row = el('article', 'message assistant pending'), body = el('div', 'message-body'), head = el('div', 'message-header');
+  const row = el('article', 'message assistant pending'), body = el('div', 'message-body');
   row.id = 'pendingTurn';
-  head.append(el('strong', '', pending.speaker), el('span', 'pending-state' + (pending.active ? ' active' : ''), pending.state));
-  body.append(head, el('div', 'message-text pending-detail', pending.detail));
+  body.append(el('span','pending-state' + (pending.active ? ' active' : ''),pending.state));
   row.append(body);
   box.append(row);
   if (atBottom) box.scrollTop = box.scrollHeight;
@@ -747,8 +755,8 @@ function renderGraphTurns() {
   }
   current().messages.forEach((message,index) => {
     const turn = message.turnNumber || index + 1;
-    const speaker = message.role === 'user' ? getWriter(current()).name || 'Writer' : message.speakerName || getCast(current())[0].name;
-    entries.push({time:message.storyTime || '', label:speaker, detail:eventTime(turn), selection:{kind:'turn',turn}});
+    const detail = message.role === 'user' ? 'Your input' : attributedSpeaker(message);
+    entries.push({time:message.storyTime || '', label:eventTime(turn), detail, selection:{kind:'turn',turn}});
   });
   entries.sort((a,b) => Number(!a.time) - Number(!b.time) || a.time.localeCompare(b.time)
     || (a.selection.turn ?? Infinity) - (b.selection.turn ?? Infinity));
@@ -775,7 +783,8 @@ function renderGraphTurns() {
       clock.dateTime = time;
       button.append(clock);
     }
-    button.append(el('strong','',label),el('span','timeline-detail',detail));
+    button.append(el('strong','',label));
+    if (detail) button.append(el('span','timeline-detail',detail));
     button.onclick = () => {
       if (connecting) clearConnection();
       pinGraph(selection);
