@@ -55,6 +55,14 @@ With Claude Code, double-click **Start Claude Writer.command**, which starts wat
 
 The agent waits for a queued turn, writes it, saves it, and waits again. Replies appear in the open Story Studio page within a few seconds. Keep that agent window open while you write. To stop, interrupt the agent (Esc in Claude Code) or tell it to stop watching.
 
+The line above the composer and a placeholder turn in the story show where a queued turn stands:
+
+- **Waiting for an agent:** no agent is watching. Open the Claude Writer or ask your agent to write the queued turn. The turn stays queued.
+- **Queued:** an agent is watching and will pick it up within a second or two.
+- **Writing:** the agent has the turn and is writing it, with how long ago it picked it up. The reply replaces the placeholder when it is saved.
+
+Without a queued turn, the line says whether an agent is watching. Agents report this through the MCP server while they wait or write. If an agent stops without saying so, it stops counting as watching after a minute, and a turn it picked up but never saved stops showing as being written after 15 minutes. OpenRouter turns show the same **Writing** placeholder while the request runs.
+
 Each wait lasts up to 50 seconds by default, which fits Codex's default 60-second tool timeout. If you raise `tool_timeout_sec` for `story-studio` in `~/.codex/config.toml`, the agent can wait longer between checks. Claude Code allows waits of up to 10 minutes. An idle wait costs a small agent step, so stop watching when you finish a writing session.
 
 ### One turn at a time

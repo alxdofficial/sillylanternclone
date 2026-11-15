@@ -96,6 +96,31 @@ async function body(req, limit = 2_000_000) {
   catch { throw Object.assign(Error('Invalid JSON.'), {status:400}); }
 }
 
+// What connected MCP agents are doing, so the page can tell the writer
+// whether anyone is watching for a queued turn. Kept in memory only: it is
+// never saved, so it cannot conflict with library saves. Entries expire
+// when an agent stops reporting.
+const agentLifetimes = {watching:60_000, writing:15 * 60_000};
+const agentPresence = new Map();
+const shortText = (value, max) => typeof value === 'string' ? value.trim().slice(0, max) : '';
+function liveAgents(now = Date.now()) {
+  for (const [id, agent] of agentPresence) if (agent.expires <= now) agentPresence.delete(id);
+  return [...agentPresence.values()].map(({expires, ...agent}) => agent);
+}
+function reportAgent(report) {
+  const {id, state} = report || {};
+  if (typeof id !== 'string' || !/^[a-z0-9-]{8,64}$/.test(id) || !['watching','writing','done'].includes(state)) return false;
+  if (state === 'done') return agentPresence.delete(id), true;
+  const now = Date.now();
+  const previous = agentPresence.get(id);
+  const turn = state === 'writing'
+    ? {storyId:shortText(report.storyId, 200), turnNumber:Number.isSafeInteger(report.turnNumber) ? report.turnNumber : null, speaker:shortText(report.speaker, 100)}
+    : {};
+  const same = previous?.state === state && previous.storyId === turn.storyId && previous.turnNumber === turn.turnNumber;
+  agentPresence.set(id, {id, client:shortText(report.client, 60) || 'Your agent', state, ...turn, since:same ? previous.since : now, expires:now + agentLifetimes[state]});
+  return true;
+}
+
 const libraryLimit = 16_000_000;
 function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
 async function generateOpenRouter(messages, model, key) {
@@ -137,6 +162,12 @@ const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8'
 http.createServer(async(req,res)=>{try{if(![`localhost:${port}`,`127.0.0.1:${port}`].includes(req.headers.host))return json(res,403,{error:'Use the local app address.'});const url=new URL(req.url,`http://127.0.0.1:${port}`);if(req.method!=='GET'){const origin=req.headers.origin;if(!origin||!([`http://127.0.0.1:${port}`,`http://localhost:${port}`].includes(origin)))return json(res,403,{error:'Request origin is not allowed.'});if(!(req.headers['content-type']||'').startsWith('application/json'))return json(res,415,{error:'JSON required.'});}
 if (url.pathname === '/api/state' && req.method === 'GET') {
   return sendLibrary(req,res,await getState());
+}
+if (url.pathname === '/api/agent' && req.method === 'GET') {
+  return json(res, 200, {now:Date.now(), agents:liveAgents()});
+}
+if (url.pathname === '/api/agent' && req.method === 'POST') {
+  return reportAgent(await body(req, 4000)) ? json(res, 200, {ok:true}) : json(res, 400, {error:'Invalid agent status.'});
 }
 if (url.pathname === '/api/starter/reset' && req.method === 'POST') {
   return await updateState(async () => {

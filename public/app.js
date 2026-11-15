@@ -20,6 +20,8 @@ let draftStartAt = '', draftStartSource = '', draftWriterId = '';
 let estimatedEdgeDates = new WeakSet();
 let connecting = false, pinnedGraph = null, hoverGraph = null, deletedEvent = null, shownEvents = 12;
 let pendingGraphReview = [];
+// Live activity: local MCP agents (from /api/agent) and an OpenRouter request in progress.
+let agentActivity = [], generatingFor = null;
 const temporarySession = new Map();
 function getSession(key) {
   if (temporarySession.has(key)) return temporarySession.get(key);
@@ -314,6 +316,7 @@ function renderMessages() {
     row.append(body);
     box.append(row);
   });
+  renderPending();
   box.scrollTop = box.scrollHeight;
 }
 function setSensitivity(message, value) {
@@ -329,6 +332,57 @@ function selectAlternative(message, index) {
   markDirty();
   renderMessages();
 }
+function ago(since) {
+  const minutes = Math.floor((Date.now() - since) / 60_000);
+  return minutes < 1 ? 'just now' : minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
+}
+// What the writer should know about MCP for this story: a status line, and
+// a placeholder turn while a queued turn waits for or is being written by an agent.
+function mcpStatus(project) {
+  const queue = queuedTurn(project).request;
+  const watcher = agentActivity.find(agent => agent.state === 'watching');
+  if (queue) {
+    const speaker = getSpeaker(project, queue.speakerId).name;
+    const writer = agentActivity.find(agent => agent.state === 'writing' && agent.storyId === project.id && agent.turnNumber === queue.turnNumber);
+    if (writer) return {
+      line:`${writer.client} picked up your turn ${ago(writer.since)} and is writing ${speaker}’s reply.`,
+      pending:{speaker, state:'Writing', active:true, detail:'The reply appears here when it is saved.'}
+    };
+    if (watcher) return {
+      line:`Turn queued. ${watcher.client} is watching and will pick it up in a moment.`,
+      pending:{speaker, state:'Queued', active:true, detail:`${watcher.client} will pick this up in a moment.`}
+    };
+    return {
+      line:'Turn queued, but no agent is watching. Open Start Claude Writer, or ask your agent to write the queued turn.',
+      pending:{speaker, state:'Waiting for an agent', active:false, detail:'Your turn stays queued until an agent picks it up.'}
+    };
+  }
+  if (project.agentRequest) return {line:'The queued turn no longer matches the story, so no agent will write it. Queue a new turn when you are ready.'};
+  if (project.agentNotice) return {line:'Your agent did not write the last turn: ' + project.agentNotice.message
+    + (project.messages.at(-1)?.role === 'user' && !isAvailableToMcp(project.messages.at(-1))
+      ? ' To write it, switch to OpenRouter and click Send & write with an empty box.'
+      : ' To try again, click Queue turn with an empty box.')};
+  return {line:watcher ? `${watcher.client} is watching. Queue a turn and it writes the reply.`
+    : 'No agent is watching. Open Start Claude Writer, or ask your agent to watch Story Studio.'};
+}
+function renderPending() {
+  const box = $('#messages');
+  $('#pendingTurn')?.remove();
+  const project = current();
+  if (!project) return;
+  const pending = generatingFor?.projectId === project.id
+    ? {speaker:generatingFor.speaker, state:'Writing', active:true, detail:'OpenRouter is writing this reply.'}
+    : mcpStatus(project).pending;
+  if (!pending) return;
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  const row = el('article', 'message assistant pending'), body = el('div', 'message-body'), head = el('div', 'message-header');
+  row.id = 'pendingTurn';
+  head.append(el('strong', '', pending.speaker), el('span', 'pending-state' + (pending.active ? ' active' : ''), pending.state));
+  body.append(head, el('div', 'message-text pending-detail', pending.detail));
+  row.append(body);
+  box.append(row);
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
 function syncRoute() {
   const project = current();
   const savedRoute = getSession(routeKey(project.id));
@@ -340,14 +394,7 @@ function syncRoute() {
   syncSceneModel();
   $('#routeSummary').textContent = usesOpenRouter
     ? connection.key ? '' : 'Add an API key in Connection'
-    : route === 'manual' ? 'No model calls' : queuedTurn(project).request
-      ? 'Turn queued. A watching agent writes it automatically; otherwise ask your agent to write the queued turn.'
-      : project.agentRequest ? 'The queued turn no longer matches the story, so no agent will write it. Queue a new turn when you are ready.'
-      : project.agentNotice ? 'Your agent did not write the last turn: ' + project.agentNotice.message
-        + (project.messages.at(-1)?.role === 'user' && !isAvailableToMcp(project.messages.at(-1))
-          ? ' To write it, switch to OpenRouter and click Send & write with an empty box.'
-          : ' To try again, click Queue turn with an empty box.')
-      : 'Use the Story Studio tool in Codex or Claude Code';
+    : route === 'manual' ? 'No model calls' : mcpStatus(project).line;
   $('#sceneProvider').disabled = busy;
   $('#sendButton').disabled = busy;
   $('#sendButton').textContent = busy ? 'Writing…' : route === 'manual' ? 'Save turn' : route === 'mcp' ? 'Queue turn' : 'Send & write ↗';
@@ -447,6 +494,7 @@ async function generate(mode) {
     messages:recentTurns(history,recentTokenCap,{includeSensitive:true})
   };
   const originalHistory = JSON.stringify(project.messages);
+  generatingFor = {projectId:project.id, speaker:speaker.name, model:connection.model};
   setBusy(true);
   try {
     const response = await api('/api/generate', {
@@ -489,6 +537,7 @@ async function generate(mode) {
   } catch (e) {
     error(`Couldn't write the next turn: ${e.message}` + (mode === 'send' ? ' Your turn is saved. To try again, click Send & write with an empty box.' : ''));
   } finally {
+    generatingFor = null;
     setBusy(false);
     render();
   }
@@ -1485,6 +1534,27 @@ storyDrawer.addEventListener('click', event => {
 
 // While any turn is queued, pick up agent writes. Unsaved edits are merged by save() on its 409 instead.
 let checkingAgent = false;
+// Agent activity is cheap to read and never touches the library, so it is
+// checked every two seconds while the page is visible.
+let activityKey = '';
+setInterval(async () => {
+  if (!state || document.hidden) return;
+  try {
+    const result = await (await fetch('/api/agent')).json();
+    agentActivity = Array.isArray(result.agents) ? result.agents : [];
+  } catch {
+    agentActivity = [];
+  }
+  const project = current();
+  if (!project) return;
+  const status = mcpStatus(project);
+  const key = JSON.stringify([project.id, status.line, status.pending]);
+  if (key === activityKey) return;
+  activityKey = key;
+  syncRoute();
+  renderPending();
+}, 2000);
+
 setInterval(async () => {
   if (!state || !state.projects.some(p => p.agentRequest) || checkingAgent || dirty || pendingWrites || busy || document.querySelector('dialog[open]')) return;
   checkingAgent = true;

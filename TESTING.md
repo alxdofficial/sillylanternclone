@@ -72,3 +72,13 @@ Checked on the development Mac with an isolated library on port 4417. Jess's lib
 - `Start Claude Writer.command` was checked in print mode: Claude Code started with no built-in tools, only the `story-studio` server, and the watch prompt. The session itself was not run, because the command-line Claude Code on this Mac was not signed in. Run it once on Jess's Mac after signing in.
 - `npm test` covers the watch tool, stale and removed-speaker queues, declining, checked map updates (including a new character linked in the same reply), refusing prose after a `story-graph` block, the shared queue and reply layout used by the preview, writer-turn dating, long notes keeping their newest kept facts, take-specific map updates, and the browser's three-way merge after an agent save.
 - The OpenRouter length warning was checked only through code paths and unit tests. No paid OpenRouter request was made.
+
+## Queue and agent status in the page, 15 November 2026
+
+Checked on an isolated library on port 4418 with a scripted MCP client that identifies as Claude Code. Jess's library was not used.
+
+- With no agent connected, a queued turn showed a **Waiting for an agent** placeholder and “Turn queued, but no agent is watching…” above the composer.
+- When the agent picked the turn up, both changed within two seconds to **Writing** with a pulsing marker and “Claude picked up your turn just now and is writing Lina Park’s reply.” When the reply was saved, it replaced the placeholder and the line changed to “Claude is watching.”
+- A turn queued while the agent was watching showed “Claude is watching and will pick it up in a moment.” When the agent then disconnected, the line fell back to “no agent is watching” and the turn stayed queued.
+- The status line wraps cleanly at 375 px. The OpenRouter **Writing** placeholder was checked by code review only, since no OpenRouter request was made.
+- `npm test` checks that the MCP server reports watching, writing, watching again after saving, and nothing after disconnecting, and that the status endpoint rejects malformed reports and other origins.

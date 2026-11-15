@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -48,6 +49,35 @@ function tool(name, config, handler) {
     }
   });
 }
+
+// Tell the open page what this agent is doing, so the writer can see
+// whether anyone is watching for a queued turn. Best effort: the page
+// treats a missing report as nobody watching.
+const agentId = randomUUID();
+let lastWaitAt = 0;
+function agentName() {
+  const client = studio.server.getClientVersion();
+  const label = `${client?.title || ''} ${client?.name || ''}`;
+  return /claude/i.test(label) ? 'Claude' : /codex/i.test(label) ? 'Codex' : client?.title || client?.name || 'Your agent';
+}
+// Reports are sent one at a time so they arrive in the order they happened.
+let reporting = Promise.resolve();
+function reportAgent(state, turn = {}) {
+  const body = JSON.stringify({id:agentId, client:agentName(), state, ...turn});
+  reporting = reporting.then(() => fetch(origin + '/api/agent', {
+    method:'POST',
+    headers:{'content-type':'application/json',origin},
+    body,
+    signal:AbortSignal.timeout(2000),
+    redirect:'error'
+  })).catch(() => {});
+  return reporting;
+}
+function reportWriting(context) {
+  if (context.pendingRequest) reportAgent('writing', {storyId:context.storyId, turnNumber:context.pendingRequest.turnNumber, speaker:context.speaker.name});
+}
+// After saving, an agent that was watching is about to wait again.
+const reportFinished = () => reportAgent(Date.now() - lastWaitAt < 120_000 ? 'watching' : 'done');
 
 // The last library read, reused when the server answers 304 Not Modified so
 // that watching for queued turns does not re-download a large library.
@@ -184,7 +214,9 @@ tool('get_story_context', {
   _meta:{'anthropic/maxResultSizeChars':200000}
 }, async ({storyId, speakerId, direction = ''}) => {
   const {library, revision} = await readLibrary();
-  return storyContext(library, revision, findStory(library, storyId), {speakerId, direction});
+  const context = storyContext(library, revision, findStory(library, storyId), {speakerId, direction});
+  reportWriting(context);
+  return context;
 });
 
 const pollMilliseconds = 1000;
@@ -197,12 +229,20 @@ tool('wait_for_queued_turn', {
   _meta:{'anthropic/maxResultSizeChars':200000}
 }, async ({waitSeconds = /claude/i.test(studio.server.getClientVersion()?.name || '') ? 300 : 50}, extra) => {
   const deadline = Date.now() + waitSeconds * 1000;
-  let skipped = [];
+  let skipped = [], lastBeat = 0;
   while (true) {
+    if (Date.now() - lastBeat >= 10_000) {
+      lastWaitAt = lastBeat = Date.now();
+      reportAgent('watching');
+    }
     const {library, revision} = await readLibrary({conditional:true});
     const found = findQueuedTurn(library);
     skipped = found.skipped;
-    if (found.project) return {status:'queued', ...storyContext(library, revision, found.project)};
+    if (found.project) {
+      const context = {status:'queued', ...storyContext(library, revision, found.project)};
+      reportWriting(context);
+      return context;
+    }
     const remaining = deadline - Date.now();
     if (remaining <= 0 || extra?.signal?.aborted) break;
     try {
@@ -211,6 +251,8 @@ tool('wait_for_queued_turn', {
       break;
     }
   }
+  if (extra?.signal?.aborted) reportAgent('done');
+  else lastWaitAt = Date.now();
   return {
     status:'idle',
     waitedSeconds:waitSeconds,
@@ -351,6 +393,7 @@ tool('submit_reply', {
   });
   if (response.status === 409) throw Error('The library changed while saving. Read the story context again and rewrite the reply against it before saving.');
   if (!response.ok) throw Error(`Could not save the reply (HTTP ${response.status}).`);
+  reportFinished();
   return {
     storyId, turnNumber, speaker:speaker.name, proposedUpdates,
     ...(mapOff && proposals.length ? {ignoredUpdates:'Map updates are off for this reply, so they were not saved.'} : {}),
@@ -385,6 +428,7 @@ tool('decline_turn', {
   });
   if (response.status === 409) throw Error('The library changed while declining. Read the story context again.');
   if (!response.ok) throw Error(`Could not update the story (HTTP ${response.status}).`);
+  reportFinished();
   return {
     storyId, declined:request.turnNumber,
     guidance:'Story Studio shows your reason above the composer. If you are watching for turns, call wait_for_queued_turn again.'
@@ -426,4 +470,15 @@ tool('open_studio', {
   return startup;
 });
 
+// Clear this agent from the page when its client disconnects or stops it.
+let leaving = false;
+async function leave() {
+  if (leaving) return;
+  leaving = true;
+  await Promise.race([reportAgent('done'), delay(1000)]);
+  process.exit(0);
+}
+studio.server.onclose = leave;
+process.stdin.once('end', leave);
+for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, leave);
 await studio.connect(new StdioServerTransport());

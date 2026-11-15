@@ -28,6 +28,7 @@ Every feature a model drives needs an access point, an instruction and the conte
 - Privacy boundary: MCP tool results may contain only `isAvailableToMcp` turns plus notes, cards and titles. Never add a tool or result field that returns raw library data, withheld turns or their excerpts (including in error messages). Writing agents are told not to read the library, exports, the local API or the page; `bin/story-studio-claude-writer` enforces this for Claude Code with no built-in tools. When you develop or test here, do not read Jess's library or open her stories either.
 - An empty composer answers a trailing writer turn (`replyInput`), so a failed or declined turn never has to be retyped. Writer turns share their reply's `storyTime` (`dateWriterTurn`).
 - The browser merges agent saves three-way on a 409 (`public/sync.js`). Keep agent writes to the fields it merges, and extend its tests when agents write new fields.
+- Agent activity (`/api/agent`) is in-memory presence, never saved to the library: watching (60 s lifetime, refreshed during waits), writing (15 min, for one story turn) or done. Reports carry the client name, story ID, turn number and speaker name only, never story text. The page polls it every 2 s and shows queue state from `mcpStatus()`.
 
 ## Architecture and verification
 

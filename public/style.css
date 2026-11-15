@@ -599,3 +599,18 @@ form textarea { resize: vertical; }
   .graph-node text { font-size: 22px; }
   .cast-layout[data-pinned="true"] .graph-inspector { max-height: 100%; }
 }
+
+/* A turn that is queued for, or being written by, a model. */
+.message.pending { border-left: 3px solid var(--border); }
+.message.pending .pending-detail { color: var(--muted); font-size: 13px; }
+.pending-state { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.pending-state.active { color: var(--focus); }
+.pending-state.active::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor;
+  animation: pending-pulse 1.2s ease-in-out infinite;
+}
+.message.pending:has(.pending-state.active) { border-left-color: var(--focus); }
+@keyframes pending-pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .pending-state.active::before { animation: none; }
+}
