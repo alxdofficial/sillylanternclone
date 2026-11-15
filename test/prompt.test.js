@@ -112,6 +112,18 @@ test('OpenRouter labels are stripped from prose and missing or invalid labels st
     {text:'Scene text without any label.',input:'unclassified',reply:'unclassified',storyTime:'',suggestions:[]});
 });
 
+test('OpenRouter accepts a plain JSON fence only for a recognizable final classification block', () => {
+  const storyJson = 'The screen showed:\n```json\n{"input":"radio","reply":"tape"}\n```';
+  const update = {kind:'fact',note:'The ferry reached the pier.'};
+  const footer = JSON.stringify({input:'safe',reply:'explicit',storyTime:'1998-10-25T00:12',updates:[update]});
+  assert.deepEqual(splitOpenRouterReply(storyJson + '\n\n```json\n' + footer + '\n```\n'), {
+    text:storyJson,input:'safe',reply:'explicit',storyTime:'1998-10-25T00:12',suggestions:[update]
+  });
+  assert.equal(splitOpenRouterReply(storyJson).text,storyJson);
+  const nonterminal = '```json\n' + footer + '\n```\nHe closed the log.';
+  assert.equal(splitOpenRouterReply(nonterminal).text,nonterminal);
+});
+
 test('auto-flagged turns stop at the MCP boundary while OpenRouter keeps scene continuity', () => {
   const project = {...story,messages:[
     {role:'user',content:'PRIVATE_WRITER',contentSensitivity:'explicit'},

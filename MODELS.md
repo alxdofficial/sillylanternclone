@@ -23,7 +23,7 @@ For local inference, a [quantized Cydonia GGUF](https://huggingface.co/bartowski
 
 The selected model receives the current direction, recent eligible turns, narrator instructions, cast, world lore, relationship events, and the in-story clock. It follows the writer's requested style, point of view and tense when provided. OpenRouter can receive earlier explicit or unverified turns. **Keep this turn out of AI context** also excludes that turn from OpenRouter.
 
-Story Studio asks OpenRouter for prose followed by one fenced `story-safety` JSON block. It labels the writer input and assistant reply separately and records the in-story time to the minute. A regular reply can suggest up to five non-explicit map updates in that same block if suggestions are enabled. The shapes match the [MCP updates array](MCP.md#tool-contract). An alternate keeps the original scene time and has no map updates.
+Story Studio asks OpenRouter for prose followed by one fenced `story-safety` JSON block. A final standard `json` block with recognizable safety fields is also accepted. The model labels the writer input and assistant reply separately and records the in-story time to the minute. A regular reply can suggest up to five non-explicit map updates in that same block if suggestions are enabled. The shapes match the [MCP updates array](MCP.md#tool-contract). An alternate keeps the original scene time and has no map updates.
 
 ````text
 Story prose appears here.
