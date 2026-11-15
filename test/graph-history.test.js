@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { captureGraphVersion, normalizeGraphHistory, readGraphVersion, storyAtTurn } from '../public/graph-history.js';
+import { applyTurnGraphUpdates, captureGraphVersion, graphChangesByTurn, normalizeGraphHistory, readGraphVersion, storyAtTurn } from '../public/graph-history.js';
 
 function story() {
   return {
@@ -15,6 +15,31 @@ function story() {
     continuity:'The crew borrowed a flare.'
   };
 }
+
+test('turn graph changes use saved source turns and omit pending proposals', () => {
+  const project = story();
+  project.lore += '\nTurn 7: The south slip is open.';
+  project.continuity += '\nTurn 5: Ada located the missing lantern.';
+  project.relationships = [
+    {turn:0,from:'primary',to:'ada',label:'They have worked together for years.'},
+    {turn:5,from:'primary',to:'ada',label:'Iona lends Ada the spare key.'}
+  ];
+  project.messages = [{
+    turnNumber:5,
+    appliedGraphUpdates:[
+      {kind:'fact',note:'Ada located the missing lantern.'},
+      {kind:'character',name:'Tomas',note:'The night watchman.'}
+    ],
+    graphSuggestions:[{kind:'fact',note:'Pending fact only.'}]
+  }];
+  const changes = graphChangesByTurn(project);
+  assert.equal(changes.has(0),false);
+  assert.deepEqual(changes.get(5),{
+    relationships:[project.relationships[1]],
+    notes:project.messages[0].appliedGraphUpdates
+  });
+  assert.deepEqual(changes.get(7).notes,[{kind:'world',note:'The south slip is open.'}]);
+});
 
 test('graph changes reconstruct detailed character and world states by turn', () => {
   const project = story();
@@ -106,4 +131,32 @@ test('a turn snapshot keeps the selected take and past graph state without chang
   assert.equal(project.messages[1].alternatives[0],'Ice ahead.');
   assert.equal(project.messages.length,3);
   assert.equal(project.lore,'The storm blocks the port.');
+});
+
+test('automatic graph updates are saved with their source turn and the prior version', () => {
+  const project = story(), message = {role:'assistant',turnNumber:2,storyTime:'1998-01-01T08:05'};
+  project.messages = [message];
+  const updates = [
+    {kind:'relationship',from:'Captain',to:'Tomas',label:'Iona hands Tomas the flare.'},
+    {kind:'character',name:'Tomas',note:'A night watchman.'},
+    {kind:'fact',note:'Tomas can call for help.'}
+  ];
+  assert.deepEqual(applyTurnGraphUpdates(project,message,updates,{allowAutomatic:true}),{applied:3,pending:0});
+  assert.equal(project.relationships[0].turn,2);
+  assert.equal(project.relationships[0].storyTime,'1998-01-01T08:05');
+  assert.equal(project.cast[1].id,project.relationships[0].to);
+  assert.deepEqual(message.appliedGraphUpdates,[updates[1],updates[0],updates[2]]);
+  assert.equal(readGraphVersion(project,0).cast.length,2);
+  assert.equal(readGraphVersion(project,2).cast.length,3);
+  assert.match(readGraphVersion(project,2).continuity,/Turn 2: Tomas can call for help/);
+});
+
+test('updates needing review remain outside the saved graph', () => {
+  const project = story(), message = {role:'assistant',turnNumber:2,contentSensitivity:'explicit'};
+  const updates = [{kind:'world',note:'The harbor is closed tonight.'}];
+  project.messages = [message];
+  assert.deepEqual(applyTurnGraphUpdates(project,message,updates,{allowAutomatic:false}),{applied:0,pending:1});
+  assert.deepEqual(message.graphSuggestions,updates);
+  assert.equal(project.lore,'The port is blocked by ice.');
+  assert.equal(project.graphHistory,undefined);
 });

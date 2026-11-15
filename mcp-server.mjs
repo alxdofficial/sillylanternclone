@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { appendTurn, buildMessages, dateWriterTurn, stripSpeakerName, formatMessages, getCast, narrator, isStoryTime, mcpOmissionReason, queuedTurn, recordStoryTime, replyInput, syncTakeSuggestions } from './public/prompt.js';
+import { appendTurn, buildMessages, dateWriterTurn, stripSpeakerName, formatMessages, getCast, narrator, isAvailableToMcp, isStoryTime, mcpOmissionReason, precedingDirection, queuedTurn, recordStoryTime, replyInput, syncTakeSuggestions } from './public/prompt.js';
+import { applyTurnGraphUpdates } from './public/graph-history.js';
 
 import { checkMapUpdates, updateSchema } from './map-updates.mjs';
 import { createLogger, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
@@ -29,7 +30,7 @@ Watching: when the writer asks you to watch Story Studio, loop on wait_for_queue
 
 Chat drafts: for a direction the writer gives in this chat rather than in the app, call get_story_context with that direction, show the draft, and call submit_reply (with writerTurn) only if the writer asks to save it.
 
-Writing: follow the current direction as the narrator, using the cast for action and dialogue. Use the latest available passage for short follow-ups and the cast, world, story memory and dated relationships for continuity. Follow the requested style, point of view and tense. Put only the requested writing in reply. Reuse storyId and revision. Infer storyTime from the scene and elapsed in-story time. When enabled, propose only new, non-explicit facts in updates for the writer to review. Omit updates and storyTime for an alternate, and omit writerTurn when the turn is already queued.
+Writing: follow the current direction as the narrator, using the cast for action and dialogue. Use the latest available passage for short follow-ups and the cast, world, story memory and dated relationships for continuity. Follow the requested style, point of view and tense. Put only the requested writing in reply. Reuse storyId and revision. Infer storyTime from the scene and elapsed in-story time. When enabled, pass only new, non-explicit facts in updates; valid updates normally enter the graph on save. Omit updates and storyTime for an alternate, and omit writerTurn when the turn is already queued.
 
 Privacy boundary: these tools return only the turns cleared for agents. Explicit, unverified and manually excluded turns are withheld, along with unreviewed replies to those directions. Use saved non-explicit continuity to bridge any gaps. Never read Story Studio data any other way: not its data folder (~/Library/Application Support/Story Studio), library.json, exported ZIPs or transcripts, the local web API or the open page at 127.0.0.1, and not the app's source in search of stored text. If the context lacks something you need, ask the writer.
 
@@ -54,7 +55,7 @@ function tool(name, config, handler) {
         log('info','tool_completed',{tool:name,durationMs:Date.now()-started,
           storyRef:storyReference(payload.storyId),
           turnNumber:payload.turnNumber ?? payload.pendingRequest?.turnNumber,
-          proposedUpdates:payload.proposedUpdates});
+          proposedUpdates:payload.proposedUpdates,appliedUpdates:payload.appliedUpdates,pendingUpdates:payload.pendingUpdates});
       }
       return result(payload);
     } catch (error) {
@@ -287,7 +288,7 @@ function readReply(reply) {
 }
 
 tool('submit_reply', {
-  description:'Save narrated prose for a queued turn or a chat draft the writer asked to save. Pass the revision from get_story_context or wait_for_queued_turn. Put only prose in reply; pass continuity updates in updates, where the writer reviews them before they join the story. Only pass writerTurn for a new, unsaved direction when no turn is queued. A queued alternate is added to the original turn as another take.',
+  description:'Save narrated prose for a queued turn or a chat draft the writer asked to save. Pass the revision from get_story_context or wait_for_queued_turn. Put only prose in reply; pass non-explicit continuity updates in updates. Valid updates normally enter the graph on save. Only pass writerTurn for a new, unsaved direction when no turn is queued. A queued alternate is added to the original turn as another take.',
   inputSchema:{
     storyId:identifier,
     revision:z.string().regex(/^"[a-f0-9]{64}"$/),
@@ -314,6 +315,7 @@ tool('submit_reply', {
   if (checked.problems.length) throw diagnosticError('MAP_UPDATES_INVALID','Nothing was saved. Fix these map updates or leave them out:\n' + checked.problems.join('\n'));
   let turnNumber;
   let proposedUpdates = 0;
+  let graphResult;
   if (request?.mode === 'alternate') {
     const previous = project.messages.at(-1);
     const alternatives = previous.alternatives?.length ? previous.alternatives : [previous.content];
@@ -334,11 +336,14 @@ tool('submit_reply', {
       content:draft.text.trim(),
       speakerId:narrator.id,
       speakerName:narrator.name,
-      storyTime:recordStoryTime(project,storyTime),
-      ...(proposedUpdates ? {graphSuggestions:suggestions} : {})
+      storyTime:recordStoryTime(project,storyTime)
+    });
+    dateWriterTurn(project);
+    const message = project.messages.at(-1);
+    graphResult = applyTurnGraphUpdates(project,message,suggestions,{
+      allowAutomatic:isAvailableToMcp(message,precedingDirection(project.messages))
     });
   }
-  if (request?.mode !== 'alternate') dateWriterTurn(project);
   if (request) delete project.agentRequest;
   delete project.agentNotice;
   const response = await fetch(origin + '/api/state', {
@@ -353,8 +358,9 @@ tool('submit_reply', {
   reportFinished();
   return {
     storyId, turnNumber, speaker:narrator.name, proposedUpdates,
+    ...(graphResult ? {appliedUpdates:graphResult.applied,pendingUpdates:graphResult.pending} : {}),
     ...(mapOff && proposals.length ? {ignoredUpdates:'Map updates are off for this reply, so they were not saved.'} : {}),
-    guidance:'Saved. The open Story Studio page shows the reply within a few seconds, after the writer saves any unsaved browser edits. Map updates wait under Review updates until the writer keeps or dismisses them. If you are watching for turns, call wait_for_queued_turn again.'
+    guidance:'Saved. The open Story Studio page shows the reply within a few seconds, after the writer saves any unsaved browser edits. View graph changes shows updates for this turn. If you are watching for turns, call wait_for_queued_turn again.'
   };
 });
 

@@ -40,7 +40,7 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
         assert.equal(request.response_format,undefined);
         assert.equal(request.provider.require_parameters,undefined);
         assert.match(request.messages[0].content,/Return only the requested writing/);
-        assert.doesNotMatch(request.messages[0].content,/JSON Schema|Classify the author direction/);
+        assert.doesNotMatch(request.messages[0].content,/JSON Schema|Classify authorDirection/);
         return Response.json({provider:'Fixture Writing Host',usage:{prompt_tokens:120,completion_tokens:30},
           choices:[{finish_reason:endsEarly ? 'length' : 'stop',message:{content:text}}]});
       }
@@ -55,7 +55,7 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       assert.equal(request.response_format.json_schema.strict,true);
       assert.deepEqual(request.response_format.json_schema.schema.required,Object.keys(metadata));
       assert.equal(request.response_format.json_schema.schema.additionalProperties,false);
-      assert.match(request.messages[0].content,/Classify the author direction/);
+      assert.match(request.messages[0].content,/Classify authorDirection as input and draft as reply/);
       if (source.authorDirection === 'cutoff fixture') {
         assert.match(request.messages[0].content,/draft ends early.*Classify the text that is present/);
         assert.match(request.messages[0].content,/empty updates array/);

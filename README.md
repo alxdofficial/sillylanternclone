@@ -14,18 +14,18 @@ You can ask your local agent to set it up for you.
 
 > Clone https://github.com/alxdofficial/sillylanternclone on this Mac and follow README.md and MCP.md. Start Story Studio, register its MCP server in my local agent client, and start a signed-in writer session that watches Story Studio and writes each turn I queue. If you need me to sign in, approve the Story Studio tools, or open a fresh session to finish, tell me exactly what to do.
 
-With Claude Code, **Start Claude Writer.command** opens a dedicated writer session and asks it to start watching. With Codex, start a new session after registration if your installer session has yet to load the tools. Ask that session to “Watch Story Studio and write each turn I queue.” Keep the writer session open while you write.
+Set up MCP and start the watcher in a local **Codex or Claude desktop session**. The CLI is optional. After registration, start a fresh local session and say “Watch Story Studio and write each turn I queue.” Keep it open while you write. Claude Code CLI users can also double-click **Start Claude Writer.command** to open a dedicated watcher. [Desktop and CLI setup](MCP.md#register-on-your-mac)
 
 ## Try The Late Ferry
 
 New libraries open on **The Late Ferry**, a late-night harbor mystery with six characters and six turns. Find it later under **Stories → The Late Ferry · Demo**. Changes to the demo stay in memory. Reload the page to put everything back, including the cast, transcript, and any queued writing request. Your own stories save normally and are the ones included in backups.
 
-1. Open **Character & lore**. Read the world setting and click through the cast. Select an event in the timeline or click the line between Tomas and Mae to compare their two radio calls across midnight.
-2. Back in the transcript, use **Next** and **Previous** to compare Mae’s two takes. Open **Review map updates** to keep or dismiss the suggested connection between Mae and Sam.
+1. Open **Character & lore**. Read the world setting and click through the cast. Click the line between Sam and Tomas or Noor and Mae to inspect the saved radio reports.
+2. Back in the transcript, use **Next** and **Previous** to compare the two takes of the final scene. **View graph changes** on turn 4 shows the saved radio reports. It also takes you to the pending suggestion on turn 6.
 3. Open **Prompt** to see the beacon and radio lore in context. Try writing a line in **Manual**, or ask **MCP** or **OpenRouter** to continue with Noor checking the beacon. Follow the relevant connection instructions below to use a model.
 4. For a story you want to keep or export, choose **Stories → New story**.
 
-The cast, setting, and first four turns were authored as a starting point. The last two turns, Mae’s alternate, and the later relationship events were replayed through Story Studio’s MCP tools. [See the verification notes](TESTING.md#share-ready-sweep).
+The demo began as a blank story in the browser. The cast and setting were entered by hand, and Cydonia wrote the three scenes and alternate through OpenRouter. DeepSeek supplied scene times and graph proposals. [See the verification notes](TESTING.md#the-late-ferry-starter).
 
 ## Write a scene
 
@@ -53,7 +53,7 @@ Hover over a character or line for a preview in the right pane. Click or tap it 
 
 Relationship events have an in-story timestamp to the minute, for example `1998-10-24 18:30`, as well as a source turn. All setup events share the **Story start** time. MCP and OpenRouter can infer the scene and event times from the story. Story Studio uses estimates when needed. Set the start in **World** and correct event times in the graph if the story has a specific date, time jump, or flashback.
 
-Both MCP and OpenRouter can propose new characters, profile updates, world details, relationship events, and plot facts. Choose **Review updates**, use **Keep** on useful, non-explicit facts, then **Save changes**. Use **Dismiss** to drop a proposal. Kept updates join the story context. The library records versions of the cast, world setting, and story memory by turn.
+MCP and OpenRouter can update characters, world details, relationships, and story memory as they write. Valid updates from ordinary turns are applied on save. In OpenRouter mode, automatic application requires both the direction and reply to be labeled non-explicit. Updates from sensitive or unverified turns and older pending proposals stay in **Review updates**. Choose **Keep** on useful non-explicit facts and **Save changes**, or use **Dismiss**. **View graph changes** shows updates attached to a particular turn. The library records versions of the cast, world setting, and story memory by turn.
 
 ## Context and sensitive scenes
 

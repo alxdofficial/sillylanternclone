@@ -52,11 +52,13 @@ A simulated OpenRouter response added explicit labels and an inferred date to a 
 
 ## The Late Ferry starter
 
-Opened the bundled story in Chromium with an empty data directory. Verified six turns, six characters, the dated relationship events across midnight, the two alternate takes, keyword lore, and the reviewable map update. Kept the map update and added a manual turn. Reloading restored the original story and cleared the draft. The demo alone created no library file.
+Regenerated the bundled story from a blank story in an isolated Chromium session. Entered six character profiles, the world setting, and keyword lore through **Character & lore**. Submitted three directions and **Another take** using live OpenRouter calls to Cydonia and DeepSeek. All four writing and analysis passes finished normally. Kept the generated graph updates from turns 2 and 4 and left the last proposal pending for the demo. DeepSeek incorrectly marked the three ordinary directions explicit in this run, so they were corrected with **Edit**. A live retest of the revised classification prompt labeled all three directions and replies non-explicit and classified an explicit direction independently from its non-explicit reply.
 
-Created a regular story alongside the demo, added a turn, and confirmed it survived reload and appeared in the ZIP. The demo stayed out of both the saved library and the export. The automated MCP test also submits a temporary demo reply, compares the saved library byte-for-byte, and checks that a stale edit cannot reappear after a reset.
+Exported the story in the browser and used its saved data as the fixture. The bundled story retains all six turns, the alternate, generated event times, two saved relationships, one pending proposal, and three graph versions. The MCP integration test checks that demo edits stay out of the saved library and that resets clear them.
 
-## Demo replay, branching, and rewind
+Opened the rebuilt starter in a separate Chromium session. **View graph changes** showed the two saved relationship events on turn 4 and the scoped review action on turn 6. Continued in the UI with the revised two-pass flow. DeepSeek labeled the direction and reply non-explicit, and the five graph changes from that turn were visible as saved without clicking **Keep**. This temporary turn was outside the bundled fixture.
+
+## Earlier demo replay, branching, and rewind
 
 Replayed the demo from turn 4 in a disposable library. This Codex session requested each scene's context and submitted the drafts, inferred timestamps, and graph suggestions through the live Story Studio MCP server using a stdio SDK client. Approved turn 5's two relationship events and its continuity fact in the browser before drafting turn 6. Queued an alternate in the browser, saved it through MCP, and switched back to the main take. The packaged demo's six turns, relationship events, and graph history were compared with the resulting library. Standalone Codex CLI inference was unavailable during this run because the account rejected the tested model IDs.
 

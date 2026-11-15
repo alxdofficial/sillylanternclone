@@ -119,7 +119,9 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     assert.equal(project.messages[2].speakerId,narrator.id);
     assert.equal(project.messages[2].storyTime, '1904-09-23T08:30');
     assert.equal(project.storyStartAt, '1904-09-23T08:30');
-    assert.equal(project.messages[2].graphSuggestions[0].note, 'The bridge is passable.');
+    assert.equal(project.messages[2].appliedGraphUpdates[0].note, 'The bridge is passable.');
+    assert.equal(project.messages[2].graphSuggestions, undefined);
+    assert.match(project.continuity,/Turn 3: The bridge is passable/);
     project.agentRequest = {mode:'alternate',speakerId:'primary',turnNumber:3};
     const queued = await fetch(origin+'/api/state', {
       method:'PUT',

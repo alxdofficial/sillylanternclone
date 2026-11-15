@@ -110,9 +110,14 @@ test('agents watch for queued turns, decline them, and get checked map updates',
       ]
     }}));
     assert.equal(saved.proposedUpdates, 5);
+    assert.equal(saved.appliedUpdates, 5);
+    assert.equal(saved.pendingUpdates, 0);
     const written = await project('stale');
     assert.equal(written.agentRequest, undefined);
-    assert.deepEqual(written.messages.at(-1).graphSuggestions.map(item => item.kind), ['character', 'relationship', 'profile', 'world', 'fact']);
+    assert.deepEqual(written.messages.at(-1).appliedGraphUpdates.map(item => item.kind), ['character', 'relationship', 'profile', 'world', 'fact']);
+    assert.equal(written.messages.at(-1).graphSuggestions, undefined);
+    assert.equal(written.relationships.at(-1).turn,written.messages.at(-1).turnNumber);
+    assert.equal(written.relationships.at(-1).storyTime,'1904-09-23T08:31');
     assert.equal(written.messages.at(-1).storyTime, '1904-09-23T08:30');
 
     // Declining clears the queue, labels the writer turn and leaves a notice.

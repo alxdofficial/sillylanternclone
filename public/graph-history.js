@@ -1,4 +1,4 @@
-import { castFields, getCast, primarySpeaker, validCast } from './prompt.js';
+import { castFields, getCast, graphSuggestions, maxAdditionalCharacters, maxGraphEvents, primarySpeaker, relationshipTime, resolveCastName, validCast } from './prompt.js';
 
 const sections = ['cast', 'lore', 'continuity'];
 const castKeys = new Set(['id', ...castFields]);
@@ -55,6 +55,38 @@ export function readGraphVersion(project, turn = Infinity) {
     }
   }
   return snapshot.cast ? {...snapshot, cast:copyCast(snapshot.cast)} : null;
+}
+
+export function graphChangesByTurn(project) {
+  const changes = new Map();
+  const forTurn = turn => {
+    if (!changes.has(turn)) changes.set(turn, {relationships:[],notes:[]});
+    return changes.get(turn);
+  };
+  for (const edge of project.relationships || []) {
+    if (edge.turn) forTurn(edge.turn).relationships.push(edge);
+  }
+  project.messages.forEach((message,index) => {
+    for (const note of graphSuggestions(message.appliedGraphUpdates)) {
+      if (note.kind !== 'relationship') forTurn(message.turnNumber || index + 1).notes.push(note);
+    }
+  });
+  // Older libraries preserved the source of kept facts as a dated line.
+  const addDatedNotes = (value,kind,name) => {
+    for (const match of (value || '').matchAll(/^Turn (\d+):[ \t]*(\S[^\n]*)$/gm)) {
+      const turn = Number(match[1]);
+      if (!validTurn(turn)) continue;
+      const note = match[2].trim();
+      const notes = forTurn(turn).notes;
+      if (!notes.some(item => item.kind === kind && item.name === name && item.note === note)) {
+        notes.push({kind,...(name ? {name} : {}),note});
+      }
+    }
+  };
+  for (const member of getCast(project)) addDatedNotes(member.description,'profile',member.name);
+  addDatedNotes(project.lore,'world');
+  addDatedNotes(project.continuity,'fact');
+  return changes;
 }
 
 export function storyAtTurn(project, index) {
@@ -115,4 +147,77 @@ export function captureGraphVersion(project, turn) {
   if (sections.some(section => owns(delta, section))) updated.push(delta);
   project.graphHistory = updated;
   return true;
+}
+
+function addDatedFact(previous = '', note, turn) {
+  const normalized = note.toLowerCase();
+  if (previous.split('\n').some(line => line.replace(/^Turn \d+:\s*/, '').trim().toLowerCase() === normalized)) return previous;
+  return [previous.trim(), `Turn ${turn}: ${note}`].filter(Boolean).join('\n');
+}
+
+// Return true for a change, false for a duplicate, and null for a proposal
+// that still needs the writer's attention (for example, a full cast).
+function applyGraphUpdate(project, update, turn) {
+  const cast = getCast(project);
+  const resolve = name => resolveCastName(cast,name);
+  if (update.kind === 'character') {
+    if (resolve(update.name)) return null;
+    if (cast.length === 1 && ![project.characterName,project.characterNickname,project.character,project.personality,project.scenario,project.examples].some(Boolean)) {
+      project.characterName = update.name;
+      project.character = update.note;
+    } else {
+      if (cast.length > maxAdditionalCharacters) return null;
+      const member = Object.fromEntries(castFields.map(field=>[field,'']));
+      (project.cast ||= []).push({...member,id:globalThis.crypto.randomUUID(),name:update.name,description:update.note});
+    }
+    return true;
+  }
+  if (update.kind === 'relationship') {
+    const from = resolve(update.from), to = resolve(update.to);
+    if (!from || !to || from === to) return null;
+    const events = project.relationships || [];
+    if (events.some(edge=>edge.from === from && edge.to === to && edge.label === update.label && edge.turn === turn)) return false;
+    if (events.length >= maxGraphEvents) return null;
+    const storyTime = update.storyTime || relationshipTime(project,{turn});
+    (project.relationships ||= []).push({from,to,label:update.label,turn,storyTime});
+    return true;
+  }
+  if (update.kind === 'profile') {
+    const id = resolve(update.name);
+    if (!id) return null;
+    const member = id === primarySpeaker ? project : project.cast.find(entry=>entry.id === id);
+    const field = id === primarySpeaker ? 'character' : 'description';
+    const text = addDatedFact(member[field],update.note,turn);
+    if (member[field] === text) return false;
+    member[field] = text;
+    return true;
+  }
+  const field = update.kind === 'world' ? 'lore' : 'continuity';
+  const text = addDatedFact(project[field],update.note,turn);
+  if (project[field] === text) return false;
+  project[field] = text;
+  return true;
+}
+
+export function applyTurnGraphUpdates(project, message, proposals, {allowAutomatic} = {}) {
+  if (!proposals.length) return {applied:0,pending:0};
+  if (!allowAutomatic) {
+    message.graphSuggestions = proposals;
+    return {applied:0,pending:proposals.length};
+  }
+  if (!project.graphHistory?.length) captureGraphVersion(project,0);
+  const applied = [], pending = [];
+  // Add characters first so events can reference a name introduced this turn.
+  const ordered = [...proposals.filter(update=>update.kind === 'character'), ...proposals.filter(update=>update.kind !== 'character')];
+  for (const update of ordered) {
+    const outcome = applyGraphUpdate(project,update,message.turnNumber);
+    if (outcome === true) applied.push(update);
+    else if (outcome === null) pending.push(update);
+  }
+  if (applied.length) {
+    message.appliedGraphUpdates = applied;
+    captureGraphVersion(project,Math.max(message.turnNumber,project.graphHistory.at(-1)?.turn || 0));
+  }
+  if (pending.length) message.graphSuggestions = pending;
+  return {applied:applied.length,pending:pending.length};
 }

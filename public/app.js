@@ -1,10 +1,10 @@
-import { captureGraphVersion, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
+import { applyTurnGraphUpdates, captureGraphVersion, graphChangesByTurn, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
 import { maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
 import { mergeLibrary } from './sync.js';
 import { buildMessages, formatMessages, extraFields, getCast, narrator, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
 import { models, chapterCost, isModelId } from './models.js';
-import { dateWriterTurn, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
+import { dateWriterTurn, mcpOmissionReason, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
 
 const settingsFields = ['title', 'character', 'lore', 'notes', ...extraFields.filter(key => key !== 'personaName')];
 const castLabels = {name:'Name', nickname:'Aliases', description:'Description', personality:'Personality', scenario:'Scenario', examples:'Example dialogue'};
@@ -285,6 +285,18 @@ function attributedSpeaker(message) {
     ? name : '';
 }
 
+function appendTurnContextBadge(container, badgeGroup, reason) {
+  if (!reason) return;
+  const status = reason === 'directionWithheld' ? 'unverified' : reason;
+  const labels = {
+    explicit:'Explicit · outside MCP',
+    unverified:'Unverified · outside MCP',
+    allRoutes:'Outside AI context'
+  };
+  container.dataset.contextStatus = status;
+  badgeGroup.append(el('span','context-badge',labels[status]));
+}
+
 function renderMessages() {
   closeTurnMenu();
   const project = current(), box = $('#messages');
@@ -296,24 +308,27 @@ function renderMessages() {
     box.append(empty);
     return;
   }
+  const graphChanges = graphChangesByTurn(project);
   let previousDirection;
   project.messages.forEach((message,index) => {
     const fromAuthor = message.role === 'user';
     if (fromAuthor) previousDirection = message;
-    const availableToMcp = isAvailableToMcp(message,previousDirection);
+    const omittedFromMcp = mcpOmissionReason(message,previousDirection);
     const turn = message.turnNumber || index + 1;
     const row = el('article','message ' + (fromAuthor ? 'user' : 'assistant'));
     row.setAttribute('aria-label',`${fromAuthor ? 'Your input' : 'Story'} · Turn ${turn}`);
     const name = fromAuthor ? 'You' : attributedSpeaker(message);
     const body = el('div','message-body'), head = el('div',name ? 'message-header' : 'message-footer');
     if (name) head.append(el('strong',fromAuthor ? 'author-label' : '',name));
-    if (message.excludeFromContext) head.append(el('span','context-badge','Outside AI context'));
-    else if (!availableToMcp) head.append(el('span','context-badge',
-      message.contentSensitivity === 'explicit' ? 'Explicit · outside MCP' : 'Unverified · outside MCP'));
-    if (!message.excludeFromContext && message.graphSuggestions?.length) {
-      const review = el('button','text-button','Review map updates');
-      review.onclick = () => { openSettings(); pinGraph({kind:'review'}); };
-      head.append(review);
+    appendTurnContextBadge(row,head,omittedFromMcp);
+    if (graphChanges.has(turn) || (!message.excludeFromContext && message.graphSuggestions?.length)) {
+      const changes = el('button','text-button','View graph changes');
+      changes.onclick = () => {
+        openSettings();
+        pinGraph({kind:'turn-changes',turn});
+        $('#closeInspector').focus();
+      };
+      head.append(changes);
     }
 
     const actions = el('div','message-actions');
@@ -338,7 +353,7 @@ function renderMessages() {
     actions.append(edit,remove,more);
     const provider = $('#sceneProvider').value;
     if (message.role === 'assistant' && !message.excludeFromContext && index === project.messages.length - 1
-        && provider !== 'manual' && (provider === 'openrouter' || availableToMcp)) {
+        && provider !== 'manual' && (provider === 'openrouter' || !omittedFromMcp)) {
       const retry = el('button','','Another take');
       retry.disabled = busy;
       retry.onclick = () => generate('retry');
@@ -555,9 +570,12 @@ async function generate(mode) {
       const suggestions = target.graphUpdates === false ? [] : graphSuggestions(response.suggestions);
       appendTurn(target, {role:'assistant', content:stripSpeakerName(text, narrator.name), ...speakerMetadata(narrator),
         contentSensitivity:validSensitivity(response.reply) ? response.reply : 'unclassified',
-        storyTime:recordStoryTime(target,response.storyTime),
-        ...(suggestions.length ? {graphSuggestions:suggestions} : {})});
+        storyTime:recordStoryTime(target,response.storyTime)});
       dateWriterTurn(target);
+      applyTurnGraphUpdates(target,target.messages.at(-1),suggestions,{
+        allowAutomatic:response.input === 'safe' && response.reply === 'safe'
+          && !(target.id === current().id && $('#settingsDialog').open)
+      });
     }
     markDirty(target);
     if (response.truncated) {
@@ -567,7 +585,7 @@ async function generate(mode) {
     } else if (response.metadataFailed) {
       error('Your draft is in the story. DeepSeek could not verify its labels or suggest map updates. Check the labels with Edit before using this turn in MCP.');
     } else if (response.updateProblems) {
-      error('Some suggested map updates could not be matched to the cast or used the wrong format. Valid suggestions are available in Character & lore.');
+      error('Some map updates did not match the cast or used the wrong format. See View graph changes for the valid updates.');
     }
   } catch (e) {
     error(`Couldn't write the next turn: ${e.message}` + (mode === 'send' ? ' Your turn is saved. To try again, click Send & write with an empty box.' : ''));
@@ -664,7 +682,7 @@ function updateGraphSelection() {
     const selected = selectionKey(selection) === node.dataset.selection;
     node.setAttribute('aria-pressed', String(selected && Boolean(pinnedGraph)));
     node.classList.toggle('graph-selected',selected || Boolean(connectingFrom && node.dataset.id === connectingFrom));
-    const scoped = ['turn','moment'].includes(selection?.kind);
+    const scoped = ['turn','moment','turn-changes'].includes(selection?.kind);
     const pair = node.dataset.pair;
     node.classList.toggle('graph-dim',scoped && Boolean(pair) && !draftRelationships.some(edge =>
       pairKey(edge.from,edge.to) === pair && matchesTimeline(edge,selection)));
@@ -755,17 +773,20 @@ function renderGraphTurns() {
     entries.push({time, label:edges.length === 1 ? `${nameOf(first.from)} → ${nameOf(first.to)}` : 'Relationship events',
       detail:edges.length === 1 ? first.label : countEvents(edges.length), selection:{kind:'moment',time}});
   }
+  let previousDirection;
   current().messages.forEach((message,index) => {
+    if (message.role === 'user') previousDirection = message;
     const turn = message.turnNumber || index + 1;
     const kind = message.role === 'user' ? 'Direction' : attributedSpeaker(message) || 'Prose';
-    entries.push({time:message.storyTime || '', label:`${eventTime(turn)} · ${kind}`, selection:{kind:'turn',turn}});
+    entries.push({time:message.storyTime || '', label:`${eventTime(turn)} · ${kind}`,
+      reason:mcpOmissionReason(message,previousDirection), selection:{kind:'turn',turn}});
   });
   entries.sort((a,b) => Number(!a.time) - Number(!b.time) || a.time.localeCompare(b.time)
     || (a.selection.turn ?? Infinity) - (b.selection.turn ?? Infinity));
   const rail = $('#graphTurns');
   rail.replaceChildren();
   let day, list, lastTime, timeGroup;
-  for (const {time,label,detail,selection} of entries) {
+  for (const {time,label,detail,reason,selection} of entries) {
     const key = time.slice(0,10);
     if (key !== day) {
       day = key;
@@ -792,6 +813,7 @@ function renderGraphTurns() {
     button.setAttribute('aria-pressed',String(selectionKey(pinnedGraph) === button.dataset.timelineSelection));
     button.append(el('strong','',label));
     if (detail) button.append(el('span','timeline-detail',detail));
+    appendTurnContextBadge(button,button,reason);
     button.onclick = () => {
       if (connecting) clearConnection();
       pinGraph(selection);
@@ -856,9 +878,37 @@ function renderInspector() {
       preview.hidden = false;
     }
     renderRelationships(draftRelationships.filter(edge => matchesTimeline(edge,selection)),true);
+  } else if (selection.kind === 'turn-changes') {
+    type.textContent = eventTime(selection.turn);
+    title.textContent = 'Graph changes';
+    const notes = graphChangesByTurn(current()).get(selection.turn)?.notes || [];
+    const edges = draftRelationships.filter(edge => matchesTimeline(edge,selection));
+    const pending = pendingGraphReview.filter(item => item.turnNumber === selection.turn && !item.status);
+    preview.replaceChildren();
+    preview.append(el('h4','','Saved changes'));
+    for (const note of notes) {
+      const label = note.kind === 'character' ? 'Character added · ' + note.name
+        : note.kind === 'profile' ? 'Profile updated · ' + note.name
+        : note.kind === 'world' ? 'World setting' : 'Story memory';
+      const row = el('div','relationship-row');
+      row.append(el('strong','',label),el('p','relationship-copy',note.note));
+      preview.append(row);
+    }
+    if (!notes.length && !edges.length) preview.append(el('p','form-note','No graph changes have been saved for this turn.'));
+    if (pending.length) {
+      const review = el('button','button subtle',`Review ${pending.length} pending ${pending.length === 1 ? 'proposal' : 'proposals'}`);
+      review.type = 'button';
+      review.onclick = () => {
+        pinGraph({kind:'review',turn:selection.turn});
+        $('#closeInspector').focus();
+      };
+      preview.append(review);
+    }
+    preview.hidden = false;
+    if (edges.length || deletedEvent && matchesTimeline(deletedEvent,selection)) renderRelationships(edges,true);
   } else if (selection.kind === 'review') {
     type.textContent = 'Agent';
-    title.textContent = 'Map updates';
+    title.textContent = selection.turn ? `Turn ${selection.turn} proposals` : 'Map updates';
     $('#graphReviewPanel').hidden = false;
     renderGraphReview();
   } else {
@@ -897,7 +947,7 @@ function renderRelationships(edges, editable) {
   const count = ordered.length;
   const summary = el('p','form-note',count ? `${count} ${count === 1 ? 'event' : 'events'}` : 'No relationship events here.');
   list.append(summary);
-  const canUndo = deletedEvent && (['turn','moment'].includes(pinnedGraph?.kind) ? matchesTimeline(deletedEvent,pinnedGraph)
+  const canUndo = deletedEvent && (['turn','moment','turn-changes'].includes(pinnedGraph?.kind) ? matchesTimeline(deletedEvent,pinnedGraph)
     : pairKey(deletedEvent.from,deletedEvent.to) === pinnedGraph?.key);
   if (editable && deletedEvent && canUndo) {
     const undo = el('button','button subtle','Undo last deletion');
@@ -1047,6 +1097,7 @@ function addDatedFact(previous, note, turn) {
 }
 function reviewSuggestion(item) {
   const suggestion = item.suggestion;
+  let applied = true;
   if (suggestion.kind === 'character') {
     if (resolveName(suggestion.name)) return 'That character already exists.';
     const primary = $('#primaryEditor');
@@ -1062,10 +1113,14 @@ function reviewSuggestion(item) {
     const editor = castEditors().find(item => item.dataset.id === id);
     if (!editor) return 'Add this character with a distinct name first.';
     const description = editor.querySelector('[data-field="description"]');
-    description.value = addDatedFact(description.value,suggestion.note,item.turnNumber);
+    const next = addDatedFact(description.value,suggestion.note,item.turnNumber);
+    applied = next !== description.value;
+    description.value = next;
   } else if (suggestion.kind === 'world') {
     const input = $('#settingsForm').elements.lore;
-    input.value = addDatedFact(input.value,suggestion.note,item.turnNumber);
+    const next = addDatedFact(input.value,suggestion.note,item.turnNumber);
+    applied = next !== input.value;
+    input.value = next;
   } else if (suggestion.kind === 'relationship') {
     const from = resolveName(suggestion.from), to = resolveName(suggestion.to);
     if (!from || !to || from === to) return 'Add both characters with distinct names first.';
@@ -1076,9 +1131,12 @@ function reviewSuggestion(item) {
     }
   } else {
     const input = $('#settingsForm').elements.continuity;
-    input.value = addDatedFact(input.value,suggestion.note,item.turnNumber);
+    const next = addDatedFact(input.value,suggestion.note,item.turnNumber);
+    applied = next !== input.value;
+    input.value = next;
   }
   item.status = 'accepted';
+  item.applied = applied;
   refreshCastGraph();
   renderGraphTurns();
   renderGraphReview();
@@ -1086,9 +1144,11 @@ function reviewSuggestion(item) {
 }
 function renderGraphReview() {
   const container = $('#graphSuggestions');
-  const pending = pendingGraphReview.filter(item => !item.status);
+  const allPending = pendingGraphReview.filter(item => !item.status);
+  const turn = pinnedGraph?.kind === 'review' ? pinnedGraph.turn : undefined;
+  const pending = turn ? allPending.filter(item => item.turnNumber === turn) : allPending;
   container.hidden = !pending.length;
-  $('#reviewGraphButton').textContent = pending.length ? `Review updates (${pending.length})` : 'Agent updates';
+  $('#reviewGraphButton').textContent = allPending.length ? `Review updates (${allPending.length})` : 'Agent updates';
   container.replaceChildren();
   if (!pending.length) return;
   container.append(el('h3','','Review map updates'), el('p','form-note','Keep only non-explicit facts you want future models to see.'));
@@ -1244,7 +1304,7 @@ function openEdit(index) {
   showEditSensitivity(sensitivity,heldForReview);
   $('#editDialog').showModal();
 }
-function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return migratePersona({id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(typeof p.storyWriterId==='string'?{storyWriterId:p.storyWriterId}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentRequest&&['send','alternate'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300)}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
+function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return migratePersona({id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(typeof p.storyWriterId==='string'?{storyWriterId:p.storyWriterId}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentRequest&&['send','alternate'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300)}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
 if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})});});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 
 const modelChoice = $('#modelPreset');
@@ -1411,7 +1471,10 @@ $('#settingsForm').onsubmit = event => {
   project.graphUpdates = $('#graphUpdates').checked;
   for (const [index, turn] of project.messages.entries()) {
     if (!turn.graphSuggestions) continue;
-    turn.graphSuggestions = turn.graphSuggestions.filter((_, proposal) => !pendingGraphReview.some(item => item.turn === index && item.index === proposal && item.status));
+    const reviewed = pendingGraphReview.filter(item => item.turn === index && item.status);
+    const applied = reviewed.filter(item => item.applied && item.suggestion.kind !== 'relationship').map(item => item.suggestion);
+    if (applied.length) turn.appliedGraphUpdates = graphSuggestions([...(turn.appliedGraphUpdates || []),...applied]);
+    turn.graphSuggestions = turn.graphSuggestions.filter((_, proposal) => !reviewed.some(item => item.index === proposal));
     if (!turn.graphSuggestions.length) delete turn.graphSuggestions;
   }
   captureGraphVersion(project, Math.max(nextTurnNumber(project)-1, project.graphHistory.at(-1)?.turn || 0));

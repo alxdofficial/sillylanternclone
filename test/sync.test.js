@@ -56,6 +56,18 @@ test('agent reply merges with cast edits', () => {
   assert.equal(story.agentRequest, undefined);
 });
 
+test('automatic graph updates merge with a concurrent edit to writing notes', () => {
+  const base = library(), local = clone(base), server = agentReply(clone(base));
+  local.projects[0].notes = 'Stay in Ada’s point of view.';
+  server.projects[0].continuity = 'Turn 4: The boiler is hot.';
+  server.projects[0].messages[3].appliedGraphUpdates = [{kind:'fact',note:'The boiler is hot.'}];
+  const {library:merged,conflicts} = mergeLibrary(base,local,server);
+  assert.deepEqual(conflicts,[]);
+  assert.equal(merged.projects[0].notes,'Stay in Ada’s point of view.');
+  assert.equal(merged.projects[0].continuity,'Turn 4: The boiler is hot.');
+  assert.deepEqual(merged.projects[0].messages[3].appliedGraphUpdates,server.projects[0].messages[3].appliedGraphUpdates);
+});
+
 test('agent reply merges with a kept map update on an earlier turn', () => {
   const base = library(), local = clone(base), server = agentReply(clone(base));
   const kept = local.projects[0];

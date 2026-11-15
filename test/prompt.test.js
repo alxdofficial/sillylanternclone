@@ -136,7 +136,7 @@ test('auto-flagged turns stop at the MCP boundary while OpenRouter keeps scene c
   assert.match(router,/PRIVATE_WRITER/);
   assert.match(router,/UNVERIFIED_REPLY/);
   assert.doesNotMatch(router,/HIDDEN_EVERYWHERE/);
-  assert.doesNotMatch(router,/JSON Schema|Classify the author direction/);
+  assert.doesNotMatch(router,/JSON Schema|Classify authorDirection/);
   const metadata = formatMessages(buildMetadataMessages(project,'NEXT_SCENE','The ferry left.','send'));
   assert.match(metadata,/PRIVATE_WRITER/);
   assert.doesNotMatch(metadata,/HIDDEN_EVERYWHERE/);

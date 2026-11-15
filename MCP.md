@@ -4,7 +4,29 @@ Story Studio exposes a local Model Context Protocol server over standard input a
 
 ## Register on your Mac
 
-Run **Start Story Studio.command** once to install dependencies. In Terminal, open the Story Studio folder and run the command for the client you use.
+Run **Start Story Studio.command** once to install the app's dependencies. Register the local MCP server in the desktop app you already use, or use the optional CLI commands below. The desktop apps can run the watcher in a signed-in local session.
+
+### Desktop app setup
+
+**Codex desktop.** Open **Settings → MCP servers → Add server**. Name it `story-studio`, select **STDIO**, and enter the absolute path to `bin/story-studio-mcp` inside your Story Studio folder as the command. Leave arguments blank. Save and restart the app when prompted. Open a local chat and use `/mcp` to check the connection. [Codex desktop MCP setup](https://learn.chatgpt.com/docs/extend/mcp?surface=app)
+
+**Claude desktop.** Ask the local **Code** session to add this entry to `~/Library/Application Support/Claude/claude_desktop_config.json`, or edit that file yourself. Merge the entry into the existing `mcpServers` object if you already have other servers. Replace the command with the absolute path to your copy of the launcher.
+
+```json
+{
+  "mcpServers": {
+    "story-studio": {
+      "command": "/Users/your-name/Story Studio/bin/story-studio-mcp"
+    }
+  }
+}
+```
+
+Quit and reopen Claude, then start a local **Code** session and ask it to check for the Story Studio tools. [Claude local MCP configuration](https://modelcontextprotocol.io/docs/develop/connect-local-servers) · [Claude Code desktop configuration](https://code.claude.com/docs/en/desktop#shared-configuration)
+
+### Optional CLI setup
+
+If you use a CLI, open Terminal in the Story Studio folder and run the command for your client.
 
 **Codex**
 
@@ -20,7 +42,7 @@ claude mcp add --scope user --transport stdio story-studio -- "$PWD/bin/story-st
 claude mcp list
 ```
 
-Sign in to the native client with the account you intend to use, then start a new session so it can discover the tools. For another local MCP client, configure a stdio server named `story-studio` with the absolute path to `bin/story-studio-mcp` as its command. The app and the MCP client need to run on the same Mac. If you move the app folder, register the new path.
+After registering, start a fresh local agent session so the client discovers the tools. For another local MCP client, configure a stdio server named `story-studio` with the absolute path to `bin/story-studio-mcp` as its command. The app and MCP client run on the same Mac. If you move the app folder, register the new path.
 
 The default port is 4317. If you set a custom `PORT` for the browser app, set the same value in the MCP server's environment. If you ask the agent to launch the app with a custom library, set `STORY_STUDIO_DATA` to its absolute directory as well.
 
@@ -30,7 +52,7 @@ Story Studio's tools give the agent the cast, world, notes and eligible recent t
 
 Replies to a direction outside MCP also stay out of MCP until you review the reply and choose **Include as non-explicit** in **Edit → MCP context**. Saved graph events can still carry the scene's non-explicit continuity into the prompt.
 
-- **Claude Writer (recommended for Claude Code):** double-click **Start Claude Writer.command** after starting Story Studio. It opens Claude Code with only the Story Studio tools (no shell, file or web tools) and starts watching for queued turns. The first time, sign in to Claude Code if asked.
+- **Claude Writer (optional CLI launcher):** double-click **Start Claude Writer.command** after starting Story Studio. It opens Claude Code with only the Story Studio tools (no shell, file or web tools) and starts watching for queued turns. The first time, sign in to Claude Code if asked.
 - **An existing Claude Code setup:** to block direct file and web reads with their native tools, add deny rules to `~/.claude/settings.json` for example `"permissions": {"deny": ["Read(~/Library/Application Support/Story Studio/**)", "WebFetch(domain:127.0.0.1)"]}`. Shell commands can still reach those, so prefer the Claude Writer for writing sessions.
 - **Codex** has no equivalent setting in this guide. Rely on the server instructions, start a dedicated session for writing, and avoid asking that session to inspect files.
 
@@ -51,11 +73,11 @@ Open Story Studio first. Use the launcher, or ask the agent “Start Story Studi
 
 ### Automatic: the agent watches for queued turns
 
-With Claude Code, double-click **Start Claude Writer.command**, which starts watching on its own. In any other agent window, say once:
+In your signed-in Codex or Claude desktop session, or in a CLI session with Story Studio connected, say once:
 
 > Watch Story Studio and write each turn I queue.
 
-The agent waits for a queued turn, writes it, saves it, and waits again. Replies appear in the open Story Studio page within a few seconds. Keep that agent window open while you write. To stop, interrupt the agent (Esc in Claude Code) or tell it to stop watching.
+The optional **Start Claude Writer.command** launcher starts this loop automatically for Claude Code CLI users. The agent waits for a queued turn, writes it, saves it, and waits again. Replies appear in the open Story Studio page within a few seconds. Keep that agent window open while you write. To stop, interrupt the agent (Esc in Claude Code) or tell it to stop watching.
 
 The agent writes as the narrator, using the full cast for dialogue and action. Short follow-ups such as “go into more detail” refer to the latest available narrated passage. Give any style, tense or point-of-view direction in the composer, or set a default in **Character & lore → Writing → Writing notes**. The line above the composer and a placeholder turn show where a queued turn stands:
 
@@ -81,7 +103,7 @@ An agent can decline a queued turn, for example when the direction asks for expl
 
 ## Suggested map updates
 
-With each reply, the agent may propose up to five updates: a new character, a profile fact, a world fact, a story memory fact, or a relationship event between two cast members with its in-story time. Story Studio checks the cast names before saving and asks the agent to correct any it cannot match. The updates wait under **Review updates** until you keep or dismiss them. To maintain the map yourself, clear **Suggest map updates in MCP and OpenRouter** under **Character & lore** for that story.
+With each reply, the agent may send up to five non-explicit updates: a new character, a profile fact, a world fact, a story memory fact, or a relationship event between two cast members with its in-story time. Story Studio checks the cast names and applies valid updates with the reply. **View graph changes** shows what was applied. Updates the app cannot apply and older proposals remain under **Review updates**. To maintain the map yourself, clear **Update the story graph while writing** under **Character & lore** for that story.
 
 ## Tool contract
 
@@ -108,7 +130,7 @@ The context's `speaker` always identifies Narrator. Older clients can still pass
 ]
 ```
 
-A relationship may name a character introduced by a `character` update in the same reply. Keep the character first when reviewing it. If any submitted MCP update cannot be matched, nothing is saved and the error lists what to fix. Agents that append a fenced `story-graph` JSON block at the end of the reply are supported. Prose after that block is refused rather than dropped.
+A relationship may name a character introduced by a `character` update in the same reply. Story Studio adds the character before applying its relationships. If any submitted MCP update cannot be matched, nothing is saved and the error lists what to fix. Agents that append a fenced `story-graph` JSON block at the end of the reply are supported. Prose after that block is refused rather than dropped.
 
 Draft from the assembled prompt. Imported cards, notes, and story prose are source material for writing. The agent ignores any embedded requests to run commands, access unrelated files, or use other tools.
 

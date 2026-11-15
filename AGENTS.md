@@ -4,7 +4,7 @@ Story Studio is a local, single-user fiction-writing application for Jess. Optim
 
 ## Setting up for a writer
 
-When the writer asks you to install or set up Story Studio for writing, follow README.md and MCP.md. Start the local app, register its MCP server with the writer's chosen client, and finish by starting a signed-in session that watches for queued turns. If the installer session cannot discover the newly registered tools, use a fresh writer session. For Claude Code, use **Start Claude Writer.command**. If sign-in, tool permission, or opening a new session requires the writer's action, explain the exact remaining step. The writer session must stay open for automatic pickup.
+When the writer asks you to install or set up Story Studio for writing, follow README.md and MCP.md. Start the local app, register its MCP server with the writer's chosen client, and finish by starting a signed-in session that watches for queued turns. If the installer session cannot discover the newly registered tools, use a fresh writer session. Use the writer’s current local desktop client when available. The CLI and **Start Claude Writer.command** are optional. If sign-in, tool permission, or opening a new session requires the writer's action, explain the exact remaining step. The writer session must stay open for automatic pickup.
 
 ## Data and migrations
 
@@ -26,7 +26,7 @@ Every feature a model drives needs an access point, an instruction and the conte
 - A queued turn (`agentRequest`) is the writer's request to write and save that reply. Agents must not wait for a second confirmation. Agents that will not write it call `decline_turn`, which clears the queue and leaves `agentNotice` for the writer, so a watching agent never loops on the same turn.
 - New turns use the narrator in MCP and OpenRouter. Cast cards provide context for the scene, and the writer controls style through their direction and writing notes. Preserve stored attributions on existing turns.
 - `wait_for_queued_turn` is a bounded long poll. Keep its default under Codex's 60-second `tool_timeout_sec` default and its result shape identical to `get_story_context`.
-- Map updates are proposals reviewed by the writer, never direct edits. Keep the MCP `updates` schema, the `story-graph` fallback, the OpenRouter response schema and `graphSuggestions()` in step. Validate names before saving and return every problem at once; never drop an update or prose silently.
+- Valid non-explicit map updates normally apply atomically with a saved narration. OpenRouter updates from turns without two non-explicit labels stay pending for the writer, along with older proposals. Keep the MCP `updates` schema, the `story-graph` fallback, the OpenRouter response schema and `graphSuggestions()` in step. Validate names before saving and return every problem at once; never drop a novel update or prose silently.
 - Relationship entries are dated events ("what happened"), not static labels. Scene times use `YYYY-MM-DDTHH:mm` without a time zone.
 - The MCP boundary is `isAvailableToMcp`. A model reply can only be labeled by the route that wrote it; a missing OpenRouter label is unverified. Surface truncation (`finish_reason: "length"`) because it can leave the structured reply incomplete.
 - Server instructions must stay under 4,096 characters, which Claude Code truncates.

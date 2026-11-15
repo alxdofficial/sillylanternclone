@@ -389,7 +389,28 @@ form textarea { resize: vertical; }
 .profile-details summary { color: #d1c4d0; cursor: pointer; padding: 4px 0; }
 #settingsForm .cast-card { border: 0; margin: 0; padding: 0; }
 #settingsForm .cast-card > legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.context-badge { color: #ccc0ca; font-size: 11px; white-space: nowrap; }
+[data-context-status="explicit"] {
+  --turn-context-ink: #ffc3d1;
+  --turn-context-fill: #4d2b38;
+}
+[data-context-status="unverified"] {
+  --turn-context-ink: #f1d397;
+  --turn-context-fill: #453824;
+}
+[data-context-status="allRoutes"] {
+  --turn-context-ink: #cfdae8;
+  --turn-context-fill: #333c49;
+}
+.message[data-context-status] { border-inline-start: 1px solid var(--turn-context-ink); }
+.context-badge {
+  display: inline-block;
+  padding: 3px 7px;
+  color: var(--turn-context-ink);
+  background: var(--turn-context-fill);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.3;
+}
 #editForm .context-toggle { display: flex; align-items: center; gap: 9px; margin: 12px 0 4px; }
 #editForm .context-toggle input { width: auto; margin: 0; }
 @media (max-width: 560px) {
@@ -495,6 +516,7 @@ form textarea { resize: vertical; }
 .graph-turn:hover { background: #383038; }
 .graph-turn[aria-pressed="true"] { background: #493745; }
 .graph-turn strong { display: block; font-size: 13px; line-height: 1.3; }
+.graph-turn .context-badge { margin-top: 4px; }
 .timeline-clock {
   display: block;
   padding-inline: 8px;
