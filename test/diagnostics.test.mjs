@@ -44,6 +44,14 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
         if (request.messages.at(-1).content.endsWith('removal fixture')) {
           return Response.json({choices:[{finish_reason:'stop',message:{content:'[removed]'}}]});
         }
+        if (request.messages.at(-1).content.endsWith('refusal fixture')) {
+          return Response.json({choices:[{finish_reason:'stop',message:{
+            content:"This isn't appropriate for our collaborative storytelling environment. I can write a different scene."
+          }}]});
+        }
+        if (request.messages.at(-1).content.endsWith('decline field fixture')) {
+          return Response.json({choices:[{finish_reason:'stop',message:{content:null,refusal:'The provider declined.'}}]});
+        }
         const preamble = request.messages.at(-1).content.endsWith('preamble fixture')
           ? "I've been instructed to write approximately 250 words.\\n\\n" : '';
         return Response.json({provider:'Fixture Writing Host',usage:{prompt_tokens:120,completion_tokens:30},
@@ -104,6 +112,11 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     const removed = await generate('fixture/prose','removal fixture');
     assert.equal(removed.status,500);
     assert.match((await removed.json()).error,/writing provider returned a removal placeholder/);
+    for (const instruction of ['refusal fixture','decline field fixture']) {
+      const refused = await generate('fixture/prose',instruction);
+      assert.equal(refused.status,500);
+      assert.match((await refused.json()).error,/selected OpenRouter model declined/);
+    }
     const withInvalid = await generate('fixture/prose','invalid proposals');
     assert.equal(withInvalid.status,200);
     const rejected = await withInvalid.json();
@@ -162,6 +175,8 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     assert.ok(events.some(event=>event.requestId===withPreamble.headers.get('x-story-studio-request-id') && event.prosePreambleRemoved));
     assert.ok(events.some(event=>event.requestId===removed.headers.get('x-story-studio-request-id')
       && event.code==='OPENROUTER_REMOVAL_PLACEHOLDER' && event.finishReason==='stop' && !event.metadata));
+    assert.equal(events.filter(event=>event.event==='request_failed'
+      && event.code==='OPENROUTER_WRITING_DECLINED' && event.finishReason==='stop' && !event.metadata).length,2);
     assert.doesNotMatch(contents,new RegExp(fixture));
     assert.ok(!contents.includes(scene.text));
   } finally {

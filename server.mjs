@@ -9,7 +9,7 @@ import { buildMessages, buildMetadataMessages, extraFields, getCast, getWriter, 
 import { maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory } from './examples/the-late-ferry.mjs';
 import { checkMapUpdates } from './map-updates.mjs';
-import { metadataModel, readStoryMetadata, storyMetadataFormat, stripWritingPreamble } from './openrouter-format.mjs';
+import { isWritingRefusal, metadataModel, readStoryMetadata, storyMetadataFormat, stripWritingPreamble } from './openrouter-format.mjs';
 import { createLogger, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -213,6 +213,11 @@ async function generateOpenRouter(messages, model, key, diagnostics, metadata = 
     throw diagnosticError('OPENROUTER_INCOMPLETE_REPLY','OpenRouter reported an incomplete response.');
   }
   const text = choice?.message?.content;
+  const refusal = choice?.message?.refusal;
+  if (!metadata && ((typeof refusal === 'string' && refusal.trim())
+    || (typeof text === 'string' && isWritingRefusal(text.trim())))) {
+    throw diagnosticError('OPENROUTER_WRITING_DECLINED','The selected OpenRouter model declined this direction.');
+  }
   if (typeof text !== 'string' || !text.trim()) throw diagnosticError('OPENROUTER_EMPTY_REPLY','OpenRouter returned no text for this request.');
   return {text:text.trim(), truncated:finish === 'length'};
 }

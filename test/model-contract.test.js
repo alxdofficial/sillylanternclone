@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildMessages, buildMetadataMessages, clipEnds, dateWriterTurn, formatMessages, narrator, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from '../public/prompt.js';
 import { checkMapUpdates } from '../map-updates.mjs';
-import { readStoryMetadata, stripWritingPreamble } from '../openrouter-format.mjs';
+import { isWritingRefusal, readStoryMetadata, stripWritingPreamble } from '../openrouter-format.mjs';
 
 const story = (messages, agentRequest) => ({
   id:'s', title:'T', characterName:'Mara', character:'An archivist.', persona:'', lore:'', notes:'',
@@ -17,6 +17,11 @@ test('OpenRouter strips a specific assignment aside and preserves narration and 
   assert.equal(stripWritingPreamble(`${first} ${aside}\n\n${scene}`),`${first}\n\n${scene}`);
   const dialogue = `“Stay here. ${aside} The police are waiting.”\n\n${scene}`;
   assert.equal(stripWritingPreamble(dialogue),dialogue);
+});
+
+test('a refusal spoken by a character is still story prose', () => {
+  assert.equal(isWritingRefusal('“I can’t help with that request,” said the lighthouse keeper.'),false);
+  assert.equal(isWritingRefusal('I cannot help with that request. I can offer a different scene.'),true);
 });
 
 test('a queued turn is only valid while it still matches the story, its speaker and MCP context', () => {

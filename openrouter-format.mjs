@@ -17,6 +17,14 @@ export const storyMetadataFormat = {
   type:'json_schema', json_schema:{name:'story_studio_metadata',strict:true,schema}
 };
 
+export function isWritingRefusal(text) {
+  // Some hosts report a conversational refusal as an ordinary completion.
+  // Match explicit assistant phrasing at the start so dialogue can use it.
+  const sceneRefusal = /^this (?:isn['’]t|is not) appropriate for our collaborative storytelling environment\b/i;
+  const decline = /^(?:i['’]m sorry[, .]+(?:but\s+)?)?i (?:can['’]t|cannot|won['’]t) (?:help (?:with|write|create|generate)|write|create|generate|provide|continue)\s+(?:(?:that|this) request|(?:sexually |graphic(?:ally)? )?explicit (?:content|material|scenes?))\b/i;
+  return sceneRefusal.test(text) || decline.test(text);
+}
+
 export function stripWritingPreamble(prose) {
   const breakAt = prose.search(/\r?\n[ \t]*\r?\n/);
   const end = breakAt < 0 ? prose.length : breakAt;
