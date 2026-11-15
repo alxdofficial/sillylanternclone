@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMessages, formatMessages, splitOpenRouterReply } from '../public/prompt.js';
+import { buildMessages, formatMessages, splitOpenRouterReply, splitAgentReply, migratePersona, isStoryTime, recordStoryTime } from '../public/prompt.js';
 
 const story = {
   characterName: 'Iona', personaName: 'Ren',
@@ -19,7 +19,7 @@ const story = {
 test('prompt orders context around role-preserved history and the current direction', () => {
   const messages = buildMessages(story, 'Ren checks the BRASS COMPASS by the monkey statue. a+b');
   const text = formatMessages(messages);
-  const order = ['World Info · before character', 'Writer persona', 'Character description', 'Character personality',
+  const order = ['World Info · before character', 'Writer character', 'Character description', 'Character personality',
     'Scenario', 'World Info · activated entries', 'Example dialogue', 'Turn 1', 'Author’s note', 'Turn 2',
     'Turn 5', 'Post-history instructions', 'Ren checks'];
   for (let i = 1; i < order.length; i++) {
@@ -100,11 +100,11 @@ test('known small model gets a tighter budget without losing the latest directio
 
 test('OpenRouter labels are stripped from prose and missing or invalid labels stay unverified', () => {
   assert.deepEqual(splitOpenRouterReply('Scene text.\n\n```story-safety\n{"input":"safe","reply":"explicit"}\n```'),
-    {text:'Scene text.',input:'safe',reply:'explicit'});
+    {text:'Scene text.',input:'safe',reply:'explicit',storyTime:'',suggestions:[]});
   assert.deepEqual(splitOpenRouterReply('Scene text.\n```story-safety\n{"input":"safe"'),
-    {text:'Scene text.',input:'unclassified',reply:'unclassified'});
+    {text:'Scene text.',input:'unclassified',reply:'unclassified',storyTime:'',suggestions:[]});
   assert.deepEqual(splitOpenRouterReply('Scene text without any label.'),
-    {text:'Scene text without any label.',input:'unclassified',reply:'unclassified'});
+    {text:'Scene text without any label.',input:'unclassified',reply:'unclassified',storyTime:'',suggestions:[]});
 });
 
 test('auto-flagged turns stop at the MCP boundary while OpenRouter keeps scene continuity', () => {
@@ -122,4 +122,32 @@ test('auto-flagged turns stop at the MCP boundary while OpenRouter keeps scene c
   assert.match(router,/UNVERIFIED_REPLY/);
   assert.doesNotMatch(router,/HIDDEN_EVERYWHERE/);
   assert.match(router,/fenced story-safety block/);
+});
+
+test('story time validates dates, shares the setup anchor, and rolls over at midnight', () => {
+  assert.equal(isStoryTime('2025-02-29T18:12'), false);
+  assert.equal(isStoryTime('2024-02-29T24:00'), false);
+  const project = {messages:[],storyStartAt:'2026-01-01T09:00',storyStartSource:'estimate',
+    relationships:[{turn:0,storyTime:'2026-01-01T09:00'}]};
+  const first = recordStoryTime(project,'1980-08-31T23:59');
+  assert.equal(project.storyStartAt,first);
+  assert.equal(project.relationships[0].storyTime,first);
+  project.messages.push({storyTime:first});
+  assert.equal(recordStoryTime(project,''),'1980-09-01T00:00');
+});
+
+test('a saved persona becomes one cast member and remains the writer in prompts', () => {
+  const project = migratePersona({...story, cast:[{id:'ren',name:'Ren',description:'Repairs radios.'}]});
+  assert.equal(project.storyWriterId,'ren');
+  assert.equal(project.persona,'');
+  assert.equal(project.cast.length,1);
+  assert.match(formatMessages(buildMessages(project)),/Writer character:\nRen\nRepairs radios\./);
+});
+
+test('provider footers keep dates and non-explicit updates separate from prose', () => {
+  const update = {kind:'relationship',from:'Iona',to:'Ren',label:'They agree to share the map.',storyTime:'1950-03-01T09:00'};
+  const footer = JSON.stringify({input:'safe',reply:'explicit',storyTime:'1950-03-01T09:15',updates:[update]});
+  assert.deepEqual(splitOpenRouterReply('Prose.\n```story-safety\n' + footer + '\n```'),
+    {text:'Prose.',input:'safe',reply:'explicit',storyTime:'1950-03-01T09:15',suggestions:[update]});
+  assert.deepEqual(splitAgentReply('Prose.\n```story-graph\n{"incomplete":'),{text:'Prose.',suggestions:[]});
 });

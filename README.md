@@ -1,41 +1,67 @@
 # Story Studio
 
-A local fiction-writing workspace with a cast graph, turn history, and three writing modes: MCP, OpenRouter, and Manual.
+Story Studio is a local fiction-writing workspace for writing one turn at a time. Build a cast and its relationships, keep track of continuity, and choose who writes the next turn. The three writing modes are **MCP**, **OpenRouter**, and **Manual**.
 
 ## Start on your Mac
 
-1. Accept access to the [private repository](https://github.com/alxdofficial/sillylanternclone), then clone it or use **Code → Download ZIP**. Alex can also share the Mac distribution ZIP.
-2. Double-click **Start Story Studio.command**. It installs dependencies and downloads and verifies Node.js if a suitable version is missing. If macOS blocks the unsigned launcher, inspect the files and run `zsh 'Start Story Studio.command'` in the app folder.
-3. Open [Story Studio](http://127.0.0.1:4317/) and leave the launcher running. For development use `npm ci`, then `npm start`.
+1. Accept access to the [private repository](https://github.com/alxdofficial/sillylanternclone). Clone it with Git, or download and unzip **Code → Download ZIP**. Keep the app folder somewhere you can find again.
+2. Double-click **Start Story Studio.command**. The launcher installs the locked npm dependencies and, if it needs Node.js, downloads a version for your Mac from nodejs.org and verifies its checksum. If macOS blocks the launcher, open Terminal in the app folder and run `zsh 'Start Story Studio.command'`.
+3. Leave the launcher window open while writing. It opens [Story Studio](http://127.0.0.1:4317/) in your browser. Press Control-C in Terminal to stop the server after saving your work.
 
-You can ask your local agent: “Clone the private Story Studio repository, read README.md and MCP.md, and help me start it and register its MCP server.”
+Setup needs internet access for the first download. Story Studio runs on Node.js 20 or later with npm and uses the MCP SDK, Zod, and fflate. You can also run `npm ci` followed by `npm start` if Node.js and npm are already installed. Manual writing works without a provider account. MCP needs a local MCP client with its own sign-in. OpenRouter needs an OpenRouter API key.
 
-## Write
+You can ask your local agent to set it up for you.
 
-- **MCP** uses your signed-in Codex or Claude Code session. Register Story Studio once using [MCP.md](MCP.md). In the browser, choose MCP and **Queue turn**. In your agent's session, ask it to write and save the queued reply using Story Studio. The browser picks up the saved reply. An idle MCP client does not start writing on its own.
-- **OpenRouter** uses its own key and billing. Add the key under **Connection**, then use the model picker in the composer. Prices show estimated cost for a chapter and rates per million tokens. The app forgets the key on reload. See [MODELS.md](MODELS.md).
-- **Manual** saves your own text without a model call. **Add reply** lets you enter the co-writer's side yourself.
+> Clone https://github.com/alxdofficial/sillylanternclone on this Mac. Read README.md and MCP.md, help me start Story Studio, and register its MCP server in the local agent client I’m using.
 
-Choose **Reply as** to set the next co-writer when the scene has multiple characters. **Another take** keeps the original turn and uses its original speaker. You can inspect the next model-facing context with **Prompt**.
+## Write a scene
+
+1. Open **Stories** and use **+** to start a story. Add your cast under **Character & lore → Cast** and add the setting under **World**. Choose the next co-writer with **Reply as**.
+2. Write a scene beat, a line of dialogue, or instructions for the co-writer in the composer. **Prompt** shows the context assembled for the selected route.
+3. Choose a writing mode.
+
+   - **MCP** gives the next reply to your signed-in Codex, Claude Code, or other local MCP client. Follow [MCP setup](MCP.md) once, click **Queue turn**, then ask the native agent to write and save the queued reply. Story Studio picks up the saved reply. The agent needs your instruction in its own session to begin writing.
+   - **OpenRouter** sends the current scene to the selected model. Open **Connection**, enter your API key, select a model, and save. You can change the model beside **Write with** in the composer. The model list shows USD rates per million input and output tokens and estimated chapter cost at 2,000 input plus 5,000 output tokens. See [model notes and prices](MODELS.md).
+   - **Manual** saves what you write without a model call. Use **Add reply** to enter the co-writer’s side yourself.
+
+Use **Edit** to revise a saved turn or **Another take** to generate an alternate reply on the latest eligible turn. Use **Previous** and **Next** to choose which take appears in the story and in future prompts.
 
 ## Character & lore
 
-New stories open the cast graph. Use **+ Character** to give a character a name, aliases, and description. Click a node to edit its profile or import a JSON card. To draw a link, select the source character, click **Connect**, and select the other character. Describe the event or relationship in one sentence. Each link event is stamped with its story turn. Links created before writing show **Setup**. The same pair can have several events.
+The **Story timeline** on the left groups setup, dated scenes, and relationship events by their in-story calendar date. Entries within a day show the time in 24-hour format. Select a moment to inspect its events and highlight their connections on the graph. Older and manually written turns without a date appear under **Undated turns**. To date one, use **Edit** on the turn in the transcript. On a narrow screen, choose **Show timeline** above the graph.
 
-**Your persona** is the part you write. **World** holds setting, durable story memory, and keyword lore. **Writing** holds prose directions and style. Story memory and model-facing descriptions should use the non-explicit facts needed for continuity.
+Hover over a character or line for a preview in the right pane. Click or tap it to keep its details open and edit.
 
-MCP agents can propose new characters, relationship events, and updates to profiles, the world setting, or story memory. Use **Review map updates → Keep → Save changes** to carry a proposal forward. Dismiss anything inaccurate, sensitive, or unnecessary. Profile and world updates append dated notes, preserving the author's text. The saved library stores version deltas for character profiles, world settings, and continuity by turn. The browser has no time-machine control yet.
+- **+ Character** creates a profile. Click a node to edit its name, aliases, description, and optional personality, scenario, and sample dialogue. **I write this character** identifies the character you control. The profile also supports importing basic details from a JSON character card.
+- **+ Relationship** lets you select two characters in the order of the event. Write one sentence describing what happened and choose its **In-story date and time**. Several events between the same two characters share a graph line. Its count shows how many are saved. Click the line to edit or delete individual events. **Undo last deletion** is available in the inspector before you save.
+- **World** holds the setting, start date and time, short continuity facts under **Story memory**, and optional keyword lore. Enter one rule per line, such as `harbor, dock | The tide cuts off the old footpath.` Use `* | lore` for a rule that is always active. **Writing** holds prose directions, style notes, and the title.
 
-## How context is picked
+Relationship events have an in-story timestamp to the minute, for example `1998-10-24 18:30`, as well as a source turn. All setup events share the **Story start** time. MCP and OpenRouter can infer the scene and event times from the story. Story Studio uses estimates when needed. Set the start in **World** and correct event times in the graph if the story has a specific date, time jump, or flashback.
 
-All model routes use the same strategy: recent included prose, character and world detail, and relevant relationship events and reviewed facts. The recent-prose cap is approximately 16,000 tokens, using a text-size estimate. Story Studio reduces the total for known smaller model windows and leaves room for the reply. Older prose remains in the transcript. The graph carries forward the facts that were captured and kept.
+Both MCP and OpenRouter can propose new characters, profile updates, world details, relationship events, and plot facts. Choose **Review updates**, use **Keep** on useful, non-explicit facts, then **Save changes**. Use **Dismiss** to drop a proposal. Kept updates join the story context. The library records versions of the cast, world setting, and story memory by turn.
 
-New OpenRouter requests ask the selected model to label the latest writer message and its reply separately. Turns labeled explicit, or left unverified when a label is missing, are omitted from MCP prompts. They remain available to OpenRouter. This is a model judgment and can be wrong. **Edit → MCP context** lets you correct the label. Existing and manually written turns are not checked retroactively.
+## Context and sensitive scenes
 
-To keep a passage out of every model's future prompts, use **Edit → Keep this turn out of AI context → Save turn**. Leave a short, non-explicit plot fact under **World → Story memory**, or add a non-explicit relationship event. Check **Prompt**, use a fresh native agent session if it already saw the original, and ask for the next non-explicit scene. Exclusion applies to that turn, so check any nearby turns or notes that quote it. The original stays in the library and exports.
+The shared prompt builder includes the selected character, other cast, setting, applicable lore, and recent eligible prose. It limits recent prose to an estimated 16,000 tokens, with a smaller allowance on models with known shorter windows. Older prose stays in the transcript. Future prompts carry forward relevant relationship events and facts you saved in the graph and story memory.
 
-## Back up and migrate
+When you send a new OpenRouter turn, Story Studio asks the selected model to label your input and its reply separately. Turns marked **Explicit** or **Unverified** are omitted from future MCP prompts. They remain available to OpenRouter and in your transcript. Labels are model judgments and can be wrong. Missing labels count as unverified. Existing, manually added, and edited passages need your review.
 
-The library is under `~/Library/Application Support/Story Studio/`. Quit the app and copy the whole folder to move it to another Mac. **Stories → Export history ZIP** produces restorable `library.json` and readable transcripts. Unzip it and choose **Import library** to restore. Import replaces the current library after confirmation. If another tab saved first, export your unsaved copy before reloading.
+To move a story back to MCP after an explicit scene:
 
-The local server binds to loopback. Generation sends only the assembled context to the chosen route. MCP clients use their own sign-in and settings. See [TESTING.md](TESTING.md) and [RESEARCH.md](RESEARCH.md) for verified behavior and upstream comparison.
+1. Check the badges on both the writer turn and the reply. Use **Edit → MCP context → Omit (explicit)** to correct a label when needed. Select **Keep this turn out of AI context** if you want to omit that turn from all model routes, including OpenRouter.
+2. Keep any needed continuity in a short, non-explicit relationship event or **World → Story memory**. Check nearby turns and notes for copies of the sensitive prose.
+3. Switch to **MCP**, check **Prompt**, then queue the next scene. Start a fresh native agent session if the previous session already saw the original text.
+
+The saved library and exports include the original passages. Model and provider policies apply to generation. See [verified test results](TESTING.md) for what was exercised with a simulated provider and what was tried in a live agent session.
+
+## Back up and move your library
+
+The default library folder is `~/Library/Application Support/Story Studio/` and its main file is `library.json`. Quit Story Studio and copy the whole folder to migrate to another Mac. Or use **Stories → Export history ZIP** to download `library.json` and readable story transcripts. To restore an export, unzip it and select `library.json` with **Import library**. Import replaces the current library after confirmation. If a newer save from another tab causes a conflict, export your local work before reloading.
+
+The app binds to your Mac’s loopback address and stores the library locally. When you use a model, the assembled context goes to its service through your selected route. The OpenRouter key is held in the browser page's memory, passed through the local server for requests, and cleared on reload. Story exports exclude the key.
+
+## Project reference
+
+- [MCP.md](MCP.md) covers registration, the native agent handoff, and the tool contract.
+- [RESEARCH.md](RESEARCH.md) records the pinned SillyTavern sources, the UI and prompts studied, and the features implemented independently.
+- [TESTING.md](TESTING.md) records browser and provider checks. Run `npm test` for automated regression tests.

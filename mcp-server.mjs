@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { appendTurn, buildMessages, formatMessages, getCast, getSpeaker, splitAgentReply, isAvailableToMcp } from './public/prompt.js';
+import { appendTurn, buildMessages, formatMessages, getCast, getSpeaker, splitAgentReply, isAvailableToMcp, isStoryTime, recordStoryTime } from './public/prompt.js';
 
 const port = Number(process.env.PORT || 4317);
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -101,13 +101,14 @@ tool('list_stories', {
 });
 
 tool('get_story_context', {
-  description:'Read bounded, model-facing story context for drafting a reply. Omitted turns stay private. Returns the story ID, selected speaker and revision needed to save a draft.',
+  description:'Read the assembled writing prompt. Turns marked explicit, unverified or outside AI context are omitted. Returns the story ID, selected speaker and revision needed to save a draft.',
   inputSchema:{
     storyId:identifier.optional().describe('Use the active story when omitted.'),
     speakerId:identifier.optional().describe('Use the selected speaker when omitted.'),
-    direction:z.string().max(6000).optional().describe('The writer’s latest direction, if any.')
+    direction:z.string().max(6000).optional().describe('A new direction from the writer in this chat, if any. Leave blank for a queued Studio turn.')
   },
-  annotations:{readOnlyHint:true, openWorldHint:false}
+  annotations:{readOnlyHint:true, openWorldHint:false},
+  _meta:{'anthropic/maxResultSizeChars':200000}
 }, async ({storyId, speakerId, direction = ''}) => {
   const {library, revision} = await readLibrary();
   const project = findStory(library, storyId);
@@ -123,6 +124,7 @@ tool('get_story_context', {
     revision,
     pendingRequest:request,
     speaker:{id:speaker.id,name:speaker.name},
+    storyClock: 'Infer the reply’s in-story date and time from the setting and elapsed time; pass YYYY-MM-DDTHH:mm to submit_reply.',
     cast:getCast(project).map(({id,name}) => ({id,name})),
     prompt:formatMessages(messages)
   };
@@ -135,17 +137,18 @@ tool('submit_reply', {
     revision:z.string().regex(/^"[a-f0-9]{64}"$/),
     speakerId:identifier.optional(),
     reply:z.string().max(60000).refine(text => Boolean(text.trim())),
-    writerTurn:z.string().max(6000).optional()
+    writerTurn:z.string().max(6000).optional(),
+    storyTime:z.string().refine(isStoryTime).optional().describe('In-story scene date and time, YYYY-MM-DDTHH:mm. Infer it from the context.')
   },
   annotations:{readOnlyHint:false, destructiveHint:false, idempotentHint:false, openWorldHint:false}
-}, async ({storyId, revision, speakerId, reply, writerTurn}) => {
+}, async ({storyId, revision, speakerId, reply, writerTurn, storyTime}) => {
   const current = await readLibrary();
   if (current.revision !== revision) throw Error('The library changed since this draft started. Keep your draft in chat and re-read the story context before saving.');
   const project = findStory(current.library, storyId);
   const request = pendingRequest(project);
   const speaker = resolveSpeaker(project, speakerId, request);
   if (request && writerTurn?.trim()) throw Error('This handoff already has a saved writer turn. Omit writerTurn.');
-  const draft = project.graphUpdates === false ? {text:reply, suggestions:[]} : splitAgentReply(reply.trim());
+  const draft = splitAgentReply(reply.trim());
   if (!draft.text.trim()) throw Error('The reply must contain prose before any graph proposals.');
   let turnNumber;
   let proposedUpdates = 0;
@@ -161,13 +164,15 @@ tool('submit_reply', {
   } else {
     if (project.messages.length + (writerTurn?.trim() ? 2 : 1) > 3000) throw Error('This story has reached its turn limit.');
     if (writerTurn?.trim()) appendTurn(project, {role:'user',content:writerTurn.trim()});
-    proposedUpdates = draft.suggestions.length;
+    const suggestions = project.graphUpdates === false ? [] : draft.suggestions;
+    proposedUpdates = suggestions.length;
     turnNumber = appendTurn(project, {
       role:'assistant',
       content:draft.text.trim(),
       speakerId:speaker.id,
       speakerName:speaker.name,
-      ...(proposedUpdates ? {graphSuggestions:draft.suggestions} : {})
+      storyTime:recordStoryTime(project,storyTime),
+      ...(proposedUpdates ? {graphSuggestions:suggestions} : {})
     });
   }
   if (request) delete project.agentRequest;

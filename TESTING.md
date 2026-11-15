@@ -41,3 +41,11 @@ Used a synthetic private marker and a non-explicit aftermath. The marker remaine
 ## Automatic OpenRouter labels
 
 Tested browser → server → simulated OpenRouter → browser → MCP stdio. The simulated provider labeled both the writer turn and reply explicit, then omitted the label on a second response. Both explicit turns and both unverified turns were displayed in the transcript and omitted from MCP preview and the real stdio tool context. OpenRouter still received the previous included scene for continuation. Labels persisted on reload. This verifies the app's routing and parsing, not a live model's classification accuracy.
+
+## Story timeline and responsive review
+
+In Chromium, opened the graph from a synthetic ferry story and verified that a saved persona appeared as an ordinary cast member. Hovering over a character or edge opened a preview without changing the canvas width. The browser test set a shared setup time, added multiple events to one relationship line, edited an event across midnight, deleted it, and undid the deletion. Selecting a timeline entry opened that exact in-story moment. Saving and reloading preserved the timestamps.
+
+The responsive audit covered Chromium at 320–2560 pixels wide and WebKit at five desktop, tablet, and phone sizes. Tested manual writing and editing, Story drawer keyboard navigation, the inline model picker, Connection, and the Prompt preview. Touch emulation used a 100-story library with long titles, multilingual names, and unbroken prose. No physical phone was used.
+
+A simulated OpenRouter response added explicit labels and an inferred date to a browser-written scene. The browser preserved the flagged prose locally and allowed a non-explicit timed graph proposal to be reviewed. A real stdio MCP client then read the queued continuation, confirmed the flagged prose was absent and the approved event was present, and saved a follow-up with its own date. This test exercised the app handoff without a live model or paid request.

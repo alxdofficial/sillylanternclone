@@ -3,18 +3,69 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Story Studio</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Libre+Baskerville:ital@0;1&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <div class="shell">
-<aside class="sidebar" id="sidebar" aria-label="Story drawer"><div class="brand"><span class="brand-mark">&#10022;</span><span>Story Studio<small>Your writing library</small></span><button class="mobile-close icon" id="closeMenu" aria-label="Close stories">×</button></div><div class="side-heading"><span>Your stories</span><button id="newProject" class="icon" aria-label="New story" title="New story">＋</button></div><div id="projectList" class="project-list"></div><div class="side-bottom"><button id="exportButton" class="side-action">↓ &nbsp; Export history ZIP</button><button id="importButton" class="side-action">↑ &nbsp; Import library</button><input id="importFile" type="file" accept="application/json,.json" hidden></div></aside>
-<main class="main"><header class="topbar"><button id="openMenu" class="tool" title="Open stories">&#9776; <span>Stories</span></button><button class="tool" id="providerButton" title="Connection settings">&#9881; <span>Connection</span></button><button class="tool" id="settingsButton" title="Character and lore">&#9817; <span>Character &amp; lore</span></button><button class="tool" id="promptPreview" title="View assembled prompt">&#9636; <span>Prompt</span></button><div id="saveStatus" class="save-status" role="status">Loading…</div></header>
-<div class="workspace"><div class="story-heading"><div class="breadcrumb">Story <span>/</span> <strong id="crumb">Story</strong></div><h1 id="storyTitle">Your story</h1><button class="button subtle danger" id="deleteProject">Delete story</button></div>
-<div class="work-grid"><section class="story-panel" aria-label="Story conversation"><div class="panel-top"><h2>The scene</h2><span>Edit turns and explore another take.</span></div><div id="messages" class="messages" aria-live="polite"></div><div id="error" class="error" hidden></div><div class="composer"><div class="route-bar"><label for="sceneProvider">Write with</label><select id="sceneProvider"><option value="mcp">MCP</option><option value="openrouter">OpenRouter</option><option value="manual">Manual</option></select><span id="sceneModelControl" hidden><label for="sceneModel">Model</label>
-<select id="sceneModel" aria-describedby="routeSummary">
-  <option value="" disabled>Choose a model</option>
-</select></span><span id="speakerControl" hidden><label for="speakerSelect">Reply as</label><select id="speakerSelect"></select></span><span id="routeSummary"></span></div><p class="route-hint">Prompts use recent included turns and reviewed story facts. Check Prompt before sending.</p><label for="instruction" class="sr-only">What happens next?</label><textarea id="instruction" rows="3" placeholder="Write your next message, or direct your co-writer…"></textarea><div class="composer-bottom"><div class="composer-actions"><button class="button subtle" id="pasteReply">Add reply</button></div><button class="button primary" id="sendButton">Send &amp; write ↗</button></div><p class="shortcut">⌘/Ctrl + Enter to send</p></div></section></div></div>
-</main></div>
+  <dialog class="sidebar" id="sidebar" aria-labelledby="storiesHeading">
+    <header class="brand">
+      <h2 id="storiesHeading">Your stories</h2>
+      <button id="closeMenu" class="icon" aria-label="Close stories">×</button>
+    </header>
+    <button id="newProject" class="button subtle">New story</button>
+    <div id="projectList" class="project-list"></div>
+    <footer class="side-bottom">
+      <button id="exportButton" class="side-action">Export history ZIP</button>
+      <button id="importButton" class="side-action">Import library</button>
+      <input id="importFile" type="file" accept="application/json,.json" hidden>
+    </footer>
+  </dialog>
+  <main class="main">
+    <header class="topbar">
+      <button id="openMenu" class="tool" aria-haspopup="dialog"><span aria-hidden="true" class="tool-mark">☰</span> Stories</button>
+      <button id="providerButton" class="tool" aria-haspopup="dialog"><span aria-hidden="true" class="tool-mark">⚙</span> Connection</button>
+      <button id="settingsButton" class="tool" aria-haspopup="dialog"><span aria-hidden="true" class="tool-mark">♙</span> Character &amp; lore</button>
+      <button id="promptPreview" class="tool" aria-haspopup="dialog"><span aria-hidden="true" class="tool-mark">▤</span> Prompt</button>
+    </header>
+    <div class="workspace">
+      <div class="story-heading">
+        <div class="story-title">
+          <h1 id="storyTitle">Your story</h1>
+          <div id="saveStatus" class="save-status" role="status">Loading…</div>
+        </div>
+        <button class="button subtle danger" id="deleteProject">Delete story</button>
+      </div>
+      <section class="story-panel" aria-label="Story conversation">
+        <div id="messages" class="messages" aria-live="polite"></div>
+        <div id="error" class="error" role="alert" hidden></div>
+        <div class="composer">
+          <div class="route-bar">
+            <div class="route-control">
+              <label for="sceneProvider">Write with</label>
+              <select id="sceneProvider"><option value="mcp">MCP</option><option value="openrouter">OpenRouter</option><option value="manual">Manual</option></select>
+            </div>
+            <div class="route-control" id="sceneModelControl" hidden>
+              <label for="sceneModel">Model</label>
+              <select id="sceneModel" aria-describedby="routeSummary"><option value="" disabled>Pick a model</option></select>
+            </div>
+            <div class="route-control" id="speakerControl" hidden>
+              <label for="speakerSelect">Reply as</label>
+              <select id="speakerSelect"></select>
+            </div>
+          </div>
+          <p id="routeSummary" class="route-hint" role="status"></p>
+          <label for="instruction" class="sr-only">What happens next?</label>
+          <textarea id="instruction" rows="3" placeholder="Write your next message, or direct your co-writer…"></textarea>
+          <div class="composer-bottom">
+            <button class="button subtle" id="pasteReply">Add reply</button>
+            <p class="shortcut">⌘/Ctrl + Enter to send</p>
+            <button class="button primary" id="sendButton">Send &amp; write ↗</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
 <dialog id="settingsDialog" aria-labelledby="settingsHeading">
 <form id="settingsForm">
   <header class="dialog-top settings-head">
@@ -23,34 +74,42 @@
   </header>
   <div class="settings-tabs" role="tablist" aria-label="Story settings">
     <button type="button" role="tab" id="castTab" aria-controls="castPanel" aria-selected="true">Cast</button>
-    <button type="button" role="tab" id="personaTab" aria-controls="personaPanel" aria-selected="false" tabindex="-1">Your persona</button>
     <button type="button" role="tab" id="worldTab" aria-controls="worldPanel" aria-selected="false" tabindex="-1">World</button>
     <button type="button" role="tab" id="writingTab" aria-controls="writingPanel" aria-selected="false" tabindex="-1">Writing</button>
   </div>
   <div class="settings-body" id="settingsBody">
     <section role="tabpanel" id="castPanel" aria-labelledby="castTab" class="cast-layout">
-      <div class="cast-rail">
-        <svg id="castGraph" viewBox="0 0 360 280" aria-label="Character relationship graph" role="group"></svg>
-
-        <div class="graph-actions">
-          <button type="button" class="button subtle" id="addCharacter">+ Character</button>
-          <button type="button" class="button subtle" id="connectCharacters">Connect</button>
+      <aside class="graph-timeline" aria-labelledby="timelineHeading" data-expanded="false">
+        <div class="timeline-header">
+          <h3 id="timelineHeading">Story timeline</h3>
+          <button type="button" id="toggleTimeline" aria-controls="graphTurns" aria-expanded="false">Show timeline</button>
         </div>
-        <p class="form-note" id="graphStatus" role="status"></p>
-        <div id="relationshipEditor" hidden>
-          <label id="relationshipLabel" for="relationshipText">Relationship</label>
-          <input id="relationshipText" maxlength="400" placeholder="e.g. Sisters, former rivals">
-          <button type="button" class="button subtle" id="storeRelationship">Add relationship</button>
-          <button type="button" class="button subtle" id="cancelRelationship">Cancel</button>
+        <div id="graphTurns" class="graph-turns" tabindex="0" aria-label="Story timeline entries"></div>
+      </aside>
+      <div class="graph-stage">
+        <div class="graph-toolbar">
+          <div class="graph-actions">
+            <button type="button" class="button subtle" id="addCharacter">+ Character</button>
+            <button type="button" class="button subtle" id="connectCharacters" aria-pressed="false">+ Relationship</button>
+            <button type="button" class="button subtle" id="reviewGraphButton">Agent updates</button>
+          </div>
+          <p class="form-note" id="graphStatus" role="status"></p>
         </div>
-        <div id="relationshipList" class="relationship-list"></div>
+        <svg id="castGraph" viewBox="0 0 720 510" aria-label="Character relationship graph" role="group"></svg>
+        <p class="graph-key">Select a character or line to inspect it. A numbered line has multiple events.</p>
       </div>
-      <div class="cast-profile">
-        <button type="button" id="backToGraph" class="text-button">← Back to graph</button>
-        <div class="profile-head">
-          <h3 id="profileHeading">Main character</h3>
-          <div id="cardTools"></div>
+      <aside id="graphInspector" class="graph-inspector" aria-labelledby="inspectorHeading" hidden>
+        <div class="inspector-title">
+          <div>
+            <div id="inspectorType" class="inspector-type"></div>
+            <h3 id="inspectorHeading"></h3>
+          </div>
+          <button type="button" class="icon" id="closeInspector" aria-label="Close inspector">×</button>
         </div>
+        <div id="graphPreview" class="graph-preview" hidden></div>
+        <div id="graphProfile" hidden>
+        <label class="context-toggle"><input id="writerCharacter" type="checkbox"> I write this character</label>
+        <div id="cardTools"></div>
         <p class="form-note" id="cardHint"></p>
         <div id="primaryEditor" data-id="primary">
           <label>Name<input name="characterName" data-field="name" maxlength="100"></label>
@@ -63,16 +122,25 @@
           </details>
         </div>
         <div id="castEditors"></div>
-        <div id="graphSuggestions" class="graph-suggestions" hidden></div>
-        <label class="context-toggle"><input id="graphUpdates" type="checkbox"> Suggest map updates when using an agent</label>
-      </div>
-    </section>
-    <section role="tabpanel" id="personaPanel" aria-labelledby="personaTab" hidden>
-      <p class="form-note">This is the character you write. The cast shares this description.</p>
-      <label>Name<input name="personaName" placeholder="Your name in the story"></label>
-      <label>Description<textarea name="persona" rows="5"></textarea></label>
+        </div>
+        <div id="relationshipEditor" hidden>
+          <label id="relationshipLabel" for="relationshipText">What happened?</label>
+          <input id="relationshipText" maxlength="400" placeholder="e.g. Lina asks Mae to watch the ticket window">
+          <label>In-story date and time<input id="relationshipTime" type="datetime-local" step="60"></label>
+          <div class="inspector-actions">
+            <button type="button" class="button primary" id="storeRelationship">Add event</button>
+            <button type="button" class="button subtle" id="cancelRelationship">Cancel</button>
+          </div>
+        </div>
+        <div id="relationshipList" class="relationship-list" hidden></div>
+        <div id="graphReviewPanel" hidden>
+          <div id="graphSuggestions" class="graph-suggestions" hidden></div>
+          <label class="context-toggle"><input id="graphUpdates" type="checkbox"> Suggest map updates in MCP and OpenRouter</label>
+        </div>
+      </aside>
     </section>
     <section role="tabpanel" id="worldPanel" aria-labelledby="worldTab" hidden>
+      <label>Story start <span>Setup events share this date and time.</span><input id="storyStartAt" type="datetime-local" step="60"></label>
       <label>World setting<textarea name="lore" rows="5" placeholder="Places, time period, society, and how the world works."></textarea></label>
       <label>Story memory <span>Short, non-explicit facts worth carrying forward.</span><textarea name="continuity" rows="5"></textarea></label>
       <label>Keyword lore <span>One rule per line: keyword, keyword | lore. Use * | lore for always-on entries.</span><textarea name="loreRules" rows="5" placeholder="castle, palace | The castle stands above the sea.&#10;* | Magic has a cost."></textarea></label>
@@ -92,11 +160,23 @@
   </footer>
 </form>
 </dialog>
-<dialog id="editDialog"><form id="editForm"><div class="dialog-top"><div><h2>Edit this turn</h2><p>Keep the words that feel right.</p></div><button type="button" class="icon" id="closeEdit" aria-label="Close">×</button></div><textarea id="editText" aria-label="Turn text" rows="12" required></textarea><label class="context-toggle"><input id="excludeTurn" type="checkbox"> Keep this turn out of AI context</label><label>MCP context<select id="turnSensitivity"><option value="">Include without a label</option><option value="safe">Include (non-explicit)</option><option value="explicit">Omit (explicit)</option><option value="unclassified">Omit (not verified)</option></select></label><p class="form-note">OpenRouter labels new turns automatically. Explicit or unverified turns are kept out of MCP. The checkbox above excludes the turn from every model.</p><div class="dialog-actions"><button type="button" class="button subtle" id="cancelEdit">Cancel</button><button class="button primary">Save turn</button></div></form></dialog>
-<dialog id="providerDialog"><form id="providerForm"><div class="dialog-top"><div><h2>Connection</h2><p>Use MCP with your signed-in Codex or Claude Code session. Configure OpenRouter here when you need it.</p></div><button type="button" id="closeProvider" class="icon" aria-label="Close">×</button></div><div id="routerFields"><label>Writing model<select id="modelPreset" aria-describedby="modelPolicy modelPrice"><option value="" disabled>Choose a model</option></select></label>
+<dialog id="editDialog" class="form-dialog" aria-labelledby="editHeading">
+  <form id="editForm">
+    <header class="dialog-top"><h2 id="editHeading">Edit this turn</h2><button type="button" class="icon" id="closeEdit" aria-label="Close">×</button></header>
+    <div class="dialog-body">
+      <textarea id="editText" aria-label="Turn text" rows="10" required></textarea>
+      <label>In-story date and time <span>Optional for manually written turns.</span><input id="editStoryTime" type="datetime-local" step="60"></label>
+      <label class="context-toggle"><input id="excludeTurn" type="checkbox"> Keep this turn out of AI context</label>
+      <label>MCP context<select id="turnSensitivity"><option value="">Include without a label</option><option value="safe">Include (non-explicit)</option><option value="explicit">Omit (explicit)</option><option value="unclassified">Omit (not verified)</option></select></label>
+      <p class="form-note">OpenRouter labels new turns automatically. Explicit or unverified turns are kept out of MCP. The checkbox above excludes the turn from every model.</p>
+    </div>
+    <footer class="dialog-actions"><button type="button" class="button subtle" id="cancelEdit">Cancel</button><button class="button primary">Save turn</button></footer>
+  </form>
+</dialog>
+<dialog id="providerDialog" class="form-dialog" aria-labelledby="providerHeading"><form id="providerForm"><header class="dialog-top"><div><h2 id="providerHeading">Connection</h2><p>Use MCP with your signed-in Codex or Claude Code session. Configure OpenRouter here when you need it.</p></div><button type="button" id="closeProvider" class="icon" aria-label="Close">×</button></header><div id="routerFields" class="dialog-body"><label>Writing model<select id="modelPreset" aria-describedby="modelPolicy modelPrice"><option value="" disabled>Choose a model</option></select></label>
 <p id="modelPolicy" class="form-note">Candidates for adult fiction with fictional adults. The model and hosting provider determine what they will generate.</p>
 <div class="model-price" id="modelPrice" aria-live="polite" hidden><p id="modelEstimate"></p><p id="modelRates"></p><p class="form-note">USD. A chapter assumes 2,000 input and 5,000 output tokens total. Extra context or rewrites can increase the cost. <a id="modelSource" rel="noopener noreferrer" target="_blank">OpenRouter listing</a> · rates checked Nov 15, 2026.</p></div>
-<label id="customModel" hidden>Custom model ID<input id="modelInput" placeholder="author/model" autocomplete="off"></label><p id="modelError" class="form-note validation-message" role="alert"></p><label>OpenRouter API key<input id="keyInput" type="password" placeholder="sk-or-…" autocomplete="off"></label><p class="form-note">The key stays in this page's memory and is forgotten when the page closes or reloads. OpenRouter usage is billed according to your account and selected model.</p></div><div class="dialog-actions"><button type="button" class="button subtle" id="cancelProvider">Cancel</button><button class="button primary" type="submit">Save connection</button></div></form></dialog>
-<dialog id="pasteDialog"><form id="pasteForm"><div class="dialog-top"><div><h2>Add a co-writer reply</h2><p>Add text without calling a model.</p></div><button type="button" id="closePaste" class="icon" aria-label="Close">×</button></div><textarea id="pasteText" rows="12" required placeholder="Paste the response here…"></textarea><div class="dialog-actions"><button type="button" class="button subtle" id="cancelPaste">Cancel</button><button class="button primary" type="submit">Add to scene</button></div></form></dialog>
-<dialog id="promptDialog"><div class="dialog-top"><div><h2>Prompt preview</h2><p>Context assembled for the current scene.</p></div><button type="button" id="closePrompt" class="icon" aria-label="Close">×</button></div><pre id="promptContents"></pre></dialog>
+<label id="customModel" hidden>Custom model ID<input id="modelInput" placeholder="author/model" autocomplete="off"></label><p id="modelError" class="form-note validation-message" role="alert"></p><label>OpenRouter API key<input id="keyInput" type="password" placeholder="sk-or-…" autocomplete="off"></label><p class="form-note">The key stays in this page's memory and is forgotten when the page closes or reloads. OpenRouter usage is billed according to your account and selected model.</p></div><footer class="dialog-actions"><button type="button" class="button subtle" id="cancelProvider">Cancel</button><button class="button primary" type="submit">Save connection</button></footer></form></dialog>
+<dialog id="pasteDialog" class="form-dialog" aria-labelledby="pasteHeading"><form id="pasteForm"><header class="dialog-top"><div><h2 id="pasteHeading">Add a co-writer reply</h2><p>Add text without calling a model.</p></div><button type="button" id="closePaste" class="icon" aria-label="Close">×</button></header><div class="dialog-body"><textarea id="pasteText" aria-label="Co-writer reply" rows="10" required placeholder="Paste the response here…"></textarea></div><footer class="dialog-actions"><button type="button" class="button subtle" id="cancelPaste">Cancel</button><button class="button primary" type="submit">Add to scene</button></footer></form></dialog>
+<dialog id="promptDialog" class="form-dialog" aria-labelledby="promptHeading"><header class="dialog-top"><h2 id="promptHeading">Prompt preview</h2><button type="button" id="closePrompt" class="icon" aria-label="Close">×</button></header><pre id="promptContents" class="dialog-body" tabindex="0"></pre></dialog>
 <script src="/app.js" type="module"></script></body></html>

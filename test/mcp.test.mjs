@@ -33,7 +33,7 @@ test('native MCP handshake, private context, queued replies, alternates and revi
       notes:'',
       continuity:'Mara and Iona now trust one another.',
       messages:[
-        {role:'assistant', content:'PRIVATE TEST MARKER', turnNumber:1, excludeFromContext:true},
+        {role:'assistant', content:'PRIVATE TEST MARKER', turnNumber:1, contentSensitivity:'explicit'},
         {role:'user', content:'Plan how they cross the bridge.', turnNumber:2}
       ],
       nextTurn:3,
@@ -71,6 +71,7 @@ test('native MCP handshake, private context, queued replies, alternates and revi
 
     const saved = await client.callTool({name:'submit_reply',arguments:{
       storyId:'story', speakerId:context.speaker.id, revision:context.revision,
+      storyTime:'1904-09-23T08:30',
       reply:'Mara tests the bridge.\n\n```story-graph\n[{"kind":"fact","note":"The bridge is passable."}]\n```'
     }});
     assert.equal(toolData(saved).turnNumber, 3, JSON.stringify(saved));
@@ -88,6 +89,8 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     assert.equal(project.agentRequest, undefined);
     assert.equal(project.messages[0].content, 'PRIVATE TEST MARKER');
     assert.equal(project.messages[2].content, 'Mara tests the bridge.');
+    assert.equal(project.messages[2].storyTime, '1904-09-23T08:30');
+    assert.equal(project.storyStartAt, '1904-09-23T08:30');
     assert.equal(project.messages[2].graphSuggestions[0].note, 'The bridge is passable.');
     project.agentRequest = {mode:'alternate',speakerId:'primary',turnNumber:3};
     const queued = await fetch(origin+'/api/state', {
@@ -107,6 +110,7 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     const final = (await stateResponse.json()).projects[0];
     assert.equal(final.agentRequest, undefined);
     assert.equal(final.messages.length, 3);
+    assert.equal(final.messages[2].storyTime, '1904-09-23T08:30');
     assert.deepEqual(final.messages[2].alternatives, ['Mara tests the bridge.','Mara checks the rope first.']);
   } finally {
     await client.close();

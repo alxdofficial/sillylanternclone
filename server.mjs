@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
 import { isModelId } from './public/models.js';
-import { buildMessages, extraFields, validCast, validRelationships, validSensitivity, splitOpenRouterReply } from './public/prompt.js';
+import { buildMessages, extraFields, getCast, getWriter, validCast, validRelationships, validSensitivity, splitOpenRouterReply, isStoryTime } from './public/prompt.js';
 import { fileURLToPath } from 'node:url';
 
 const root=dirname(fileURLToPath(import.meta.url));
@@ -44,7 +44,7 @@ async function body(req, limit = 2_000_000) {
 }
 
 const libraryLimit = 16_000_000;
-function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=100 && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
+function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=100 && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
 async function generateOpenRouter(messages, model, key) {
   if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
     throw Error('Enter an OpenRouter API key in Connections.');
@@ -101,13 +101,24 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
   const files = {'library.json': strToU8(JSON.stringify(library, null, 2))};
   library.projects.forEach((project, index) => {
     const filename = project.title.replace(/[^\p{L}\p{N} -]/gu, '').trim().slice(0, 80) || 'Story';
-    const notes = [['Character', project.character], ['Persona', project.persona], ['Lore', project.lore], ['Writing notes', project.notes]];
+    const writer = getWriter(project);
+    const notes = [['Character', project.character], ['Writer character', writer.name], ['Lore', project.lore], ['Writing notes', project.notes]];
+    if (!project.storyWriterId && writer.description) notes.push(['Writer description',writer.description]);
+    const cast = getCast(project);
+    const names = new Map(cast.map(member => [member.id,member.name]));
+    const events = [...(project.relationships || [])]
+      .sort((a,b) => (a.storyTime || '').localeCompare(b.storyTime || '') || (a.turn || 0) - (b.turn || 0))
+      .map(({storyTime,turn,from,to,label}) => [
+        storyTime?.replace('T',' '), turn ? `Turn ${turn}` : 'Setup', `${names.get(from) || from} → ${names.get(to) || to}: ${label}`
+      ].filter(Boolean).join(' · '));
     const turns = project.messages.map(message => {
-      const label = message.role === 'user' ? 'Writer' : message.speakerName || 'Co-writer';
-      return label + ':\n' + message.content;
+      const label = message.role === 'user' ? writer.name || 'Writer' : message.speakerName || 'Co-writer';
+      return (message.storyTime ? message.storyTime.replace('T',' ') + ' · ' : '') + label + ':\n' + message.content;
     });
     files['Stories/' + (index + 1) + ' - ' + filename + '.txt'] = strToU8(
-      [project.title, ...notes.map(([label, value]) => label + ':\n' + value), ...(project.cast || []).map(character => 'Cast: ' + character.name + '\n' + [character.description, character.personality, character.scenario].filter(Boolean).join('\n')), ...turns].join('\n\n')
+      [project.title, ...notes.filter(([,value]) => value).map(([label,value]) => label + ':\n' + value),
+        ...cast.slice(1).map(character => 'Cast: ' + character.name + '\n' + [character.description, character.personality, character.scenario].filter(Boolean).join('\n')),
+        ...(events.length ? ['Relationship timeline:\n' + events.join('\n')] : []), ...turns].join('\n\n')
     );
   });
   const archive = zipSync(files);

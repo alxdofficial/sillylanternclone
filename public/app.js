@@ -1,15 +1,18 @@
 import { captureGraphVersion, normalizeGraphHistory } from './graph-history.js';
-import { buildMessages, formatMessages, extraFields, getCast, getSpeaker, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp } from './prompt.js';
+import { buildMessages, formatMessages, extraFields, getCast, getSpeaker, getWriter, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
 import { models, chapterCost, isModelId } from './models.js';
 
-const settingsFields = ['title', 'character', 'persona', 'lore', 'notes', ...extraFields];
+const settingsFields = ['title', 'character', 'lore', 'notes', ...extraFields.filter(key => key !== 'personaName')];
 const castLabels = {name:'Name', nickname:'Aliases', description:'Description', personality:'Personality', scenario:'Scenario', examples:'Example dialogue'};
 const $ = s => document.querySelector(s);
 let state, revision, pendingWrites = 0, timer, pendingSave = Promise.resolve(), dirty = false, busy = false, editingIndex = null;
 let connection = {model:'',key:''};
 let editingCharacter = primarySpeaker;
-let draftRelationships = [], connectingFrom = '', editingRelationship = null, showOlderEvents = false;
+let draftRelationships = [], connectingFrom = '', editingRelationship = null;
+let draftStartAt = '', draftStartSource = '', draftWriterId = '';
+let estimatedEdgeDates = new WeakSet();
+let connecting = false, pinnedGraph = null, hoverGraph = null, deletedEvent = null, shownEvents = 12;
 let pendingGraphReview = [];
 const temporarySession = new Map();
 function getSession(key) {
@@ -68,24 +71,26 @@ function render() {
   $('#instruction').value = getSession(draftKey(project.id)) || '';
   syncRoute();
   $('#storyTitle').textContent = project.title;
-  $('#crumb').textContent = project.title;
   document.title = project.title + ' · Story Studio';
   const list = $('#projectList');
   list.replaceChildren();
   for (const story of state.projects) {
-    const button = el('button','project-item' + (story.id === project.id ? ' active' : ''),story.title);
+    const button = el('button','project-item' + (story.id === project.id ? ' active' : ''));
+    button.title = story.title;
+    button.append(el('span', 'project-title', story.title));
+    if (story.id === project.id) button.setAttribute('aria-current', 'true');
     button.onclick = () => {
       state.activeId = story.id;
       markDirty();
       error();
       render();
-      $('#sidebar').classList.remove('open');
+      $('#sidebar').close();
     };
     list.append(button);
   }
   renderMessages();
 }
-function renderMessages(){const p=current(), box=$('#messages');box.replaceChildren();if(!p.messages.length){const empty=el('div','empty');empty.append(el('div','empty-mark','\u2733'),el('strong','','Every story starts somewhere.'),el('p','','Set the scene below, or ask your co-writer to begin.'));box.append(empty);return}p.messages.forEach((m,index)=>{const row=el('article','message '+(m.role==='user'?'user':'assistant'));const avatar=el('div','avatar',m.role==='user'?'Y':'\u2733');avatar.setAttribute('aria-hidden','true');const body=el('div','message-body'), head=el('div','message-header');head.append(el('strong','',m.role==='user'?(p.personaName||'You'):(m.speakerName||p.characterName||'Co-writer')));if(m.excludeFromContext)head.append(el('span','context-badge','Outside AI context'));else if(!isAvailableToMcp(m))head.append(el('span','context-badge',m.contentSensitivity==='explicit'?'Explicit · outside MCP':'Unverified · outside MCP'));else if(m.graphSuggestions?.length){const review=el('button','text-button','Review map updates');review.onclick=()=>{openSettings();$('#graphSuggestions').scrollIntoView({block:'nearest'});};head.append(review)}const actions=el('div','message-actions');const edit=el('button','','Edit');edit.onclick=()=>openEdit(index);const del=el('button','','Delete');del.onclick=()=>{if(!confirm('Delete this turn?'))return;p.messages.splice(index,1);markDirty();renderMessages()};actions.append(edit,del);if(m.role==='assistant'&&!m.excludeFromContext&&index===p.messages.length-1&&$('#sceneProvider').value!=='manual'&&($('#sceneProvider').value==='openrouter'||isAvailableToMcp(m))){const retry=el('button','','Another take');retry.disabled=busy;retry.onclick=()=>generate('retry');actions.prepend(retry)}head.append(actions);body.append(head,el('div','message-text',m.content));if(m.role==='assistant' && m.alternatives?.length>1){const nav=el('div','alternatives');const prev=el('button','','← Previous');const count=el('span','',`${m.selectedAlternative+1} of ${m.alternatives.length} takes`);const next=el('button','','Next →');prev.disabled=busy||m.selectedAlternative===0;next.disabled=busy||m.selectedAlternative===m.alternatives.length-1;prev.onclick=()=>selectAlternative(m,m.selectedAlternative-1);next.onclick=()=>selectAlternative(m,m.selectedAlternative+1);nav.append(prev,count,next);body.append(nav)}row.append(avatar,body);box.append(row)});box.scrollTop=box.scrollHeight}
+function renderMessages(){const p=current(), box=$('#messages');box.replaceChildren();if(!p.messages.length){const empty=el('div','empty');empty.append(el('div','empty-mark','\u2733'),el('strong','','Every story starts somewhere.'),el('p','','Set the scene below, or ask your co-writer to begin.'));box.append(empty);return}p.messages.forEach((m,index)=>{const row=el('article','message '+(m.role==='user'?'user':'assistant'));const body=el('div','message-body'), head=el('div','message-header');head.append(el('strong','',m.role==='user'?(getWriter(p).name||'You'):(m.speakerName||p.characterName||'Co-writer')));if(m.excludeFromContext)head.append(el('span','context-badge','Outside AI context'));else if(!isAvailableToMcp(m))head.append(el('span','context-badge',m.contentSensitivity==='explicit'?'Explicit · outside MCP':'Unverified · outside MCP'));if(!m.excludeFromContext&&m.graphSuggestions?.length){const review=el('button','text-button','Review map updates');review.onclick=()=>{openSettings();pinGraph({kind:'review'});};head.append(review)}const actions=el('div','message-actions');const edit=el('button','','Edit');edit.onclick=()=>openEdit(index);const del=el('button','','Delete');del.onclick=()=>{if(!confirm('Delete this turn?'))return;p.messages.splice(index,1);markDirty();renderMessages()};actions.append(edit,del);if(m.role==='assistant'&&!m.excludeFromContext&&index===p.messages.length-1&&$('#sceneProvider').value!=='manual'&&($('#sceneProvider').value==='openrouter'||isAvailableToMcp(m))){const retry=el('button','','Another take');retry.disabled=busy;retry.onclick=()=>generate('retry');actions.prepend(retry)}head.append(actions);body.append(head,el('div','message-text',m.content));if(m.role==='assistant' && m.alternatives?.length>1){const nav=el('div','alternatives');const prev=el('button','','← Previous');const count=el('span','',`${m.selectedAlternative+1} of ${m.alternatives.length} takes`);const next=el('button','','Next →');prev.disabled=busy||m.selectedAlternative===0;next.disabled=busy||m.selectedAlternative===m.alternatives.length-1;prev.onclick=()=>selectAlternative(m,m.selectedAlternative-1);next.onclick=()=>selectAlternative(m,m.selectedAlternative+1);nav.append(prev,count,next);body.append(nav)}row.append(body);box.append(row)});box.scrollTop=box.scrollHeight}
 function setSensitivity(message, value) {
   if (validSensitivity(value)) message.contentSensitivity = value;
   else delete message.contentSensitivity;
@@ -149,7 +154,7 @@ async function generate(mode) {
   if (mode === 'send' && !direction) return input.focus();
   error();
   if (provider === 'manual' && mode !== 'send') {
-    error('Use Copy prompt and Add reply for an external writing session.');
+    error('Another take is available in MCP and OpenRouter modes.');
     return;
   }
   if (provider === 'openrouter' && (!connection.model || !connection.key)) {
@@ -165,7 +170,7 @@ async function generate(mode) {
     const originalId = previous.speakerId || primarySpeaker;
     speaker = getCast(project).find(member => member.id === originalId);
     if (!speaker) {
-      error('This turn’s speaker is no longer in the cast. Choose a current speaker and use Continue.');
+      error('This turn’s speaker is no longer in the cast. Choose a current speaker to write the next turn.');
       return;
     }
   }
@@ -188,6 +193,8 @@ async function generate(mode) {
   const snapshot = {
     id:project.id,
     ...Object.fromEntries(settingsFields.map(key => [key,project[key] || ''])),
+    persona:project.persona, personaName:project.personaName, storyWriterId:project.storyWriterId,
+    storyStartAt:project.storyStartAt, storyStartSource:project.storyStartSource, graphUpdates:project.graphUpdates,
     cast:project.cast, relationships:project.relationships, speakerId:speaker.id,
     messages:recentTurns(history,recentTokenCap,{includeSensitive:true})
   };
@@ -221,9 +228,11 @@ async function generate(mode) {
       setSensitivity(message,message.alternativeSensitivities[message.selectedAlternative]);
     } else {
       setSensitivity(target.messages.at(-1),validSensitivity(response.input) ? response.input : 'unclassified');
+      const suggestions = target.graphUpdates === false ? [] : graphSuggestions(response.suggestions);
       appendTurn(target, {role:'assistant', content:text.trim(), ...speakerMetadata(speaker),
-        contentSensitivity:validSensitivity(response.reply) ? response.reply : 'unclassified'});
-
+        contentSensitivity:validSensitivity(response.reply) ? response.reply : 'unclassified',
+        storyTime:recordStoryTime(target,response.storyTime),
+        ...(suggestions.length ? {graphSuggestions:suggestions} : {})});
     }
     markDirty();
   } catch (e) {
@@ -270,155 +279,419 @@ function svg(tag, attributes, label) {
   if (label !== undefined) node.textContent = label;
   return node;
 }
-function nodePositions(editors) {
-  return new Map(editors.map((editor, i) => {
-    const angle = Math.PI * 2 * i / editors.length - Math.PI / 2;
-    const position = editors.length === 1 ? [180,126]
-      : editors.length === 2 ? [100 + i * 160,126]
-      : [180 + 123 * Math.cos(angle),126 + 91 * Math.sin(angle)];
-    return [editor.dataset.id, position];
+const narrowGraph = matchMedia('(max-width: 660px)');
+const shortGraph = matchMedia('(max-height: 460px) and (orientation: landscape)');
+function nodePositions(editors, centerX, centerY, radiusX, radiusY) {
+  return new Map(editors.map((editor, index) => {
+    const angle = 2 * Math.PI * index / editors.length - Math.PI / 2;
+    const point = editors.length === 1 ? [centerX,centerY] : editors.length === 2 ? [centerX + (index - 0.5) * radiusX * 1.25,centerY]
+      : [centerX + radiusX * Math.cos(angle),centerY + radiusY * Math.sin(angle)];
+    return [editor.dataset.id, point];
   }));
 }
+const pairKey = (from,to) => JSON.stringify([from,to].sort());
+const nameOf = id => editorName(castEditors().find(editor => editor.dataset.id === id) || $('#primaryEditor'));
+const eventTime = turn => turn ? `Turn ${turn}` : 'Setup';
+const pairEvents = selection => draftRelationships.filter(edge => pairKey(edge.from,edge.to) === selection.key);
+const byStoryTime = (a,b) => (a.storyTime || '').localeCompare(b.storyTime || '') || (a.turn || 0) - (b.turn || 0);
+const selectionKey = selection => selection ? JSON.stringify(selection) : '';
+
+function graphAction(node, selection, activate) {
+  node.dataset.selection = selectionKey(selection);
+  node.onclick = activate;
+  node.onkeydown = event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      activate();
+    }
+  };
+  const peek = () => {
+    if (pinnedGraph || connecting) return;
+    hoverGraph = selection;
+    renderInspector();
+    updateGraphSelection();
+  };
+  const leave = () => {
+    if (selectionKey(hoverGraph) !== selectionKey(selection)) return;
+    hoverGraph = null;
+    renderInspector();
+    updateGraphSelection();
+  };
+  node.onpointerenter = event => { if (event.pointerType !== 'touch') peek(); };
+  node.onpointerleave = () => { if (document.activeElement !== node) leave(); };
+  node.onfocus = peek;
+  node.onblur = leave;
+}
+
+function updateGraphSelection() {
+  const selection = pinnedGraph || hoverGraph;
+  for (const node of $('#castGraph').querySelectorAll('[data-selection]')) {
+    const selected = selectionKey(selection) === node.dataset.selection;
+    node.setAttribute('aria-pressed', String(selected && Boolean(pinnedGraph)));
+    node.classList.toggle('graph-selected',selected || Boolean(connectingFrom && node.dataset.id === connectingFrom));
+    const scoped = ['turn','moment'].includes(selection?.kind);
+    const pair = node.dataset.pair;
+    node.classList.toggle('graph-dim',scoped && Boolean(pair) && !draftRelationships.some(edge =>
+      pairKey(edge.from,edge.to) === pair && matchesTimeline(edge,selection)));
+  }
+}
+
 function refreshCastGraph() {
   const graph = $('#castGraph');
   const editors = castEditors();
-  const coordinates = nodePositions(editors);
+  const narrow = narrowGraph.matches;
+  const short = shortGraph.matches;
+  graph.setAttribute('viewBox',short ? '0 0 620 285' : narrow ? '0 0 460 460' : '0 0 720 510');
+  const bounds = short ? [310,130,205,82] : narrow ? [230,220,145,157] : [360,240,255,172];
+  const coordinates = nodePositions(editors,...bounds);
   graph.replaceChildren();
-  const drawn = new Set();
+  const pairs = new Map();
   for (const edge of draftRelationships) {
-    const pair = JSON.stringify([edge.from,edge.to].sort());
-    if (drawn.has(pair)) continue;
-    drawn.add(pair);
-    const from = coordinates.get(edge.from), to = coordinates.get(edge.to);
-    if (!from || !to) continue;
-    const line = svg('line', {x1:from[0],y1:from[1],x2:to[0],y2:to[1],class:'graph-edge'});
-    graph.append(line);
+    if (!coordinates.has(edge.from) || !coordinates.has(edge.to)) continue;
+    const key = pairKey(edge.from,edge.to);
+    if (!pairs.has(key)) pairs.set(key,{from:edge.from,to:edge.to,key,count:0});
+    pairs.get(key).count++;
+  }
+  for (const {from,to,key,count} of pairs.values()) {
+    const [x1,y1] = coordinates.get(from), [x2,y2] = coordinates.get(to);
+    const description = `${nameOf(from)} and ${nameOf(to)}: ${count} ${count === 1 ? 'event' : 'events'}`;
+    const group = svg('g',{class:'graph-link',role:'button',tabindex:'0','aria-label':description});
+    group.dataset.pair = key;
+    const line = {x1,y1,x2,y2};
+    group.append(svg('line',{...line,class:'graph-edge'}),
+      svg('line',{...line,class:'graph-edge-hit'}));
+    if (count > 1) {
+      const x = (x1+x2)/2, y = (y1+y2)/2;
+      group.append(svg('circle',{cx:x,cy:y,r:15,class:'graph-edge-count'}),
+        svg('text',{x,y:y+5,'text-anchor':'middle',class:'graph-edge-number'},count));
+    }
+    const selection = {kind:'pair',from,to,key};
+    graphAction(group,selection,() => { if (!connecting) pinGraph(selection); });
+    graph.append(group);
   }
   for (const editor of editors) {
     const id = editor.dataset.id, name = editorName(editor);
     const [x,y] = coordinates.get(id);
-    const node = svg('g', {
-      class:'graph-node', role:'button', tabindex:'0', transform:`translate(${x} ${y})`,
-      'aria-label':name, 'aria-pressed':String(id === editingCharacter)
-    });
-    node.append(svg('circle', {r:20}), svg('text', {class:'graph-initial',x:0,y:5,'text-anchor':'middle'}, Array.from(name)[0] || '?'));
-    node.append(svg('text', {x:0,y:38,'text-anchor':'middle'}, name.length > 13 ? name.slice(0, 12) + '…' : name));
-    node.onclick = () => {
-      if (connectingFrom && connectingFrom !== id) openRelationship(connectingFrom, id);
-      else selectCastEditor(id, true);
-    };
-    node.onkeydown = event => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        node.onclick();
-      }
-    };
+    const node = svg('g',{class:'graph-node',role:'button',tabindex:'0',
+      transform:`translate(${x} ${y})`,'aria-label':name});
     node.dataset.id = id;
+    const letters = Array.from(name);
+    const limit = narrow && editors.length > 7 ? 10 : 17;
+    const label = letters.length > limit ? letters.slice(0,limit-1).join('') + '…' : name;
+    node.append(svg('circle',{r:narrow ? 31 : 26}),svg('text',{x:0,y:short ? 48 : narrow ? 53 : 50,'text-anchor':'middle'},label));
+    const selection = {kind:'character',id};
+    graphAction(node,selection,() => {
+      if (!connecting) return selectCastEditor(id,true);
+      if (!connectingFrom) {
+        connectingFrom = id;
+        $('#graphStatus').textContent = `Select a second character to connect to ${name}.`;
+        updateGraphSelection();
+      } else if (connectingFrom !== id) {
+        openRelationship(connectingFrom,id);
+      } else $('#graphStatus').textContent = 'Choose a different character.';
+    });
     graph.append(node);
   }
   $('#addCharacter').disabled = editors.length - 1 >= maxAdditionalCharacters;
   $('#connectCharacters').disabled = editors.length < 2;
-  renderRelationships();
+  updateGraphSelection();
 }
-function selectCastEditor(id, focusNode = false) {
+narrowGraph.onchange = shortGraph.onchange = () => {
+  if ($('#settingsDialog').open) refreshCastGraph();
+};
+
+const timeLabel = time => time ? time.replace('T',' ') : 'Undated';
+const timelineDate = new Intl.DateTimeFormat('en', {year:'numeric',month:'short',day:'numeric',timeZone:'UTC'});
+const matchesTimeline = (edge,selection) => selection.kind === 'moment'
+  ? edge.turn && edge.storyTime === selection.time : (edge.turn || 0) === selection.turn;
+const countEvents = count => `${count} relationship ${count === 1 ? 'event' : 'events'}`;
+
+function renderGraphTurns() {
+  const entries = [{time:draftStartAt, label:'Story setup', selection:{kind:'turn',turn:0},
+    detail:countEvents(draftRelationships.filter(edge => !edge.turn).length)}];
+  const moments = new Map();
+  for (const edge of draftRelationships) {
+    if (!edge.turn) continue;
+    if (!moments.has(edge.storyTime)) moments.set(edge.storyTime,[]);
+    moments.get(edge.storyTime).push(edge);
+  }
+  for (const [time,edges] of moments) {
+    const [first] = edges;
+    entries.push({time, label:edges.length === 1 ? `${nameOf(first.from)} → ${nameOf(first.to)}` : 'Relationship events',
+      detail:edges.length === 1 ? first.label : countEvents(edges.length), selection:{kind:'moment',time}});
+  }
+  current().messages.forEach((message,index) => {
+    const turn = message.turnNumber || index + 1;
+    const speaker = message.role === 'user' ? getWriter(current()).name || 'Writer' : message.speakerName || getSpeaker(current(),primarySpeaker).name;
+    entries.push({time:message.storyTime || '', label:speaker, detail:eventTime(turn), selection:{kind:'turn',turn}});
+  });
+  entries.sort((a,b) => Number(!a.time) - Number(!b.time) || a.time.localeCompare(b.time)
+    || (a.selection.turn ?? Infinity) - (b.selection.turn ?? Infinity));
+  const rail = $('#graphTurns');
+  rail.replaceChildren();
+  let day, list;
+  for (const {time,label,detail,selection} of entries) {
+    const key = time.slice(0,10);
+    if (key !== day) {
+      day = key;
+      const group = el('section','timeline-day');
+      group.append(el('h4','',day ? timelineDate.format(new Date(day + 'T12:00Z')) : 'Undated turns'));
+      list = el('ol','timeline-entries');
+      group.append(list);
+      rail.append(group);
+    }
+    const item = el('li','timeline-entry');
+    const button = el('button','graph-turn');
+    button.type = 'button';
+    button.dataset.timelineSelection = selectionKey(selection);
+    button.setAttribute('aria-pressed',String(selectionKey(pinnedGraph) === button.dataset.timelineSelection));
+    if (time) {
+      const clock = el('time','timeline-clock',time.slice(11));
+      clock.dateTime = time;
+      button.append(clock);
+    }
+    button.append(el('strong','',label),el('span','timeline-detail',detail));
+    button.onclick = () => {
+      if (connecting) clearConnection();
+      pinGraph(selection);
+      $('#closeInspector').focus({preventScroll:true});
+    };
+    item.append(button);
+    list.append(item);
+  }
+}
+
+function showTimeline(expanded) {
+  $('#toggleTimeline').closest('aside').dataset.expanded = String(expanded);
+  $('#toggleTimeline').setAttribute('aria-expanded',String(expanded));
+  $('#toggleTimeline').textContent = expanded ? 'Hide timeline' : 'Show timeline';
+}
+$('#toggleTimeline').onclick = () => showTimeline($('#toggleTimeline').getAttribute('aria-expanded') === 'false');
+
+function pinGraph(selection) {
+  pinnedGraph = selection;
+  hoverGraph = null;
+  shownEvents = 12;
+  renderInspector();
+  updateGraphSelection();
+  for (const item of $('#graphTurns').querySelectorAll('[data-timeline-selection]')) item.setAttribute('aria-pressed',
+    String(selectionKey(selection) === item.dataset.timelineSelection));
+  if (selection) $('#graphInspector').scrollTop = 0;
+}
+
+function renderInspector() {
+  const selection = pinnedGraph || hoverGraph;
+  const panel = $('#graphInspector');
+  const preview = $('#graphPreview');
+  const isPinned = Boolean(pinnedGraph);
+  panel.hidden = !selection;
+  $('#castPanel').dataset.pinned = String(isPinned);
+  $('#closeInspector').hidden = !isPinned;
+  for (const id of ['graphPreview','graphProfile','relationshipEditor','relationshipList','graphReviewPanel']) {
+    document.getElementById(id).hidden = true;
+  }
+  if (!selection) return;
+  const title = $('#inspectorHeading'), type = $('#inspectorType');
+  if (selection.kind === 'character') {
+    const editor = castEditors().find(item => item.dataset.id === selection.id);
+    if (!editor) return;
+    type.textContent = 'Character';
+    title.textContent = editorName(editor);
+    if (isPinned) $('#graphProfile').hidden = false;
+    else {
+      const aliases = editor.querySelector('[data-field="nickname"]').value.trim();
+      const description = editor.querySelector('[data-field="description"]').value.trim();
+      preview.replaceChildren(...(aliases ? [el('p','form-note',`Also known as ${aliases}`)] : []),
+        el('p','inspector-copy',description ? description.slice(0,360) + (description.length > 360 ? '…' : '') : 'No description yet.'),
+        el('p','form-note','Click to pin and edit.'));
+      preview.hidden = false;
+    }
+  } else if (['turn','moment'].includes(selection.kind)) {
+    const message = current().messages.find((item,index) => (item.turnNumber || index + 1) === selection.turn);
+    const time = selection.kind === 'moment' ? selection.time : selection.turn ? message?.storyTime : draftStartAt;
+    type.textContent = selection.kind === 'turn' ? eventTime(selection.turn) : 'Timeline';
+    title.textContent = timeLabel(time);
+    if (message) {
+      preview.replaceChildren(el('p','inspector-copy',message.content));
+      preview.hidden = false;
+    }
+    renderRelationships(draftRelationships.filter(edge => matchesTimeline(edge,selection)),true);
+  } else if (selection.kind === 'review') {
+    type.textContent = 'Agent';
+    title.textContent = 'Map updates';
+    $('#graphReviewPanel').hidden = false;
+    renderGraphReview();
+  } else {
+    type.textContent = 'Relationship';
+    title.textContent = `${nameOf(selection.from)} ↔ ${nameOf(selection.to)}`;
+    if (selection.kind === 'edge-edit') $('#relationshipEditor').hidden = false;
+    else renderRelationships(pairEvents(selection),isPinned);
+  }
+}
+function selectCastEditor(id, focusEditor = false) {
   const editors = castEditors();
   const selected = editors.find(editor => editor.dataset.id === id) || editors[0];
   editingCharacter = selected.dataset.id;
   for (const editor of editors) editor.hidden = editor !== selected;
-  $('#profileHeading').textContent = editorName(selected);
   $('#cardHint').textContent = '';
-  refreshCastGraph();
-  if (focusNode && matchMedia('(max-width: 560px)').matches) {
-    $('#profileHeading').scrollIntoView({block:'start'});
-    selected.querySelector('input').focus({preventScroll:true});
-  } else if (focusNode) [...$('#castGraph').querySelectorAll('g')].find(node => node.dataset.id === editingCharacter)?.focus();
+  $('#writerCharacter').checked = draftWriterId === editingCharacter;
+  pinGraph({kind:'character',id:editingCharacter});
+  if (focusEditor) {
+    const field = selected.querySelector('input');
+    field?.focus({preventScroll:true});
+    $('#graphInspector').scrollTop = 0;
+  }
   return selected;
 }
 function refreshEditorName(editor) {
-  if (editor.dataset.id === editingCharacter) $('#profileHeading').textContent = editorName(editor);
+  if (pinnedGraph?.kind === 'character' && pinnedGraph.id === editor.dataset.id) {
+    $('#inspectorHeading').textContent = editorName(editor);
+  }
   refreshCastGraph();
 }
-$('#backToGraph').onclick = () => {
-  $('#settingsBody').scrollTop = 0;
-  [...$('#castGraph').querySelectorAll('g')].find(node => node.dataset.id === editingCharacter)?.focus({preventScroll:true});
-};
-const nameOf = id => editorName(castEditors().find(editor => editor.dataset.id === id) || $('#primaryEditor'));
-function renderRelationships() {
+
+function renderRelationships(edges, editable) {
   const list = $('#relationshipList');
+  list.hidden = false;
   list.replaceChildren();
-  const ordered = [...draftRelationships].sort((a,b) => (b.turn || 0) - (a.turn || 0));
-  if (ordered.length > 10) {
-    const toggle = el('button','text-button',showOlderEvents ? 'Show recent events' : `Show ${ordered.length - 10} earlier events`);
-    toggle.type = 'button';
-    toggle.onclick = () => { showOlderEvents = !showOlderEvents; renderRelationships(); list.firstElementChild.focus(); };
-    list.append(toggle);
-  }
-  for (const edge of showOlderEvents ? ordered : ordered.slice(0,10)) {
-    const row = el('div','relationship-row', `${edge.turn ? 'Turn ' + edge.turn : 'Setup'} · ${nameOf(edge.from)} → ${nameOf(edge.to)}: ${edge.label}`);
-    const edit = el('button','text-button','Edit link');
-    edit.type = 'button';
-    edit.onclick = () => openRelationship(edge.from, edge.to, edge);
-    const remove = el('button','text-button','Remove link');
-    remove.type = 'button';
-    remove.onclick = () => {
-      draftRelationships = draftRelationships.filter(item => item !== edge);
-      clearConnection();
+  const ordered = [...edges].sort(byStoryTime);
+  const count = ordered.length;
+  const summary = el('p','form-note',count ? `${count} ${count === 1 ? 'event' : 'events'}` : 'No relationship events here.');
+  list.append(summary);
+  const canUndo = deletedEvent && (['turn','moment'].includes(pinnedGraph?.kind) ? matchesTimeline(deletedEvent,pinnedGraph)
+    : pairKey(deletedEvent.from,deletedEvent.to) === pinnedGraph?.key);
+  if (editable && deletedEvent && canUndo) {
+    const undo = el('button','button subtle','Undo last deletion');
+    undo.type = 'button';
+    undo.onclick = () => {
+      draftRelationships.push(deletedEvent);
+      deletedEvent = null;
       refreshCastGraph();
-      $('#connectCharacters').focus();
+      renderGraphTurns();
+      renderInspector();
     };
-    row.append(el('br'), edit, remove);
+    list.append(undo);
+  }
+  for (const edge of ordered.slice(editable ? -shownEvents : -5)) {
+    const row = el('div','relationship-row');
+    const stamp = el('time','event-time',timeLabel(edge.storyTime));
+    stamp.dateTime = edge.storyTime;
+    const origin = el('div','event-stamp',`${eventTime(edge.turn)} · ${nameOf(edge.from)} → ${nameOf(edge.to)}`);
+    row.append(stamp,origin,el('p','relationship-copy',edge.label));
+    if (editable) {
+      const edit = el('button','text-button','Edit event');
+      edit.type = 'button';
+      edit.onclick = () => openRelationship(edge.from,edge.to,edge);
+      const remove = el('button','text-button','Delete event');
+      remove.type = 'button';
+      remove.onclick = () => {
+        deletedEvent = edge;
+        draftRelationships = draftRelationships.filter(item => item !== edge);
+        refreshCastGraph();
+        renderGraphTurns();
+        renderInspector();
+        $('#relationshipList button')?.focus();
+      };
+      row.append(edit,remove);
+    }
     list.append(row);
   }
+  if (editable && count > shownEvents) {
+    const more = el('button','button subtle','Show earlier events');
+    more.type = 'button';
+    more.onclick = () => { shownEvents += 12; renderInspector(); };
+    list.append(more);
+  } else if (!editable) list.append(el('p','form-note','Click to pin and edit events.'));
 }
+
 function clearConnection() {
+  connecting = false;
   connectingFrom = '';
   editingRelationship = null;
-  $('#relationshipEditor').hidden = true;
+  $('#connectCharacters').setAttribute('aria-pressed','false');
+  $('#connectCharacters').textContent = '+ Relationship';
   $('#graphStatus').textContent = '';
+  updateGraphSelection();
 }
-function openRelationship(from, to, edge) {
-  connectingFrom = '';
-  editingRelationship = {from:edge?.from || from, to:edge?.to || to, edge};
-  $('#relationshipLabel').textContent = `${nameOf(editingRelationship.from)} → ${nameOf(editingRelationship.to)}`;
+function openRelationship(from,to,edge) {
+  clearConnection();
+  const pair = {kind:'pair',from,to,key:pairKey(from,to)};
+  editingRelationship = {from,to,edge,pair};
+  $('#relationshipLabel').textContent = `What happened between ${nameOf(from)} and ${nameOf(to)}?`;
   $('#relationshipText').value = edge?.label || '';
   $('#relationshipText').setCustomValidity('');
-  $('#storeRelationship').textContent = edge ? 'Save link' : 'Add relationship';
-  $('#relationshipEditor').hidden = false;
-  $('#graphStatus').textContent = '';
+  $('#relationshipTime').value = edge?.storyTime || lastStoryTime(current()) || draftStartAt;
+  if (!current().messages.length) $('#relationshipTime').value = draftStartAt;
+  $('#relationshipTime').setCustomValidity('');
+  $('#storeRelationship').textContent = edge ? 'Save event' : 'Add event';
+  pinGraph({...pair,kind:'edge-edit'});
   $('#relationshipText').focus();
 }
 $('#connectCharacters').onclick = () => {
-  clearConnection();
-  connectingFrom = editingCharacter;
-  $('#graphStatus').textContent = `Choose another character to connect to ${nameOf(connectingFrom)}.`;
-};
-$('#cancelRelationship').onclick = () => { clearConnection(); $('#connectCharacters').focus(); };
-$('#storeRelationship').onclick = () => {
-  if (!editingRelationship) return;
-  const label = $('#relationshipText').value.trim();
-  if (!label) {
-    $('#relationshipText').setCustomValidity('Describe the relationship.');
-    $('#relationshipText').reportValidity();
+  if (connecting) {
+    clearConnection();
     return;
   }
-  if (editingRelationship.edge) editingRelationship.edge.label = label;
+  clearConnection();
+  pinGraph(null);
+  connecting = true;
+  $('#connectCharacters').setAttribute('aria-pressed','true');
+  $('#connectCharacters').textContent = 'Cancel connection';
+  $('#graphStatus').textContent = 'Select the first character, then the second.';
+};
+$('#reviewGraphButton').onclick = () => { clearConnection(); pinGraph({kind:'review'}); $('#closeInspector').focus(); };
+$('#closeInspector').onclick = () => { clearConnection(); pinGraph(null); $('#addCharacter').focus(); };
+$('#cancelRelationship').onclick = () => {
+  const pair = editingRelationship?.pair;
+  clearConnection();
+  pinGraph(pairEvents(pair || {}).length ? pair : null);
+  $('#connectCharacters').focus();
+};
+$('#storeRelationship').onclick = () => {
+  if (!editingRelationship) return;
+  const {from,to,edge,pair} = editingRelationship;
+  const input = $('#relationshipText');
+  const label = input.value.trim();
+  const clock = $('#relationshipTime');
+  const storyTime = clock.value;
+  if (!label) {
+    input.setCustomValidity('Describe the relationship event.');
+    input.reportValidity();
+    return;
+  }
+  if (!isStoryTime(storyTime)) {
+    clock.setCustomValidity('Enter an in-story date and time.');
+    clock.reportValidity();
+    return;
+  }
+  const project = current();
+  const turn = edge ? edge.turn : project.messages.length ? project.messages.at(-1).turnNumber || project.messages.length : 0;
+  if (!turn && storyTime !== draftStartAt) setDraftStart(storyTime);
+  if (edge) {
+    Object.assign(edge,{label,storyTime});
+    estimatedEdgeDates.delete(edge);
+  }
   else if (draftRelationships.length < maxGraphEvents) {
-    const project = current();
-    const turn = project.messages.length ? project.messages.at(-1).turnNumber || project.messages.length : 0;
-    draftRelationships.push({from:editingRelationship.from,to:editingRelationship.to,label,turn});
+    draftRelationships.push({from,to,label,turn,storyTime});
   } else {
     $('#graphStatus').textContent = 'This map has reached its event limit.';
     return;
   }
   clearConnection();
   refreshCastGraph();
-  $('#connectCharacters').focus();
+  renderGraphTurns();
+  pinGraph(pair);
+  $('#closeInspector').focus();
 };
 $('#relationshipText').oninput = event => event.target.setCustomValidity('');
+$('#relationshipTime').oninput = event => event.target.setCustomValidity('');
 $('#relationshipText').onkeydown = event => {
   if (event.key !== 'Enter') return;
   event.preventDefault();
   $('#storeRelationship').click();
+};
+$('#castGraph').onclick = event => {
+  if (event.target === $('#castGraph') && !connecting) pinGraph(null);
 };
 function resolveName(name) {
   const wanted = name.trim().toLowerCase();
@@ -458,7 +731,8 @@ function reviewSuggestion(item) {
     if (!from || !to || from === to) return 'Add both characters with distinct names first.';
     if (draftRelationships.length >= maxGraphEvents) return 'The map has reached its event limit.';
     if (!draftRelationships.some(edge => edge.from === from && edge.to === to && edge.label === suggestion.label && edge.turn === item.turnNumber)) {
-      draftRelationships.push({from,to,label:suggestion.label,turn:item.turnNumber});
+      const storyTime = suggestion.storyTime || relationshipTime(current(),{turn:item.turnNumber},draftStartAt);
+      draftRelationships.push({from,to,label:suggestion.label,turn:item.turnNumber,storyTime});
     }
   } else {
     const input = $('#settingsForm').elements.continuity;
@@ -467,7 +741,7 @@ function reviewSuggestion(item) {
   }
   item.status = 'accepted';
   refreshCastGraph();
-  $('#profileHeading').textContent = nameOf(editingCharacter);
+  renderGraphTurns();
   renderGraphReview();
   return '';
 }
@@ -475,6 +749,7 @@ function renderGraphReview() {
   const container = $('#graphSuggestions');
   const pending = pendingGraphReview.filter(item => !item.status);
   container.hidden = !pending.length;
+  $('#reviewGraphButton').textContent = pending.length ? `Review updates (${pending.length})` : 'Agent updates';
   container.replaceChildren();
   if (!pending.length) return;
   container.append(el('h3','','Review map updates'), el('p','form-note','Keep only non-explicit facts you want future models to see.'));
@@ -495,6 +770,24 @@ function renderGraphReview() {
 }
 $('#primaryEditor').querySelector('[data-field="name"]').oninput = () => refreshEditorName($('#primaryEditor'));
 
+function setDraftStart(time) {
+  if (!isStoryTime(time) || time === draftStartAt) return;
+  draftStartAt = time;
+  draftStartSource = 'author';
+  $('#storyStartAt').value = time;
+  for (const edge of draftRelationships) {
+    if (!edge.turn || estimatedEdgeDates.has(edge)) {
+      edge.storyTime = relationshipTime(current(),{turn:edge.turn},time);
+    }
+  }
+  renderGraphTurns();
+}
+$('#storyStartAt').onchange = event => setDraftStart(event.target.value);
+$('#storyStartAt').oninput = event => event.target.setCustomValidity('');
+$('#writerCharacter').onchange = event => {
+  draftWriterId = event.target.checked ? editingCharacter : '';
+};
+
 function openSettings(initialTab = $('#castTab')) {
   if (!state) return;
   const project = current();
@@ -506,14 +799,28 @@ function openSettings(initialTab = $('#castTab')) {
   $('#castEditors').replaceChildren();
   for (const character of project.cast || []) addCastEditor(character);
   for (const details of form.querySelectorAll('details')) details.open = false;
-  draftRelationships = structuredClone(project.relationships || []);
-  showOlderEvents = false;
-  pendingGraphReview = project.messages.flatMap((message, turn) => !isAvailableToMcp(message) ? [] :
+  draftStartAt = project.storyStartAt || localStoryTime();
+  draftStartSource = project.storyStartSource || 'estimate';
+  $('#storyStartAt').value = draftStartAt;
+  $('#storyStartAt').setCustomValidity('');
+  draftWriterId = project.storyWriterId || '';
+  estimatedEdgeDates = new WeakSet();
+  draftRelationships = (project.relationships || []).map(edge => {
+    const draft = {...edge,storyTime:relationshipTime(project,edge,draftStartAt)};
+    if (!edge.storyTime) estimatedEdgeDates.add(draft);
+    return draft;
+  });
+  deletedEvent = null;
+  pendingGraphReview = project.messages.flatMap((message, turn) => message.excludeFromContext ? [] :
     (message.graphSuggestions || []).map((suggestion, index) => ({turn,index,suggestion, turnNumber:message.turnNumber || turn + 1, status:''})));
   pendingGraphReview = pendingGraphReview.slice(-30);
   $('#graphUpdates').checked = project.graphUpdates !== false;
   clearConnection();
-  selectCastEditor(getSpeaker(project).id);
+  showTimeline(false);
+  editingCharacter = getSpeaker(project).id;
+  pinGraph(null);
+  refreshCastGraph();
+  renderGraphTurns();
   renderGraphReview();
   selectSettingsTab(initialTab);
   $('#settingsDialog').showModal();
@@ -543,9 +850,12 @@ function addCastEditor(character) {
   const remove = el('button', 'button subtle', 'Remove from cast');
   remove.type = 'button';
   remove.onclick = () => {
+    if (draftWriterId === card.dataset.id) draftWriterId = '';
     draftRelationships = draftRelationships.filter(edge => edge.from !== card.dataset.id && edge.to !== card.dataset.id);
     card.remove();
     clearConnection();
+    refreshCastGraph();
+    renderGraphTurns();
     selectCastEditor(primarySpeaker, true);
   };
   card.append(remove);
@@ -556,10 +866,11 @@ $('#addCharacter').onclick = () => {
   if ($('#castEditors').children.length >= maxAdditionalCharacters) return;
   const primary = $('#primaryEditor');
   if ($('#castEditors').children.length === 0 && [...primary.querySelectorAll('[data-field]')].every(input => !input.value.trim())) {
-    selectCastEditor(primarySpeaker).querySelector('input').focus();
+    selectCastEditor(primarySpeaker,true);
     return;
   }
   const card = addCastEditor({id:id()});
+  refreshCastGraph();
   selectCastEditor(card.dataset.id).querySelector('input').focus();
 };
 
@@ -575,12 +886,14 @@ function openEdit(index) {
   editingIndex = index;
   const message = current().messages[index];
   $('#editText').value = message.content;
+  $('#editStoryTime').value = message.storyTime || '';
+  $('#editStoryTime').setCustomValidity('');
   $('#excludeTurn').checked = Boolean(message.excludeFromContext);
   $('#turnSensitivity').value = message.contentSensitivity || '';
   $('#editDialog').showModal();
 }
-function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>100)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(({from,to,label,turn})=>({from,to,label,turn:turn||0}))} : {}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentRequest&&['send','alternate'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)?{agentRequest:p.agentRequest}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;
-if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})}});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
+function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>100)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return migratePersona({id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(typeof p.storyWriterId==='string'?{storyWriterId:p.storyWriterId}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentRequest&&['send','alternate'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)?{agentRequest:p.agentRequest}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;
+if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})});});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 
 const modelChoice = $('#modelPreset');
 const sceneModelChoice = $('#sceneModel');
@@ -711,6 +1024,13 @@ $('#settingsForm').onsubmit = event => {
     return;
   }
   form.elements.title.setCustomValidity('');
+  if (!isStoryTime($('#storyStartAt').value)) {
+    selectSettingsTab($('#worldTab'));
+    $('#storyStartAt').setCustomValidity('Enter an in-story starting date and time.');
+    $('#storyStartAt').reportValidity();
+    return;
+  }
+  setDraftStart($('#storyStartAt').value);
   const cast = readCast();
   if (!validCast(cast)) {
     const missingName = [...$('#castEditors').querySelectorAll('[data-field=name]')].find(input => !input.value.trim());
@@ -730,6 +1050,10 @@ $('#settingsForm').onsubmit = event => {
   }
   for (const key of settingsFields) project[key] = form.elements[key].value.trim();
   project.cast = cast;
+  if (draftWriterId) project.storyWriterId = draftWriterId;
+  else delete project.storyWriterId;
+  project.storyStartAt = draftStartAt;
+  project.storyStartSource = draftStartSource;
   project.relationships = draftRelationships;
   project.graphUpdates = $('#graphUpdates').checked;
   for (const [index, turn] of project.messages.entries()) {
@@ -748,9 +1072,18 @@ $('#closeEdit').onclick = $('#cancelEdit').onclick = () => $('#editDialog').clos
 $('#editText').oninput = () => {
   if ($('#turnSensitivity').value === 'safe') $('#turnSensitivity').value = 'unclassified';
 };
+$('#editStoryTime').oninput = event => event.target.setCustomValidity('');
 $('#editForm').onsubmit = event => {
   event.preventDefault();
   const message = current().messages[editingIndex];
+  const clock = $('#editStoryTime');
+  if (clock.value && !isStoryTime(clock.value)) {
+    clock.setCustomValidity('Enter an in-story date and time.');
+    clock.reportValidity();
+    return;
+  }
+  if (clock.value) message.storyTime = clock.value;
+  else delete message.storyTime;
   message.content = $('#editText').value;
   setSensitivity(message,$('#turnSensitivity').value);
   if ($('#excludeTurn').checked) message.excludeFromContext = true;
@@ -765,7 +1098,7 @@ $('#editForm').onsubmit = event => {
   $('#editDialog').close();
   renderMessages();
 };
-$('#newProject').onclick=()=>{const p={id:id(),title:'Untitled story',character:'',persona:'',lore:'',notes:'',messages:[]};state.projects.unshift(p);state.activeId=p.id;markDirty();render();$('#sidebar').classList.remove('open');openSettings()};$('#deleteProject').onclick=()=>{if(state.projects.length===1){alert('Keep at least one story in your library.');return}if(!confirm(`Delete “${current().title}” and all its turns? This cannot be undone.`))return;state.projects=state.projects.filter(p=>p.id!==state.activeId);state.activeId=state.projects[0].id;markDirty();render()};$('#sendButton').onclick=()=>generate('send');$('#instruction').oninput=()=>{if(state)setSession(draftKey(current().id),$('#instruction').value)};$('#instruction').onkeydown=e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();generate('send')}};
+$('#newProject').onclick=()=>{const p={id:id(),title:'Untitled story',character:'',persona:'',lore:'',notes:'',storyStartAt:localStoryTime(),storyStartSource:'estimate',messages:[]};state.projects.unshift(p);state.activeId=p.id;markDirty();render();$('#sidebar').close();openSettings()};$('#deleteProject').onclick=()=>{if(state.projects.length===1){alert('Keep at least one story in your library.');return}if(!confirm(`Delete “${current().title}” and all its turns? This cannot be undone.`))return;state.projects=state.projects.filter(p=>p.id!==state.activeId);state.activeId=state.projects[0].id;markDirty();render()};$('#sendButton').onclick=()=>generate('send');$('#instruction').oninput=()=>{if(state)setSession(draftKey(current().id),$('#instruction').value)};$('#instruction').onkeydown=e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();generate('send')}};
 function promptForDraft() {
   const direction = $('#instruction').value.trim();
   const project = current();
@@ -808,7 +1141,15 @@ $('#exportButton').onclick = async () => {
     error('ZIP unavailable. A restorable JSON backup was downloaded instead.');
   }
 };
-$('#importButton').onclick=()=>$('#importFile').click();$('#importFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>16_000_000)throw Error('The library exceeds the 16 MB import limit.');const incoming=normalize(JSON.parse(await file.text()));if(!confirm('Replace your current library with this file? Export first if you want a backup.'))return;for(const project of [...state.projects,...incoming.projects]){setSession(draftKey(project.id),'');setSession(routeKey(project.id),'')}state=incoming;markDirty();render();error()}catch(err){alert(`Could not import: ${err.message}`)}finally{e.target.value=''}};$('#openMenu').onclick=()=>$('#sidebar').classList.add('open');$('#closeMenu').onclick=()=>$('#sidebar').classList.remove('open');
+$('#importButton').onclick=()=>$('#importFile').click();$('#importFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>16_000_000)throw Error('The library exceeds the 16 MB import limit.');const incoming=normalize(JSON.parse(await file.text()));if(!confirm('Replace your current library with this file? Export first if you want a backup.'))return;for(const project of [...state.projects,...incoming.projects]){setSession(draftKey(project.id),'');setSession(routeKey(project.id),'')}state=incoming;markDirty();render();error()}catch(err){alert(`Could not import: ${err.message}`)}finally{e.target.value=''}};
+const storyDrawer = $('#sidebar');
+$('#openMenu').onclick = () => storyDrawer.showModal();
+$('#closeMenu').onclick = () => storyDrawer.close();
+storyDrawer.addEventListener('click', event => {
+  if (event.target !== storyDrawer) return;
+  const {left, right, top, bottom} = storyDrawer.getBoundingClientRect();
+  if (event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom) storyDrawer.close();
+});
 (async () => {
   try {
     const response = await fetch('/api/state');
