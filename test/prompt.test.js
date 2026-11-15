@@ -50,3 +50,23 @@ test('alternate directions are separate from stored conversation', () => {
   assert.match(messages.at(-1).content, /different take/);
   assert.equal(story.messages.length, 6);
 });
+
+test('a group reply swaps in the selected card and keeps attributed shared history', () => {
+  const project = {
+    ...story,
+    cast: [
+      {id:'mara', name:'Mara', description:'Mara knows the tide calendar.', personality:'Direct.', scenario:'At the dock.', examples:'{{char}}: Look east.'}
+    ],
+    speakerId:'mara',
+    messages:[
+      {role:'user', content:'What did the sea bring?'},
+      {role:'assistant', content:'A lantern.', speakerId:'primary', speakerName:'Iona'}
+    ]
+  };
+  const prompt = formatMessages(buildMessages(project, 'What next?'));
+  assert.match(prompt, /Current speaker:\s+Mara/);
+  assert.match(prompt, /Mara knows the tide calendar/);
+  assert.match(prompt, /Mara: Look east/);
+  assert.match(prompt, /\[ASSISTANT\]\s+Iona: A lantern/);
+  assert.doesNotMatch(prompt, /keeps the station lit/);
+});

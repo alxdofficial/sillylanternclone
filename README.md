@@ -35,6 +35,12 @@ Choose **Write with → OpenRouter**, then pick the model next to it in the comp
 
 Write your next turn and choose **Send & write**, or use **Continue**. Edit turns to revise the scene; **Another take** makes an alternative to the most recent co-writer reply, and **Previous / Next** chooses the version the story follows. The selected version becomes part of the subsequent context.
 
+### Write a scene with several characters
+
+In **Character & lore**, the top character fields describe the main co-writer. The persona is the part you write yourself. Use **Additional characters → Add character** for each extra co-writer, then save. Select **Reply as** in the composer before sending a turn. A reply is tagged with that speaker, and **Another take** uses the original reply's speaker even after you select someone else. All cast members share the story history and lore. The current reply includes the selected character's card, following SillyTavern's default **Swap character cards** behavior.
+
+The cast belongs to this story. It is included in library backups. SillyTavern's app-wide card library, automatic group reply ordering, joined card mode, and card-specific lorebooks are separate features. Here, always-on and keyword lore apply to the story as a whole. The JSON card importer fills the main co-writer fields.
+
 ### Keyword lore
 
 In **Character & lore**, add optional rules one per line using `keywords | text`. Separate keywords with commas; use `* | text` for always-on information. For example:

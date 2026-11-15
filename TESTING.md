@@ -27,3 +27,7 @@ The follow-up browser checks verified that:
 - Changes to the alias list invalidate the old result. Regenerated aliases and an applied draft survive navigation in the same tab.
 - Invalid library JSON is rejected without replacing the current story. A 2.3 MB fixture of 110 turns with multi-byte text survived browser import, reload and ZIP export with every turn unchanged.
 - With a simulated model response, a large story sends the selected route and at most 60 recent turns, displays the reply, and saves it. After reload the route remained selected and the API key field was empty.
+
+## Cast and speaker checks
+
+In an isolated browser library, added Iona alongside Mara, switched **Reply as**, and inspected **Prompt**. The preview included Iona's definitions and excluded Mara's. Simulated generation produced a turn labeled Iona. After selecting Mara, **Another take** still targeted Iona's card. Reload preserved the cast, attribution and selected speaker. Exported ZIP contained the cast and both takes. Checked that the speaker selector was visible at 320px. No inference request was billed for these checks.

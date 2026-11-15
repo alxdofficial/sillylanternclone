@@ -1,8 +1,9 @@
-import { buildMessages, formatMessages, extraFields } from './prompt.js';
+import { buildMessages, formatMessages, extraFields, getCast, getSpeaker, primarySpeaker, castFields, maxAdditionalCharacters, validCast } from './prompt.js';
 
 import { models, chapterCost, isModelId } from './models.js';
 
 const settingsFields = ['title', 'character', 'persona', 'lore', 'notes', ...extraFields];
+const castLabels = {name:'Name', description:'Description', personality:'Personality', scenario:'Scenario', examples:'Example dialogue'};
 const $ = s => document.querySelector(s);
 let state, revision, pendingWrites = 0, timer, pendingSave = Promise.resolve(), dirty = false, busy = false, editingIndex = null;
 let connection = {model:'',key:''};
@@ -56,8 +57,8 @@ window.addEventListener('beforeunload', event => {
   if (dirty || pendingWrites) event.preventDefault();
 });
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
-function render(){const p=current();if(!p)return;$('#instruction').value=getSession(draftKey(p.id))||'';syncRoute();$('#storyTitle').textContent=p.title;$('#crumb').textContent=p.title;document.title=`${p.title} · Story Studio`;const list=$('#projectList');list.replaceChildren();state.projects.forEach(project=>{const b=el('button','project-item'+(project.id===p.id?' active':''),project.title);b.onclick=()=>{state.activeId=project.id;markDirty();error();render();$('#sidebar').classList.remove('open')};list.append(b)});const summary=$('#contextSummary');summary.replaceChildren();for(const [key,label] of [['character','Character'],['persona','Your persona'],['lore','World & lore'],['notes','Writing notes']]){const block=el('div','context-block');block.append(el('h3','',label),el('p','',p[key]?.trim()||'Not added yet.'));summary.append(block)}renderMessages()}
-function renderMessages(){const p=current(), box=$('#messages');box.replaceChildren();if(!p.messages.length){const empty=el('div','empty');empty.append(el('div','empty-mark','\u2733'),el('strong','','Every story starts somewhere.'),el('p','','Set the scene below, or ask your co-writer to begin.'));box.append(empty);return}p.messages.forEach((m,index)=>{const row=el('article','message '+(m.role==='user'?'user':'assistant'));const avatar=el('div','avatar',m.role==='user'?'Y':'\u2733');avatar.setAttribute('aria-hidden','true');const body=el('div','message-body'), head=el('div','message-header');head.append(el('strong','',m.role==='user'?(p.personaName||'You'):(p.characterName||'Co-writer')));const actions=el('div','message-actions');const edit=el('button','','Edit');edit.onclick=()=>openEdit(index);const del=el('button','','Delete');del.onclick=()=>{if(!confirm('Delete this turn?'))return;p.messages.splice(index,1);markDirty();renderMessages()};actions.append(edit,del);if(m.role==='assistant'&&index===p.messages.length-1&&$('#sceneProvider').value!=='manual'){const retry=el('button','','Another take');retry.disabled=busy;retry.onclick=()=>generate('retry');actions.prepend(retry)}head.append(actions);body.append(head,el('div','message-text',m.content));if(m.role==='assistant' && m.alternatives?.length>1){const nav=el('div','alternatives');const prev=el('button','','← Previous');const count=el('span','',`${m.selectedAlternative+1} of ${m.alternatives.length} takes`);const next=el('button','','Next →');prev.disabled=busy||m.selectedAlternative===0;next.disabled=busy||m.selectedAlternative===m.alternatives.length-1;prev.onclick=()=>selectAlternative(m,m.selectedAlternative-1);next.onclick=()=>selectAlternative(m,m.selectedAlternative+1);nav.append(prev,count,next);body.append(nav)}row.append(avatar,body);box.append(row)});box.scrollTop=box.scrollHeight}
+function render(){const p=current();if(!p)return;syncSpeaker();$('#instruction').value=getSession(draftKey(p.id))||'';syncRoute();$('#storyTitle').textContent=p.title;$('#crumb').textContent=p.title;document.title=`${p.title} · Story Studio`;const list=$('#projectList');list.replaceChildren();state.projects.forEach(project=>{const b=el('button','project-item'+(project.id===p.id?' active':''),project.title);b.onclick=()=>{state.activeId=project.id;markDirty();error();render();$('#sidebar').classList.remove('open')};list.append(b)});const summary=$('#contextSummary');summary.replaceChildren();for(const [key,label] of [['character','Character'],['persona','Your persona'],['lore','World & lore'],['notes','Writing notes']]){const block=el('div','context-block');block.append(el('h3','',label),el('p','',p[key]?.trim()||'Not added yet.'));summary.append(block)}renderMessages()}
+function renderMessages(){const p=current(), box=$('#messages');box.replaceChildren();if(!p.messages.length){const empty=el('div','empty');empty.append(el('div','empty-mark','\u2733'),el('strong','','Every story starts somewhere.'),el('p','','Set the scene below, or ask your co-writer to begin.'));box.append(empty);return}p.messages.forEach((m,index)=>{const row=el('article','message '+(m.role==='user'?'user':'assistant'));const avatar=el('div','avatar',m.role==='user'?'Y':'\u2733');avatar.setAttribute('aria-hidden','true');const body=el('div','message-body'), head=el('div','message-header');head.append(el('strong','',m.role==='user'?(p.personaName||'You'):(m.speakerName||p.characterName||'Co-writer')));const actions=el('div','message-actions');const edit=el('button','','Edit');edit.onclick=()=>openEdit(index);const del=el('button','','Delete');del.onclick=()=>{if(!confirm('Delete this turn?'))return;p.messages.splice(index,1);markDirty();renderMessages()};actions.append(edit,del);if(m.role==='assistant'&&index===p.messages.length-1&&$('#sceneProvider').value!=='manual'){const retry=el('button','','Another take');retry.disabled=busy;retry.onclick=()=>generate('retry');actions.prepend(retry)}head.append(actions);body.append(head,el('div','message-text',m.content));if(m.role==='assistant' && m.alternatives?.length>1){const nav=el('div','alternatives');const prev=el('button','','← Previous');const count=el('span','',`${m.selectedAlternative+1} of ${m.alternatives.length} takes`);const next=el('button','','Next →');prev.disabled=busy||m.selectedAlternative===0;next.disabled=busy||m.selectedAlternative===m.alternatives.length-1;prev.onclick=()=>selectAlternative(m,m.selectedAlternative-1);next.onclick=()=>selectAlternative(m,m.selectedAlternative+1);nav.append(prev,count,next);body.append(nav)}row.append(avatar,body);box.append(row)});box.scrollTop=box.scrollHeight}
 function selectAlternative(message,index){if(!message.alternatives || index<0 || index>=message.alternatives.length)return;message.selectedAlternative=index;message.content=message.alternatives[index];markDirty();renderMessages()}
 function syncRoute() {
   const route = getSession(routeKey(current().id)) || 'codex';
@@ -74,8 +75,27 @@ function syncRoute() {
   $('#continueButton').disabled = busy || route === 'manual';
   $('#sendButton').textContent = busy ? 'Writing…' : route === 'manual' ? 'Save turn' : 'Send & write ↗';
 }
+function syncSpeaker() {
+  const project = current();
+  const cast = getCast(project);
+  const select = $('#speakerSelect');
+  $('#speakerControl').hidden = cast.length <= 1;
+  select.replaceChildren(...cast.map(character => new Option(character.name, character.id)));
+  select.value = getSpeaker(project).id;
+  select.disabled = busy;
+}
+$('#speakerSelect').onchange = event => {
+  if (busy || !state) return;
+  current().speakerId = event.target.value;
+  markDirty();
+};
+function speakerMetadata(speaker) {
+  return {speakerId:speaker.id, speakerName:speaker.name};
+}
+
 function setBusy(value) {
   busy = value;
+  syncSpeaker();
   syncRoute();
   renderMessages();
 }
@@ -98,11 +118,24 @@ async function generate(mode) {
     return;
   }
 
+  let speaker = getSpeaker(project);
+  if (mode === 'retry') {
+    const previous = project.messages.at(-1);
+    if (previous?.role !== 'assistant') return;
+    const originalId = previous.speakerId || primarySpeaker;
+    speaker = getCast(project).find(member => member.id === originalId);
+    if (!speaker) {
+      error('This turn’s speaker is no longer in the cast. Choose a current speaker and use Continue.');
+      return;
+    }
+  }
+
   const snapshot = {
     ...project,
+    speakerId:speaker.id,
     // The shared prompt builder looks at at most 60 turns. Retry removes one.
     messages: project.messages.slice(mode === 'retry' ? -61 : -60)
-      .map(({role, content}) => ({role, content:content.trim().slice(0, 6000)}))
+      .map(({role, content, speakerId, speakerName}) => ({role, content:content.trim().slice(0, 6000), speakerId, speakerName}))
   };
   if (mode === 'retry') {
     if (snapshot.messages.at(-1)?.role !== 'assistant') return;
@@ -140,7 +173,7 @@ async function generate(mode) {
       message.selectedAlternative = message.alternatives.length - 1;
       message.content = message.alternatives[message.selectedAlternative];
     } else {
-      target.messages.push({role:'assistant', content:text.trim()});
+      target.messages.push({role:'assistant', content:text.trim(), ...speakerMetadata(speaker)});
     }
     markDirty();
   } catch (e) {
@@ -153,10 +186,59 @@ async function generate(mode) {
 function openSettings() {
   const p = current(), form = $('#settingsForm');
   for (const key of settingsFields) form.elements[key].value = p[key] || '';
+  const editors = $('#castEditors');
+  editors.replaceChildren();
+  for (const character of p.cast || []) addCastEditor(character);
+  updateCastButton();
   $('#settingsDialog').showModal();
 }
+function updateCastButton() {
+  $('#addCharacter').disabled = $('#castEditors').children.length >= maxAdditionalCharacters;
+}
+function addCastEditor(character) {
+  const card = el('fieldset', 'cast-card');
+  card.dataset.id = character.id;
+  const legend = el('legend', '', character.name || 'New character');
+  card.append(legend);
+  for (const [field, labelText] of Object.entries(castLabels)) {
+    const label = el('label', '', labelText);
+    const input = el(field === 'name' ? 'input' : 'textarea');
+    input.value = character[field] || '';
+    input.dataset.field = field;
+    if (field === 'name') {
+      input.required = true;
+      input.maxLength = 100;
+      input.oninput = () => { legend.textContent = input.value.trim() || 'New character'; };
+    } else {
+      input.rows = 3;
+    }
+    label.append(input);
+    card.append(label);
+  }
+  const remove = el('button', 'button subtle', 'Remove from cast');
+  remove.type = 'button';
+  remove.onclick = () => { card.remove(); updateCastButton(); $('#addCharacter').focus(); };
+  card.append(remove);
+  $('#castEditors').append(card);
+  updateCastButton();
+  return card;
+}
+$('#addCharacter').onclick = () => {
+  if ($('#castEditors').children.length >= maxAdditionalCharacters) return;
+  addCastEditor({id:id()}).querySelector('input').focus();
+};
+
+function readCast() {
+  return [...$('#castEditors').children].map(card => ({
+    id:card.dataset.id,
+    ...Object.fromEntries([...card.querySelectorAll('[data-field]')].map(input =>
+      [input.dataset.field, input.value.trim()]))
+  }));
+}
+
 function openEdit(index){editingIndex=index;$('#editText').value=current().messages[index].content;$('#editDialog').showModal()}
-function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>100)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map(m=>{const result={role:m.role,content:m.content};if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}}return result})}});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
+function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>100)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]]))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map(m=>{const result={role:m.role,content:m.content};
+if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}}return result})}});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 function showProviderFields(){const isRouter=$('#providerSelect').value==='openrouter';$('#routerFields').hidden=!isRouter;$('#codexNote').hidden=isRouter;}
 const modelChoice = $('#modelPreset');
 const sceneModelChoice = $('#sceneModel');
@@ -238,14 +320,31 @@ $('#sceneProvider').onchange = event => {
   if (event.target.value === 'openrouter' && !connection.key) openConnection('openrouter');
   renderMessages();
 };
-$('#pasteReply').onclick=()=>{$('#pasteText').value='';$('#pasteDialog').showModal()};$('#closePaste').onclick=$('#cancelPaste').onclick=()=>$('#pasteDialog').close();$('#pasteForm').onsubmit=e=>{e.preventDefault();const text=$('#pasteText').value.trim();if(!text)return;current().messages.push({role:'assistant',content:text});markDirty();$('#pasteDialog').close();renderMessages()};
+$('#pasteReply').onclick=()=>{$('#pasteText').value='';$('#pasteDialog').showModal()};$('#closePaste').onclick=$('#cancelPaste').onclick=()=>$('#pasteDialog').close();$('#pasteForm').onsubmit=e=>{e.preventDefault();const text=$('#pasteText').value.trim();if(!text)return;current().messages.push({role:'assistant',content:text,...speakerMetadata(getSpeaker(current()))});markDirty();$('#pasteDialog').close();renderMessages()};
 // Character-card import fills the settings form only; saving remains an explicit action.
 const cardTools=el('div','card-import');const cardButton=el('button','button subtle','Import character card JSON');cardButton.type='button';const cardInput=el('input');cardInput.type='file';cardInput.accept='.json,application/json';cardInput.hidden=true;const cardHint=el('p','form-note','Imports name, description, personality, scenario and example dialogue from V1/V2/V3 JSON cards. Greetings, lorebooks, images, extensions and other fields are not imported. Review before saving.');cardTools.append(cardButton,cardInput,cardHint);$('#settingsForm').insertBefore(cardTools,$('#settingsForm').querySelector('label'));cardButton.onclick=()=>cardInput.click();cardInput.onchange=async()=>{const file=cardInput.files[0];if(!file)return;try{if(file.size>2_000_000)throw Error('The card is too large (maximum 2 MB).');const raw=JSON.parse(await file.text());const data=raw?.data&&typeof raw.data==='object'?raw.data:raw;if(!data||typeof data!=='object'||Array.isArray(data))throw Error('This is not a supported character card.');const name=typeof data.name==='string'?data.name.trim():'';const fields=['description','personality','scenario','mes_example'];if(!name&&!fields.some(k=>typeof data[k]==='string'&&data[k].trim()))throw Error('No supported character fields found.');const form = $('#settingsForm');
 for (const [field,key] of [['characterName','name'],['character','description'],['personality','personality'],['scenario','scenario'],['examples','mes_example']]) {
   form.elements[field].value = typeof data[key] === 'string' ? data[key].trim() : '';
 }
 cardHint.textContent = `Imported ${name || 'character'} into the form. Review and save. Greetings, attached lorebooks, images and extensions were skipped.`}catch(e){cardHint.textContent=`Could not import card: ${e.message}`}finally{cardInput.value=''}};
-$('#settingsButton').onclick=$('#editContext').onclick=openSettings;$('#closeSettings').onclick=$('#cancelSettings').onclick=()=>$('#settingsDialog').close();$('#settingsForm').onsubmit=e=>{e.preventDefault();const p=current();if(!e.currentTarget.elements.title.value.trim())return;for(const key of settingsFields)p[key]=e.currentTarget.elements[key].value.trim();markDirty();$('#settingsDialog').close();render()};$('#closeEdit').onclick=$('#cancelEdit').onclick=()=>$('#editDialog').close();$('#editForm').onsubmit=e=>{e.preventDefault();const message=current().messages[editingIndex];message.content=$('#editText').value;if(message.alternatives)message.alternatives[message.selectedAlternative]=message.content;markDirty();$('#editDialog').close();renderMessages()};
+$('#settingsButton').onclick=$('#editContext').onclick=openSettings;$('#closeSettings').onclick=$('#cancelSettings').onclick=()=>$('#settingsDialog').close();$('#settingsForm').onsubmit=e=>{e.preventDefault();const p=current();if(!e.currentTarget.elements.title.value.trim())return;
+const cast = readCast();
+if (!validCast(cast)) {
+  const missingName = [...$('#castEditors').querySelectorAll('input')].find(input => !input.value.trim());
+  if (missingName) {
+    missingName.value = '';
+    missingName.reportValidity();
+  }
+  return;
+}
+if (cast.length) {
+  for (const turn of p.messages) {
+    if (turn.role === 'assistant' && !turn.speakerId) Object.assign(turn, speakerMetadata(getSpeaker(p, primarySpeaker)));
+  }
+}
+for(const key of settingsFields)p[key]=e.currentTarget.elements[key].value.trim();
+p.cast = cast;
+p.speakerId = getSpeaker(p).id;markDirty();$('#settingsDialog').close();render()};$('#closeEdit').onclick=$('#cancelEdit').onclick=()=>$('#editDialog').close();$('#editForm').onsubmit=e=>{e.preventDefault();const message=current().messages[editingIndex];message.content=$('#editText').value;if(message.alternatives)message.alternatives[message.selectedAlternative]=message.content;markDirty();$('#editDialog').close();renderMessages()};
 $('#newProject').onclick=()=>{const p={id:id(),title:'Untitled story',character:'',persona:'',lore:'',notes:'',messages:[]};state.projects.unshift(p);state.activeId=p.id;markDirty();render();$('#sidebar').classList.remove('open');openSettings()};$('#deleteProject').onclick=()=>{if(state.projects.length===1){alert('Keep at least one story in your library.');return}if(!confirm(`Delete “${current().title}” and all its turns? This cannot be undone.`))return;state.projects=state.projects.filter(p=>p.id!==state.activeId);state.activeId=state.projects[0].id;markDirty();render()};$('#sendButton').onclick=()=>generate('send');$('#continueButton').onclick=()=>generate('continue');$('#instruction').oninput=()=>{if(state)setSession(draftKey(current().id),$('#instruction').value)};$('#instruction').onkeydown=e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();generate('send')}};
 function promptForDraft() {
   const direction = $('#instruction').value.trim();

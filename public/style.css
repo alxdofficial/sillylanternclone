@@ -50,3 +50,10 @@
 #sceneModelControl { display: flex; align-items: center; gap: 7px; min-width: 0; }
 #sceneModel { max-width: min(220px, 68vw); }
 #routeSummary:empty { display: none; }
+
+#speakerControl { display: flex; align-items: center; gap: 7px; min-width: 0; }
+#speakerSelect { max-width: min(200px, 61vw); }
+.cast-settings { border-top: 1px solid #524950; margin-top: 18px; padding-top: 13px; }
+.cast-settings h3 { margin: 0; font-size: 14px; }
+.cast-card { border: 1px solid #524950; border-radius: 5px; margin: 12px 0; padding: 10px 14px; min-width: 0; }
+.cast-card legend { font-weight: 650; padding: 0 5px; }
