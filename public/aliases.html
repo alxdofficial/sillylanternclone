@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fictional cast · Story Studio</title>
+<link rel="stylesheet" href="/aliases.css">
+<script type="module" src="/aliases.js"></script>
+</head>
+<body>
+<header><a href="/">← Story Studio</a></header>
+<main>
+<h1>Fictional cast</h1>
+<p>Give your characters new names before sharing a draft. This tool runs in your browser. Review other identifying details, such as places and biographies, separately.</p>
+<section>
+<h2>Name table</h2>
+<label for="names">Source names, one per line</label>
+<textarea id="names" rows="3" placeholder="Sam Taylor&#10;Alex Morgan"></textarea>
+<button id="make">Generate aliases</button>
+<div id="mapping"></div>
+</section>
+<div class="drafts">
+<section><h2><label for="source">Original draft</label></h2><textarea id="source" rows="10"></textarea><button id="apply">Replace names</button></section>
+<section><h2><label for="output">Fictionalized draft</label></h2><textarea id="output" rows="10" readonly></textarea><button id="copy">Copy draft</button></section>
+</div>
+<p id="status" role="status"></p>
+</main>
+</body></html>
