@@ -5,12 +5,15 @@
 # unverified or outside AI context. It starts watching for queued turns.
 set -eu
 cd "${0:A:h:h}"
+source bin/launcher-log.zsh
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.claude/local:$PATH"
 
 if ! command -v claude >/dev/null; then
+  studio_log error claude_cli_missing 1
   printf 'Claude Code is not installed. See https://code.claude.com/docs/en/setup\n' >&2
   exit 1
 fi
+studio_log info claude_writer_launch
 
 app=$PWD
 server_env="\"PORT\":\"${PORT:-4317}\""

@@ -8,9 +8,12 @@ import { z } from 'zod';
 import { appendTurn, buildMessages, dateWriterTurn, stripSpeakerName, formatMessages, getCast, narrator, isStoryTime, queuedTurn, recordStoryTime, replyInput, syncTakeSuggestions } from './public/prompt.js';
 
 import { checkMapUpdates, updateSchema } from './map-updates.mjs';
+import { createLogger, diagnosticError, errorCode } from './diagnostics.mjs';
 
+const log = createLogger('mcp');
 const port = Number(process.env.PORT || 4317);
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  log('error','startup_failed',{code:'INVALID_PORT'});
   console.error('Story Studio MCP: PORT must be a valid local port.');
   process.exit(1);
 }
@@ -44,9 +47,15 @@ function failure(message) {
 }
 function tool(name, config, handler) {
   studio.registerTool(name, config, async (args, extra) => {
+    const started = Date.now();
     try {
-      return result(await handler(args, extra));
+      const payload = await handler(args, extra);
+      if (name !== 'wait_for_queued_turn' || payload.status === 'queued') {
+        log('info','tool_completed',{tool:name,durationMs:Date.now()-started});
+      }
+      return result(payload);
     } catch (error) {
+      log('warn','tool_failed',{tool:name,code:errorCode(error,'TOOL_REQUEST_REJECTED'),durationMs:Date.now()-started});
       return failure(error instanceof Error ? error.message : 'Story Studio request failed.');
     }
   });
@@ -92,15 +101,16 @@ async function readLibrary({conditional = false} = {}) {
       signal:AbortSignal.timeout(5000),
       redirect:'error'
     });
-  } catch {
-    throw Error('Story Studio is not reachable. Start the app or call open_studio.');
+  } catch (error) {
+    throw diagnosticError(errorCode(error) === 'TIMEOUT' ? 'APP_TIMEOUT' : 'APP_UNREACHABLE',
+      'Story Studio is not reachable. Start the app or call open_studio.');
   }
   if (response.status === 304 && conditional && cached) return {library:structuredClone(cached.library), revision:cached.revision};
-  if (!response.ok) throw Error(`Could not read the local Story Studio library (HTTP ${response.status}).`);
+  if (!response.ok) throw diagnosticError('APP_HTTP_ERROR',`Could not read the local Story Studio library (HTTP ${response.status}).`);
   const revision = response.headers.get('etag');
   const library = await response.json();
   if (!revision || !Array.isArray(library.projects) || typeof library.activeId !== 'string') {
-    throw Error('The local port did not return a Story Studio library.');
+    throw diagnosticError('APP_INVALID_RESPONSE','The local port did not return a Story Studio library.');
   }
   cached = {library:structuredClone(library), revision};
   return {library, revision};
@@ -115,7 +125,7 @@ function findStory(library, storyId) {
 // Validation is shared with the browser (queuedTurn in public/prompt.js).
 function pendingRequest(project) {
   const {request, problem} = queuedTurn(project);
-  if (problem) throw Error(problem);
+  if (problem) throw diagnosticError('QUEUE_INVALID',problem);
   return request;
 }
 
@@ -199,6 +209,7 @@ tool('wait_for_queued_turn', {
   annotations:{readOnlyHint:true, openWorldHint:false},
   _meta:{'anthropic/maxResultSizeChars':200000}
 }, async ({waitSeconds = /claude/i.test(studio.server.getClientVersion()?.name || '') ? 300 : 50}, extra) => {
+  if (!lastWaitAt) log('info','watch_started',{waitSeconds});
   const deadline = Date.now() + waitSeconds * 1000;
   let skipped = [], lastBeat = 0;
   while (true) {
@@ -267,7 +278,7 @@ tool('submit_reply', {
   annotations:{readOnlyHint:false, destructiveHint:false, idempotentHint:false, openWorldHint:false}
 }, async ({storyId, revision, reply, writerTurn, storyTime, updates = []}) => {
   const current = await readLibrary();
-  if (current.revision !== revision) throw Error('The library changed since this draft started. Read the story context again and rewrite the reply against it before saving.');
+  if (current.revision !== revision) throw diagnosticError('REVISION_CONFLICT','The library changed since this draft started. Read the story context again and rewrite the reply against it before saving.');
   const project = findStory(current.library, storyId);
   const request = pendingRequest(project);
   if (request && writerTurn?.trim()) throw Error('This handoff already has a saved writer turn. Omit writerTurn.');
@@ -278,7 +289,7 @@ tool('submit_reply', {
   const mapOff = request?.mode === 'alternate' || project.graphUpdates === false;
   if (proposals.length > 5) throw Error('Send at most five map updates per reply.');
   const checked = checkMapUpdates(project,mapOff ? [] : proposals);
-  if (checked.problems.length) throw Error('Nothing was saved. Fix these map updates or leave them out:\n' + checked.problems.join('\n'));
+  if (checked.problems.length) throw diagnosticError('MAP_UPDATES_INVALID','Nothing was saved. Fix these map updates or leave them out:\n' + checked.problems.join('\n'));
   let turnNumber;
   let proposedUpdates = 0;
   if (request?.mode === 'alternate') {
@@ -292,7 +303,7 @@ tool('submit_reply', {
     delete previous.contentSensitivity;
     turnNumber = request.turnNumber;
   } else {
-    if (project.messages.length + (writerTurn?.trim() ? 2 : 1) > 3000) throw Error('This story has reached its turn limit.');
+    if (project.messages.length + (writerTurn?.trim() ? 2 : 1) > 3000) throw diagnosticError('TURN_LIMIT','This story has reached its turn limit.');
     if (writerTurn?.trim()) appendTurn(project, {role:'user',content:writerTurn.trim()});
     const suggestions = checked.updates;
     proposedUpdates = suggestions.length;
@@ -315,8 +326,8 @@ tool('submit_reply', {
     signal:AbortSignal.timeout(12000),
     redirect:'error'
   });
-  if (response.status === 409) throw Error('The library changed while saving. Read the story context again and rewrite the reply against it before saving.');
-  if (!response.ok) throw Error(`Could not save the reply (HTTP ${response.status}).`);
+  if (response.status === 409) throw diagnosticError('REVISION_CONFLICT','The library changed while saving. Read the story context again and rewrite the reply against it before saving.');
+  if (!response.ok) throw diagnosticError('APP_WRITE_FAILED',`Could not save the reply (HTTP ${response.status}).`);
   reportFinished();
   return {
     storyId, turnNumber, speaker:narrator.name, proposedUpdates,
@@ -336,10 +347,10 @@ tool('decline_turn', {
   annotations:{readOnlyHint:false, destructiveHint:false, idempotentHint:false, openWorldHint:false}
 }, async ({storyId, revision, reason, writerTurn}) => {
   const current = await readLibrary();
-  if (current.revision !== revision) throw Error('The library changed. Read the story context again before declining.');
+  if (current.revision !== revision) throw diagnosticError('REVISION_CONFLICT','The library changed. Read the story context again before declining.');
   const project = findStory(current.library, storyId);
   const request = pendingRequest(project);
-  if (!request) throw Error('No turn is queued in this story.');
+  if (!request) throw diagnosticError('QUEUE_MISSING','No turn is queued in this story.');
   if (writerTurn === 'explicit' && request.mode === 'send') project.messages.at(-1).contentSensitivity = 'explicit';
   delete project.agentRequest;
   project.agentNotice = {turnNumber:request.turnNumber, message:reason};
@@ -350,8 +361,8 @@ tool('decline_turn', {
     signal:AbortSignal.timeout(12000),
     redirect:'error'
   });
-  if (response.status === 409) throw Error('The library changed while declining. Read the story context again.');
-  if (!response.ok) throw Error(`Could not update the story (HTTP ${response.status}).`);
+  if (response.status === 409) throw diagnosticError('REVISION_CONFLICT','The library changed while declining. Read the story context again.');
+  if (!response.ok) throw diagnosticError('APP_WRITE_FAILED',`Could not update the story (HTTP ${response.status}).`);
   reportFinished();
   return {
     storyId, declined:request.turnNumber,
@@ -381,7 +392,11 @@ async function startStudio() {
       }
     }
     child.kill();
-    throw Error('Story Studio could not start. Try the Story Studio launcher and check its output.');
+    log('error','app_launch_failed',{
+      port,code:errorCode(startupError,child.exitCode === null ? 'APP_START_TIMEOUT' : 'APP_EXITED'),
+      exitCode:child.exitCode
+    });
+    throw diagnosticError('APP_START_FAILED','Story Studio could not start. Check the server and MCP logs or run the Story Studio launcher.');
   }
 }
 
@@ -400,9 +415,17 @@ async function leave() {
   if (leaving) return;
   leaving = true;
   await Promise.race([reportAgent('done'), delay(1000)]);
+  log('info','disconnected');
   process.exit(0);
 }
 studio.server.onclose = leave;
 process.stdin.once('end', leave);
 for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, leave);
-await studio.connect(new StdioServerTransport());
+try {
+  await studio.connect(new StdioServerTransport());
+  log('info','started',{port,node:process.versions.node});
+} catch (error) {
+  log('error','startup_failed',{port,code:errorCode(error,'TRANSPORT_FAILED')});
+  process.stderr.write('Story Studio could not start its MCP transport. Check mcp.log.\n');
+  process.exit(1);
+}

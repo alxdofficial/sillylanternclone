@@ -46,7 +46,18 @@ function status(text) {
     ? 'Demo · resets on reload' : text;
 }
 function error(text=''){const box=$('#error');box.hidden=!text;box.textContent=text}
-async function api(url, options={}) {const response=await fetch(url,options);let result;try{result=await response.json()}catch{throw Error(`Unexpected server response (${response.status}).`)}if(!response.ok)throw Error(result.error || `Request failed (${response.status}).`);return result}
+async function api(url, options={}) {
+  const response = await fetch(url,options);
+  let result;
+  try { result = await response.json(); }
+  catch { throw Error(`Unexpected server response (${response.status}).`); }
+  if (!response.ok) {
+    const requestId = response.headers.get('x-story-studio-request-id');
+    const message = result.error || `Request failed (${response.status}).`;
+    throw Error(response.status >= 500 && requestId ? `${message} Log ID ${requestId}.` : message);
+  }
+  return result;
+}
 function markDirty(project = current()) {
   dirty = true;
   libraryDirty ||= project.id !== starterStoryId;

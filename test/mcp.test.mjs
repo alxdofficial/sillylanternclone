@@ -85,6 +85,11 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     }});
     assert.equal(stale.isError, true);
     assert.match(stale.content[0].text, /changed since this draft/);
+    const diagnostics = await readFile(join(directory,'logs','mcp.log'),'utf8');
+    const events = diagnostics.trim().split('\n').map(line => JSON.parse(line));
+    assert.ok(events.some(event => event.tool === 'submit_reply' && event.event === 'tool_completed'));
+    assert.ok(events.some(event => event.tool === 'submit_reply' && event.code === 'REVISION_CONFLICT'));
+    assert.doesNotMatch(diagnostics,/PRIVATE TEST MARKER|Mara tests the bridge|Old draft/);
 
     const origin = `http://127.0.0.1:${port}`;
     let stateResponse = await fetch(origin+'/api/state');

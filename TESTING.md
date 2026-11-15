@@ -94,3 +94,7 @@ The browser sent a queued turn to a simulated OpenRouter upstream after clearing
 ## Narrator-only writing
 
 On a 390 px browser viewport, opened The Late Ferry, added a standing style in Writing notes, and queued a continuation with a one-off tense instruction. Confirmed the composer had no character reply picker, the prompt contained the style and cast, and the watched MCP request identified Narrator. Submitted a reply through real stdio MCP and verified it appeared as Narrator. A simulated OpenRouter request received the same narrator and style context and saved its reply as Narrator. No live provider model was used in this check.
+
+## Deployment diagnostics
+
+A clean launcher copy recorded dependency installation and server readiness. An invalid port and an occupied port produced startup failure entries. Rotation moved a 1 MiB file to `.1` and wrote the next entry to a fresh log. The server test verifies a simulated OpenRouter 401 can be matched to its HTTP request ID without logging request text, the key, custom model text, or the provider response. The MCP integration test verifies a save conflict is logged without recording the reply or draft.

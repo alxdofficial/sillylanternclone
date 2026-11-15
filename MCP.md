@@ -115,3 +115,5 @@ For a regular reply, use the writer turn's known time when present and infer a p
 On long stories, the native client also applies its own tool-output limits. If Codex truncates `get_story_context` or `wait_for_queued_turn`, it supports a per-tool `output_token_limit` in its MCP configuration. Story Studio declares a 200,000-character result limit for Claude Code on both tools. Claude Code may show a file reference for larger results, which the agent can read from its session's tool results.
 
 See the native client references for registration and permission settings. [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli), [Claude Code MCP](https://code.claude.com/docs/en/mcp).
+
+If a writer session cannot connect or save a turn, check `mcp.log` in [the diagnostic log folder](README.md#troubleshoot-startup-and-writing). A detached server launched through `open_studio` writes to `server.log`.

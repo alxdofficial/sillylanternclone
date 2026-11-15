@@ -1,8 +1,10 @@
 #!/bin/zsh
 set -eu
 cd "${0:A:h:h}"
+source bin/launcher-log.zsh
 
 if [[ ! -d node_modules/@modelcontextprotocol/sdk ]]; then
+  studio_log error mcp_dependencies_missing 1
   printf 'Run Start Story Studio.command once to install Story Studio dependencies.\n' >&2
   exit 1
 fi
@@ -20,4 +22,5 @@ for bundled in "$runtime"/node-*-darwin-*/bin/node(N); do
 done
 
 printf 'Run Start Story Studio.command once to install Node.js.\n' >&2
+studio_log error mcp_node_missing 1
 exit 1

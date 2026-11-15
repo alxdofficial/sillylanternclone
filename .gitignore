@@ -3,3 +3,5 @@ data/
 .taste-skill/
 
 node_modules/
+*.log
+*.log.1

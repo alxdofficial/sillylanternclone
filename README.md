@@ -75,6 +75,26 @@ The default library folder is `~/Library/Application Support/Story Studio/` and 
 
 The app binds to your Mac’s loopback address and stores the library locally. When you use a model, the assembled context goes to its service through your selected route. The OpenRouter key is held in the browser page's memory, passed through the local server for requests, and cleared on reload. Story exports exclude the key.
 
+## Troubleshoot startup and writing
+
+Open **Finder → Go → Go to Folder** and enter `~/Library/Logs/Story Studio`. The launcher also prints the folder in Terminal. Logs are local, one JSON entry per line with a UTC timestamp. Each file rotates at about 1 MiB and keeps one previous copy ending in `.1`.
+
+| File | What to look for |
+| --- | --- |
+| `setup.log` | The runtime download, dependency install, server readiness, and launcher failures with their stage and exit code. |
+| `server.log` | Startup and port errors, save and export requests, and OpenRouter status, timeout, or response errors. |
+| `mcp.log` | MCP startup, watcher activity, tool outcomes, and errors connecting to the local server or saving a reply. |
+
+For example, this shows the latest server events as they arrive.
+
+```sh
+tail -n 30 -F "$HOME/Library/Logs/Story Studio/server.log"
+```
+
+For a writing error with a **Log ID**, match it to `requestId` in `server.log`. `upstreamStatus` is the HTTP status from OpenRouter, separate from the local `status`. If the app never starts, check `setup.log` and the launcher Terminal. If the browser page opens but its controls fail, check the browser's developer console as well.
+
+Story Studio logs omit story text, directions, prompts, provider replies, and API keys. To redirect logs, set `STORY_STUDIO_LOG_DIR` in the server and MCP launcher environments. If you set only `STORY_STUDIO_DATA`, logs go in its `logs` subfolder.
+
 ## Project reference
 
 - [MCP.md](MCP.md) covers registration, the native agent handoff, and the tool contract.

@@ -4,29 +4,47 @@ import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
-import { isModelId } from './public/models.js';
+import { isModelId, models } from './public/models.js';
 import { buildMessages, extraFields, getCast, getWriter, validCast, validRelationships, validSensitivity, splitOpenRouterReply, isStoryTime } from './public/prompt.js';
 import { maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory } from './examples/the-late-ferry.mjs';
 import { checkMapUpdates } from './map-updates.mjs';
+import { createLogger, diagnosticError, errorCode } from './diagnostics.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root=dirname(fileURLToPath(import.meta.url));
 const dataDir=process.env.STORY_STUDIO_DATA || join(homedir(),'Library','Application Support','Story Studio');
 const statePath=join(dataDir,'library.json');
 const port=Number(process.env.PORT || 4317);
+const log = createLogger('server');
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  log('error','startup_failed',{code:'INVALID_PORT'});
+  console.error('Story Studio: PORT must be a number from 1 to 65535.');
+  process.exit(1);
+}
+const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/agent','/api/generate','/api/export']);
+const methodNames = new Set(['GET','POST','PUT']);
+const modelIds = new Set(models.map(model => model.id));
 let starter = createStarterStory();
 let starterSelected = false;
 let starterGeneration = randomUUID();
 const json=(res,status,body)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(body));};
+async function parseLibrary(path) {
+  const text = await readFile(path,'utf8');
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw diagnosticError('LIBRARY_JSON_INVALID','The saved library is not valid JSON.');
+  }
+}
 async function readSavedLibrary() {
   try {
-    return JSON.parse(await readFile(statePath,'utf8'));
+    return await parseLibrary(statePath);
   } catch (e) {
     if (e.code !== 'ENOENT') throw e;
     if (!process.env.STORY_STUDIO_DATA) {
       try {
-        return JSON.parse(await readFile(join(root,'data','stories.json'),'utf8'));
+        return await parseLibrary(join(root,'data','stories.json'));
       } catch (legacy) {
         if (legacy.code !== 'ENOENT') throw legacy;
       }
@@ -93,9 +111,9 @@ async function body(req, limit = 2_000_000) {
     size += chunk.length;
     if (size <= limit) chunks.push(chunk);
   }
-  if (size > limit) throw Object.assign(Error('The request exceeds the size limit.'), {status:413});
+  if (size > limit) throw Object.assign(diagnosticError('BODY_TOO_LARGE','The request exceeds the size limit.'), {status:413});
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
-  catch { throw Object.assign(Error('Invalid JSON.'), {status:400}); }
+  catch { throw Object.assign(diagnosticError('INVALID_JSON','Invalid JSON.'), {status:400}); }
 }
 
 // What connected MCP agents are doing, so the page can tell the writer
@@ -125,25 +143,35 @@ function reportAgent(report) {
 
 const libraryLimit = 16_000_000;
 function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
-async function generateOpenRouter(messages, model, key) {
+async function generateOpenRouter(messages, model, key, diagnostics) {
   if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
-    throw Error('Enter an OpenRouter API key in Connections.');
+    throw diagnosticError('OPENROUTER_KEY_REQUIRED','Enter an OpenRouter API key in Connection.');
   }
   if (typeof model !== 'string' || !isModelId(model)) {
-    throw Error('Enter a specific OpenRouter model ID (author/model).');
+    throw diagnosticError('OPENROUTER_MODEL_INVALID','Enter a specific OpenRouter model ID (author/model).');
   }
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    redirect: 'error',
-    headers: {authorization: 'Bearer ' + key, 'content-type': 'application/json'},
-    signal: AbortSignal.timeout(120_000),
-    body: JSON.stringify({
-      model,
-      messages,
-      max_tokens: 2048,
-      provider: {data_collection: 'deny'}
-    })
-  });
+  diagnostics.model = modelIds.has(model) ? model : 'custom';
+  log('info','generation_started',{requestId:diagnostics.requestId,provider:'openrouter',model:diagnostics.model});
+  let response;
+  try {
+    response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      redirect: 'error',
+      headers: {authorization: 'Bearer ' + key, 'content-type': 'application/json'},
+      signal: AbortSignal.timeout(120_000),
+      body: JSON.stringify({
+        model,
+        messages,
+        max_tokens: 2048,
+        provider: {data_collection: 'deny'}
+      })
+    });
+  } catch (error) {
+    const timeout = errorCode(error) === 'TIMEOUT';
+    throw diagnosticError(timeout ? 'OPENROUTER_TIMEOUT' : 'OPENROUTER_CONNECTION_FAILED',
+      timeout ? 'OpenRouter took too long to reply.' : 'Could not connect to OpenRouter.');
+  }
+  diagnostics.upstreamStatus = response.status;
   if (!response.ok) {
     const messages = {
       401: 'Check your API key.',
@@ -152,16 +180,21 @@ async function generateOpenRouter(messages, model, key) {
       404: 'The selected model or an eligible provider is unavailable.',
       429: 'The selected model is rate limited. Try again later.'
     };
-    throw Error('OpenRouter returned ' + response.status + '. ' + (messages[response.status] || 'Check the model and try again.'));
+    throw diagnosticError('OPENROUTER_HTTP_ERROR','OpenRouter returned ' + response.status + '. ' + (messages[response.status] || 'Check the model and try again.'));
   }
-  const result = await response.json();
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw diagnosticError('OPENROUTER_INVALID_RESPONSE','OpenRouter returned an unreadable response.');
+  }
   const text = result.choices?.[0]?.message?.content;
-  if (typeof text !== 'string' || !text.trim()) throw Error('OpenRouter returned no prose for this request.');
+  if (typeof text !== 'string' || !text.trim()) throw diagnosticError('OPENROUTER_EMPTY_REPLY','OpenRouter returned no prose for this request.');
   // The label footer comes last, so a reply cut at max_tokens loses it.
   return {text:text.trim(), truncated:result.choices?.[0]?.finish_reason === 'length'};
 }
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml'};
-http.createServer(async(req,res)=>{try{if(![`localhost:${port}`,`127.0.0.1:${port}`].includes(req.headers.host))return json(res,403,{error:'Use the local app address.'});const url=new URL(req.url,`http://127.0.0.1:${port}`);if(req.method!=='GET'){const origin=req.headers.origin;if(!origin||!([`http://127.0.0.1:${port}`,`http://localhost:${port}`].includes(origin)))return json(res,403,{error:'Request origin is not allowed.'});if(!(req.headers['content-type']||'').startsWith('application/json'))return json(res,415,{error:'JSON required.'});}
+async function routeRequest(req,res,url,diagnostics) {
 if (url.pathname === '/api/state' && req.method === 'GET') {
   return sendLibrary(req,res,await getState());
 }
@@ -184,10 +217,16 @@ if (['/api/state','/api/starter'].includes(url.pathname) && req.method === 'PUT'
   const value = await body(req, libraryLimit);
   const starterOnly = url.pathname === '/api/starter';
   const library = starterOnly ? {activeId:starterStoryId,projects:[value]} : value;
-  if (!validateState(library)) return json(res, 400, {error:'Invalid story data.'});
+  if (!validateState(library)) {
+    diagnostics.code = 'INVALID_STORY_DATA';
+    return json(res,400,{error:'Invalid story data.'});
+  }
   if (starterOnly && value.id !== starterStoryId) return json(res,400,{error:'Invalid starter story.'});
   const revision = await saveState(library, req.headers['if-match'], starterOnly);
-  if (!revision) return json(res, 409, {error:'Another tab saved a newer library. Export your work in this tab before reloading.'});
+  if (!revision) {
+    diagnostics.code = 'REVISION_CONFLICT';
+    return json(res,409,{error:'Another tab saved a newer library. Export your work in this tab before reloading.'});
+  }
   return json(res, 200, {ok:true, revision});
 }
 if (url.pathname === '/api/export' && req.method === 'POST') {
@@ -225,27 +264,86 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
 if (url.pathname === '/api/generate' && req.method === 'POST') {
   const {project,instruction,provider,model,key,mode='send'} = await body(req);
   if (!validateState({activeId:project?.id,projects:[project]}) || typeof instruction !== 'string') {
-    return json(res, 400, {error:'Invalid story request.'});
+    diagnostics.code = 'INVALID_STORY_REQUEST';
+    return json(res,400,{error:'Invalid story request.'});
   }
   if (provider !== 'openrouter' || !['send','alternate'].includes(mode)) {
-    return json(res, 400, {error:'Unsupported browser generation mode.'});
+    diagnostics.code = 'UNSUPPORTED_GENERATION_MODE';
+    return json(res,400,{error:'Unsupported browser generation mode.'});
   }
+  diagnostics.provider = 'openrouter';
+  diagnostics.mode = mode;
   try {
     const messages = buildMessages(project,instruction,mode,{model,includeSensitive:true,classifySafety:true});
-    const output = await generateOpenRouter(messages,model,key);
+    const output = await generateOpenRouter(messages,model,key,diagnostics);
     const draft = splitOpenRouterReply(output.text, value =>
       checkMapUpdates(project,project.graphUpdates === false || mode === 'alternate' ? undefined : value));
     if (output.truncated) {
       draft.truncated = true;
+      diagnostics.truncated = true;
       if (draft.input === 'safe') draft.input = 'unclassified';
       if (draft.reply === 'safe') draft.reply = 'unclassified';
       draft.suggestions = [];
     }
-    if (!draft.text) throw Error('OpenRouter returned a label without a story reply.');
+    if (!draft.text) throw diagnosticError('OPENROUTER_EMPTY_REPLY','OpenRouter returned a label without a story reply.');
+    diagnostics.unverifiedLabels = draft.input === 'unclassified' || draft.reply === 'unclassified';
+    if (draft.updateProblems) diagnostics.invalidMapUpdates = draft.updateProblems;
     return json(res, 200, draft);
   } catch (e) {
-    return json(res, 500, {error:e.message});
+    diagnostics.code = errorCode(e,'GENERATION_FAILED');
+    return json(res,500,{error:e.diagnosticCode ? e.message : 'Story Studio could not generate a reply.'});
   }
 }
 if(req.method!=='GET')return json(res,404,{error:'Not found.'});if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}const path=url.pathname==='/'?'/index.html':url.pathname;if(!/^\/(index\.html|app\.js|prompt\.js|models\.js|graph-history\.js|library\.js|sync\.js|style\.css)$/.test(path))return json(res,404,{error:'Not found.'});const contents=await readFile(join(root,'public',path));res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"});res.end(contents);
-}catch(e){json(res,e.status||500,{error:e.message});}}).listen(port,'127.0.0.1',()=>console.log(`Story Studio running at http://127.0.0.1:${port}`));
+}
+
+const server = http.createServer(async (req,res) => {
+  const started = Date.now();
+  const diagnostics = {requestId:randomUUID(), method:methodNames.has(req.method) ? req.method : 'other', endpoint:'other'};
+  res.setHeader('x-story-studio-request-id',diagnostics.requestId);
+  res.once('finish', () => {
+    const status = res.statusCode;
+    const mutation = diagnostics.method !== 'GET' && apiEndpoints.has(diagnostics.endpoint) && diagnostics.endpoint !== '/api/agent';
+    if (status < 400 && !mutation) return;
+    const level = status >= 500 ? 'error' : status >= 400 || diagnostics.truncated || diagnostics.unverifiedLabels || diagnostics.invalidMapUpdates ? 'warn' : 'info';
+    log(level,status >= 400 ? 'request_failed' : 'request_completed',{...diagnostics,status,durationMs:Date.now()-started});
+  });
+  res.once('close', () => {
+    if (!res.writableFinished && diagnostics.endpoint === '/api/generate') {
+      log('warn','generation_disconnected',{...diagnostics,durationMs:Date.now()-started});
+    }
+  });
+  try {
+    if (![`localhost:${port}`,`127.0.0.1:${port}`].includes(req.headers.host)) {
+      diagnostics.code = 'INVALID_HOST';
+      return json(res,403,{error:'Use the local app address.'});
+    }
+    const url = new URL(req.url,`http://127.0.0.1:${port}`);
+    if (apiEndpoints.has(url.pathname)) diagnostics.endpoint = url.pathname;
+    if (req.method !== 'GET') {
+      if (![`http://127.0.0.1:${port}`,`http://localhost:${port}`].includes(req.headers.origin)) {
+        diagnostics.code = 'INVALID_ORIGIN';
+        return json(res,403,{error:'Request origin is not allowed.'});
+      }
+      if (!(req.headers['content-type'] || '').startsWith('application/json')) {
+        diagnostics.code = 'EXPECTED_JSON';
+        return json(res,415,{error:'JSON required.'});
+      }
+    }
+    await routeRequest(req,res,url,diagnostics);
+  } catch (error) {
+    diagnostics.code = errorCode(error,'INTERNAL_ERROR');
+    if (!res.headersSent) json(res,error.status || 500,{error:error.diagnosticCode ? error.message : 'Story Studio could not complete the request.'});
+    else res.destroy();
+  }
+});
+server.on('error', error => {
+  const code = errorCode(error,'STARTUP_FAILED');
+  log('error','startup_failed',{code,port});
+  console.error(`Story Studio could not listen on port ${port} (${code}).`);
+  process.exitCode = 1;
+});
+server.listen(port,'127.0.0.1', () => {
+  log('info','started',{port,node:process.versions.node});
+  console.log(`Story Studio running at http://127.0.0.1:${port}`);
+});
