@@ -1,15 +1,16 @@
 # OpenRouter models for fictional adult writing
 
-Story Studio offers two OpenRouter presets for stories about fictional adults. Response behavior can vary by prompt and hosting provider.
+Story Studio offers three OpenRouter presets for stories about fictional adults. Response behavior can vary by prompt and hosting provider.
 
-In a 16 November 2026 retest through Story Studio, DeepSeek classified three of three replies from each preset as explicit. Both ran on Parasail. Cydonia has Story Studio’s 8,000-token prose limit. MythoMax is suited to shorter scenes.
+In a 16 November 2026 retest through Story Studio, Cydonia and MythoMax each returned three of three replies tagged explicit on Parasail. DeepSeek V4.1 Flash returned two replies tagged explicit on Baidu and River. A third request on Cohere returned no prose. Cydonia has Story Studio’s 8,000-token prose limit. MythoMax is suited to shorter scenes.
 
-Prices checked on 15 November 2026. One estimated chapter uses 2,000 billed input tokens and 5,000 billed output tokens total. The estimate covers the writing model. DeepSeek metadata calls add a separate charge, and extra context, retries, or splitting a chapter into multiple turns can add input tokens.
+The table uses OpenRouter catalog rates, which can vary by host. One estimated chapter uses 2,000 billed input tokens and 5,000 billed output tokens total. The estimate covers the writing model. DeepSeek metadata calls add a separate charge, and extra context, retries, or splitting a chapter into multiple turns can add input tokens.
 
 | Model | What to try it for | Context | USD per million input / output tokens | Estimated USD per chapter |
 | --- | --- | ---: | ---: | ---: |
 | [Cydonia 24B v4.1](https://openrouter.ai/thedrummer/cydonia-24b-v4.1) | First choice for creative prose | 131K | $0.30 / $0.50 | $0.00310 |
 | [MythoMax 13B](https://openrouter.ai/gryphe/mythomax-l2-13b) | Cheap short scenes with compact context | 8K | $0.08 / $0.11 | $0.00071 |
+| [DeepSeek V4.1 Flash](https://openrouter.ai/deepseek/deepseek-v4.1-flash) | Another prose option | 1M | $0.0507 / $0.2028 | $0.00112 |
 
 To compare, use the same short scene with consenting fictional adults and the same direction. Check whether each model follows the point of view, keeps the voices distinct, and maintains the desired level of detail. Review the [provider routing guidance](https://openrouter.ai/blog/tutorials/sillytavern-openrouter/) if a request is unavailable or rejected. Story Studio requests providers that deny data collection, which can narrow availability.
 

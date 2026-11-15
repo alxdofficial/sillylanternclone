@@ -32,9 +32,10 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       assert.ok(url.endsWith('/chat/completions'));
       const request = JSON.parse(options.body);
       assert.equal(request.provider.data_collection,'deny');
-      if (request.model === 'fixture/prose' || request.model === 'thedrummer/cydonia-24b-v4.1') {
+      if (request.model === 'fixture/prose' || request.model === 'thedrummer/cydonia-24b-v4.1'
+        || (request.model === 'deepseek/deepseek-v4.1-flash' && !request.response_format)) {
         const endsEarly = request.messages.at(-1).content.endsWith('cutoff fixture');
-        assert.equal(request.max_tokens,request.model === 'fixture/prose' ? 2048 : 8000);
+        assert.equal(request.max_tokens,request.model === 'thedrummer/cydonia-24b-v4.1' ? 8000 : 2048);
         assert.ok(request.messages[0].content.includes(
           'The output limit for this turn is ' + request.max_tokens.toLocaleString('en-US') + ' tokens.'));
         assert.equal(request.response_format,undefined);
@@ -127,6 +128,9 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     const {updates, ...expected} = scene;
     assert.equal(success.status,200,JSON.stringify(draft));
     assert.deepEqual(draft,{...expected,suggestions:updates});
+    const deepSeekProse = await generate('deepseek/deepseek-v4.1-flash');
+    assert.equal(deepSeekProse.status,200);
+    assert.deepEqual(await deepSeekProse.json(),draft);
     const withPreamble = await generate('fixture/prose','preamble fixture');
     assert.equal(withPreamble.status,200);
     assert.deepEqual(await withPreamble.json(),draft);

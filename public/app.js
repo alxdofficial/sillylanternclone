@@ -1489,6 +1489,7 @@ const customOption = el('option', '', 'Enter another model ID…');
 customOption.value = 'custom';
 modelChoice.append(customOption);
 const providerDialog = $('#providerDialog');
+const tokenRateFormat = new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
 
 function showModelPrice() {
   const model = models.find(item => item.id === modelChoice.value);
@@ -1496,7 +1497,7 @@ function showModelPrice() {
   $('#modelPrice').hidden = !model;
   if (!model) return;
   $('#modelEstimate').textContent = `~$${chapterCost(model).toFixed(5)} per chapter`;
-  $('#modelRates').textContent = `$${model.input.toFixed(2)} input / $${model.output.toFixed(2)} output per million tokens`;
+  $('#modelRates').textContent = `$${tokenRateFormat.format(model.input)} input / $${tokenRateFormat.format(model.output)} output per million tokens`;
   $('#modelSource').href = 'https://openrouter.ai/' + model.id;
 }
 modelChoice.onchange = () => { $('#modelError').textContent = ''; showModelPrice(); };
