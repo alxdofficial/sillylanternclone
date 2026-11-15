@@ -92,7 +92,7 @@ function resolveSpeaker(project, speakerId, request) {
 const identifier = z.string().min(1).max(200);
 
 tool('list_stories', {
-  description:'List saved Story Studio stories by ID and title without reading their prose.',
+  description:'List Story Studio stories and the temporary demo by ID and title without reading their prose.',
   inputSchema:{},
   annotations:{readOnlyHint:true, openWorldHint:false}
 }, async () => {

@@ -14,9 +14,18 @@ You can ask your local agent to set it up for you.
 
 > Clone https://github.com/alxdofficial/sillylanternclone on this Mac. Read README.md and MCP.md, help me start Story Studio, and register its MCP server in the local agent client I’m using.
 
+## Try The Late Ferry
+
+New libraries open on **The Late Ferry**, a late-night harbor mystery with six characters and six turns. Find it later under **Stories → The Late Ferry · Demo**. Changes to the demo stay in memory. Reload the page to put everything back, including the cast, transcript, and any queued writing request. Your own stories save normally and are the ones included in backups.
+
+1. Open **Character & lore**. Read the world setting and click through the cast. Select an event in the timeline or click the line between Tomas and Mae to compare their two radio calls across midnight.
+2. Back in the transcript, use **Next** and **Previous** to compare Mae’s two takes. Open **Review map updates** to keep or dismiss the suggested connection between Mae and Sam.
+3. Open **Prompt** to see the beacon and radio lore in context. Try writing a line in **Manual**, or ask **MCP** or **OpenRouter** to continue with Noor checking the beacon. Follow the relevant connection instructions below to use a model.
+4. For a story you want to keep or export, choose **Stories → New story**.
+
 ## Write a scene
 
-1. Open **Stories** and use **+** to start a story. Add your cast under **Character & lore → Cast** and add the setting under **World**. Choose the next co-writer with **Reply as**.
+1. Open **Stories** and choose **New story**. Add your cast under **Character & lore → Cast** and add the setting under **World**. Choose the next co-writer with **Reply as**.
 2. Write a scene beat, a line of dialogue, or instructions for the co-writer in the composer. **Prompt** shows the context assembled for the selected route.
 3. Choose a writing mode.
 

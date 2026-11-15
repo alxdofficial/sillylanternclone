@@ -6,29 +6,82 @@ import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
 import { isModelId } from './public/models.js';
 import { buildMessages, extraFields, getCast, getWriter, validCast, validRelationships, validSensitivity, splitOpenRouterReply, isStoryTime } from './public/prompt.js';
+import { maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
+import { createStarterStory } from './examples/the-late-ferry.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root=dirname(fileURLToPath(import.meta.url));
 const dataDir=process.env.STORY_STUDIO_DATA || join(homedir(),'Library','Application Support','Story Studio');
 const statePath=join(dataDir,'library.json');
 const port=Number(process.env.PORT || 4317);
-const initial={activeId:'sample',projects:[{id:'sample',title:'The Lantern Room',character:'Mara is a guarded, quick-witted archivist who collects stories she pretends not to believe. She notices details and speaks with dry warmth.',persona:'You are a traveler with a talent for finding things that were meant to stay lost.',lore:'The Lantern Room is a hidden archive beneath a city that never quite sleeps. Its lamps glow when someone tells the truth.',notes:'A slow-burn mystery with warmth and playful banter. Write in close third person, with sensory detail. Leave room for the other writer to choose what happens next.',messages:[{role:'assistant',content:'The last lamp in the archive flickered as you stepped inside.\n\nMara looked up from her desk, one finger marking her place in a crumbling book. “Either you’re very lost,” she said, “or you’ve brought me something interesting.”'}]}]};
+let starter = createStarterStory();
+let starterSelected = false;
+let starterGeneration = 0;
 const json=(res,status,body)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(body));};
-async function getState(){try{return JSON.parse(await readFile(statePath,'utf8'));}catch(e){if(e.code==='ENOENT'){if(!process.env.STORY_STUDIO_DATA){try{return JSON.parse(await readFile(join(root,'data','stories.json'),'utf8'));}catch(legacy){if(legacy.code!=='ENOENT')throw legacy;}}return structuredClone(initial);}throw e;}}
+async function readSavedLibrary() {
+  try {
+    return JSON.parse(await readFile(statePath,'utf8'));
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+    if (!process.env.STORY_STUDIO_DATA) {
+      try {
+        return JSON.parse(await readFile(join(root,'data','stories.json'),'utf8'));
+      } catch (legacy) {
+        if (legacy.code !== 'ENOENT') throw legacy;
+      }
+    }
+    return {activeId:'',projects:[]};
+  }
+}
+
+function withStarter(saved) {
+  const activeId = starterSelected || !saved.projects.length ? starterStoryId : saved.activeId;
+  return {...saved,activeId,projects:[...saved.projects,starter]};
+}
+
+async function getState() {
+  return withStarter(await readSavedLibrary());
+}
+
 let writes = Promise.resolve();
 const revisionOf = state => '"' + createHash('sha256').update(JSON.stringify(state)).digest('hex') + '"';
+const liveRevision = library => revisionOf([starterGeneration,library]);
 
-async function saveState(value, expectedRevision) {
-  const op = writes.then(async () => {
-    if (expectedRevision && revisionOf(await getState()) !== expectedRevision) return null;
-    await mkdir(dataDir, {recursive:true});
-    const tmp = join(dataDir, `.stories-${randomUUID()}.tmp`);
-    await writeFile(tmp, JSON.stringify(value, null, 2), {mode:0o600});
-    await rename(tmp, statePath);
-    return revisionOf(value);
-  });
+function updateState(operation) {
+  const op = writes.then(operation);
   writes = op.catch(() => {});
   return op;
+}
+
+function saveState(value, expectedRevision, starterOnly) {
+  return updateState(async () => {
+    const previous = await readSavedLibrary();
+    if (expectedRevision && liveRevision(withStarter(previous)) !== expectedRevision) return null;
+    const selectedDemo = value.activeId === starterStoryId;
+    const saved = starterOnly ? previous : withoutStarter(value);
+    if (!starterOnly && selectedDemo && saved.projects.some(project => project.id === previous.activeId)) {
+      saved.activeId = previous.activeId;
+    }
+    if (!starterOnly && revisionOf(previous) !== revisionOf(saved)) {
+      await mkdir(dataDir, {recursive:true});
+      const tmp = join(dataDir, `.stories-${randomUUID()}.tmp`);
+      await writeFile(tmp, JSON.stringify(saved, null, 2), {mode:0o600});
+      await rename(tmp, statePath);
+    }
+    starter = value.projects.find(project => project.id === starterStoryId) || starter;
+    starterSelected = selectedDemo;
+    return liveRevision(withStarter(saved));
+  });
+}
+
+function sendLibrary(req,res,library) {
+  const revision = liveRevision(library);
+  res.setHeader('etag', revision);
+  if (req.headers['if-none-match'] === revision) {
+    res.writeHead(304);
+    return res.end();
+  }
+  return json(res,200,library);
 }
 
 async function body(req, limit = 2_000_000) {
@@ -44,7 +97,7 @@ async function body(req, limit = 2_000_000) {
 }
 
 const libraryLimit = 16_000_000;
-function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=100 && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
+function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
 async function generateOpenRouter(messages, model, key) {
   if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
     throw Error('Enter an OpenRouter API key in Connections.');
@@ -82,22 +135,32 @@ async function generateOpenRouter(messages, model, key) {
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml'};
 http.createServer(async(req,res)=>{try{if(![`localhost:${port}`,`127.0.0.1:${port}`].includes(req.headers.host))return json(res,403,{error:'Use the local app address.'});const url=new URL(req.url,`http://127.0.0.1:${port}`);if(req.method!=='GET'){const origin=req.headers.origin;if(!origin||!([`http://127.0.0.1:${port}`,`http://localhost:${port}`].includes(origin)))return json(res,403,{error:'Request origin is not allowed.'});if(!(req.headers['content-type']||'').startsWith('application/json'))return json(res,415,{error:'JSON required.'});}
 if (url.pathname === '/api/state' && req.method === 'GET') {
-  const library = await getState();
-  const revision = revisionOf(library);
-  res.setHeader('etag', revision);
-  if (req.headers['if-none-match'] === revision) { res.writeHead(304); return res.end(); }
-  return json(res, 200, library);
+  return sendLibrary(req,res,await getState());
 }
-if (url.pathname === '/api/state' && req.method === 'PUT') {
-  const library = await body(req, libraryLimit);
+if (url.pathname === '/api/starter/reset' && req.method === 'POST') {
+  return await updateState(async () => {
+    const saved = await readSavedLibrary();
+    // A delayed write from a demo that just reloaded cannot restore its old draft.
+    if (starterSelected || !saved.projects.length) starterGeneration++;
+    starter = createStarterStory();
+    return sendLibrary(req,res,withStarter(saved));
+  });
+}
+if (['/api/state','/api/starter'].includes(url.pathname) && req.method === 'PUT') {
+  const value = await body(req, libraryLimit);
+  const starterOnly = url.pathname === '/api/starter';
+  const library = starterOnly ? {activeId:starterStoryId,projects:[value]} : value;
   if (!validateState(library)) return json(res, 400, {error:'Invalid story data.'});
-  const revision = await saveState(library, req.headers['if-match']);
+  if (starterOnly && value.id !== starterStoryId) return json(res,400,{error:'Invalid starter story.'});
+  const revision = await saveState(library, req.headers['if-match'], starterOnly);
   if (!revision) return json(res, 409, {error:'Another tab saved a newer library. Export your work in this tab before reloading.'});
   return json(res, 200, {ok:true, revision});
 }
 if (url.pathname === '/api/export' && req.method === 'POST') {
-  const library = await body(req, libraryLimit);
-  if (!validateState(library)) return json(res, 400, {error: 'Invalid story library.'});
+  const value = await body(req, libraryLimit);
+  if (!validateState(value)) return json(res, 400, {error: 'Invalid story library.'});
+  const library = withoutStarter(value);
+  if (!library.projects.length) return json(res,400,{error:'Create a story before exporting. The demo is temporary.'});
   const files = {'library.json': strToU8(JSON.stringify(library, null, 2))};
   library.projects.forEach((project, index) => {
     const filename = project.title.replace(/[^\p{L}\p{N} -]/gu, '').trim().slice(0, 80) || 'Story';
@@ -142,5 +205,5 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     return json(res, 500, {error:e.message});
   }
 }
-if(req.method!=='GET')return json(res,404,{error:'Not found.'});if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}const path=url.pathname==='/'?'/index.html':url.pathname;if(!/^\/(index\.html|app\.js|prompt\.js|models\.js|graph-history\.js|style\.css)$/.test(path))return json(res,404,{error:'Not found.'});const contents=await readFile(join(root,'public',path));res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"});res.end(contents);
+if(req.method!=='GET')return json(res,404,{error:'Not found.'});if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}const path=url.pathname==='/'?'/index.html':url.pathname;if(!/^\/(index\.html|app\.js|prompt\.js|models\.js|graph-history\.js|library\.js|style\.css)$/.test(path))return json(res,404,{error:'Not found.'});const contents=await readFile(join(root,'public',path));res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"});res.end(contents);
 }catch(e){json(res,e.status||500,{error:e.message});}}).listen(port,'127.0.0.1',()=>console.log(`Story Studio running at http://127.0.0.1:${port}`));

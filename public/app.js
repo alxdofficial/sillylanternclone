@@ -1,4 +1,5 @@
 import { captureGraphVersion, normalizeGraphHistory } from './graph-history.js';
+import { maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
 import { buildMessages, formatMessages, extraFields, getCast, getSpeaker, getWriter, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
 import { models, chapterCost, isModelId } from './models.js';
@@ -7,6 +8,7 @@ const settingsFields = ['title', 'character', 'lore', 'notes', ...extraFields.fi
 const castLabels = {name:'Name', nickname:'Aliases', description:'Description', personality:'Personality', scenario:'Scenario', examples:'Example dialogue'};
 const $ = s => document.querySelector(s);
 let state, revision, pendingWrites = 0, timer, pendingSave = Promise.resolve(), dirty = false, busy = false, editingIndex = null;
+let libraryDirty = false, pendingLibraryWrites = 0;
 let connection = {model:'',key:''};
 let editingCharacter = primarySpeaker;
 let draftRelationships = [], connectingFrom = '', editingRelationship = null;
@@ -33,35 +35,49 @@ const routeKey = id => 'story-route:' + id;
 const draftKey = id => 'story-draft:' + id;
 const id = () => globalThis.crypto?.randomUUID?.() || `story-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const current = () => state.projects.find(p => p.id === state.activeId);
-function status(text){$('#saveStatus').textContent=text}
+function status(text) {
+  $('#saveStatus').textContent = text === 'Saved locally' && current().id === starterStoryId
+    ? 'Demo · resets on reload' : text;
+}
 function error(text=''){const box=$('#error');box.hidden=!text;box.textContent=text}
 async function api(url, options={}) {const response=await fetch(url,options);let result;try{result=await response.json()}catch{throw Error(`Unexpected server response (${response.status}).`)}if(!response.ok)throw Error(result.error || `Request failed (${response.status}).`);return result}
-function markDirty(){dirty=true;status('Saving…');clearTimeout(timer);timer=setTimeout(save,450)}
+function markDirty(project = current()) {
+  dirty = true;
+  libraryDirty ||= project.id !== starterStoryId;
+  status(libraryDirty ? 'Saving…' : 'Updating demo…');
+  clearTimeout(timer);
+  timer = setTimeout(save,450);
+}
 function save() {
   clearTimeout(timer);
   if (!dirty) return pendingSave;
   dirty = false;
-  const body = JSON.stringify(state);
+  const writeLibrary = libraryDirty || state.activeId !== starterStoryId;
+  libraryDirty = false;
+  const body = JSON.stringify(writeLibrary ? state : current());
   pendingWrites++;
+  if (writeLibrary) pendingLibraryWrites++;
   pendingSave = pendingSave.then(async () => {
     try {
-      const result = await api('/api/state', {method:'PUT', headers:{
+      const result = await api(writeLibrary ? '/api/state' : '/api/starter', {method:'PUT', headers:{
         'Content-Type':'application/json', 'If-Match':revision
       }, body});
       revision = result.revision;
       if (!dirty && pendingWrites === 1) status('Saved locally');
     } catch (e) {
       dirty = true;
+      libraryDirty ||= writeLibrary;
       status('Not saved');
       error(`Couldn't save your changes. ${e.message}`);
     } finally {
       pendingWrites--;
+      if (writeLibrary) pendingLibraryWrites--;
     }
   });
   return pendingSave;
 }
 window.addEventListener('beforeunload', event => {
-  if (dirty || pendingWrites) event.preventDefault();
+  if (libraryDirty || pendingLibraryWrites) event.preventDefault();
 });
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
 function render() {
@@ -71,13 +87,15 @@ function render() {
   $('#instruction').value = getSession(draftKey(project.id)) || '';
   syncRoute();
   $('#storyTitle').textContent = project.title;
+  $('#deleteProject').hidden = project.id === starterStoryId;
   document.title = project.title + ' · Story Studio';
   const list = $('#projectList');
   list.replaceChildren();
   for (const story of state.projects) {
     const button = el('button','project-item' + (story.id === project.id ? ' active' : ''));
-    button.title = story.title;
-    button.append(el('span', 'project-title', story.title));
+    const label = story.id === starterStoryId ? `${story.title} · Demo` : story.title;
+    button.title = label;
+    button.append(el('span', 'project-title', label));
     if (story.id === project.id) button.setAttribute('aria-current', 'true');
     button.onclick = () => {
       state.activeId = story.id;
@@ -234,7 +252,7 @@ async function generate(mode) {
         storyTime:recordStoryTime(target,response.storyTime),
         ...(suggestions.length ? {graphSuggestions:suggestions} : {})});
     }
-    markDirty();
+    markDirty(target);
   } catch (e) {
     error(`Couldn't write the next turn: ${e.message}`);
   } finally {
@@ -892,7 +910,7 @@ function openEdit(index) {
   $('#turnSensitivity').value = message.contentSensitivity || '';
   $('#editDialog').showModal();
 }
-function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>100)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return migratePersona({id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(typeof p.storyWriterId==='string'?{storyWriterId:p.storyWriterId}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentRequest&&['send','alternate'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)?{agentRequest:p.agentRequest}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;
+function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return migratePersona({id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(typeof p.storyWriterId==='string'?{storyWriterId:p.storyWriterId}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentRequest&&['send','alternate'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)?{agentRequest:p.agentRequest}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;
 if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})});});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 
 const modelChoice = $('#modelPreset');
@@ -1098,7 +1116,31 @@ $('#editForm').onsubmit = event => {
   $('#editDialog').close();
   renderMessages();
 };
-$('#newProject').onclick=()=>{const p={id:id(),title:'Untitled story',character:'',persona:'',lore:'',notes:'',storyStartAt:localStoryTime(),storyStartSource:'estimate',messages:[]};state.projects.unshift(p);state.activeId=p.id;markDirty();render();$('#sidebar').close();openSettings()};$('#deleteProject').onclick=()=>{if(state.projects.length===1){alert('Keep at least one story in your library.');return}if(!confirm(`Delete “${current().title}” and all its turns? This cannot be undone.`))return;state.projects=state.projects.filter(p=>p.id!==state.activeId);state.activeId=state.projects[0].id;markDirty();render()};$('#sendButton').onclick=()=>generate('send');$('#instruction').oninput=()=>{if(state)setSession(draftKey(current().id),$('#instruction').value)};$('#instruction').onkeydown=e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();generate('send')}};
+$('#newProject').onclick = () => {
+  if (!state) return;
+  if (state.projects.length - 1 >= maxLibraryStories) {
+    alert('Your library has reached its story limit.');
+    return;
+  }
+  const project = {id:id(),title:'Untitled story',character:'',persona:'',lore:'',notes:'',
+    storyStartAt:localStoryTime(),storyStartSource:'estimate',messages:[]};
+  state.projects.unshift(project);
+  state.activeId = project.id;
+  markDirty();
+  render();
+  $('#sidebar').close();
+  openSettings();
+};
+$('#deleteProject').onclick = () => {
+  if (!state) return;
+  const project = current();
+  if (project.id === starterStoryId || !confirm(`Delete “${project.title}” and all its turns? This cannot be undone.`)) return;
+  state.projects = state.projects.filter(item => item.id !== project.id);
+  state.activeId = state.projects[0].id;
+  markDirty(project);
+  render();
+};
+$('#sendButton').onclick=()=>generate('send');$('#instruction').oninput=()=>{if(state)setSession(draftKey(current().id),$('#instruction').value)};$('#instruction').onkeydown=e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();generate('send')}};
 function promptForDraft() {
   const direction = $('#instruction').value.trim();
   const project = current();
@@ -1127,7 +1169,12 @@ function download(blob, filename) {
 }
 $('#exportButton').onclick = async () => {
   if (!state) return;
-  const body = JSON.stringify(state);
+  const library = withoutStarter(state);
+  if (!library.projects.length) {
+    alert('Create a story before exporting. The demo is temporary.');
+    return;
+  }
+  const body = JSON.stringify(library);
   try {
     const response = await fetch('/api/export', {
       method: 'POST',
@@ -1141,7 +1188,36 @@ $('#exportButton').onclick = async () => {
     error('ZIP unavailable. A restorable JSON backup was downloaded instead.');
   }
 };
-$('#importButton').onclick=()=>$('#importFile').click();$('#importFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>16_000_000)throw Error('The library exceeds the 16 MB import limit.');const incoming=normalize(JSON.parse(await file.text()));if(!confirm('Replace your current library with this file? Export first if you want a backup.'))return;for(const project of [...state.projects,...incoming.projects]){setSession(draftKey(project.id),'');setSession(routeKey(project.id),'')}state=incoming;markDirty();render();error()}catch(err){alert(`Could not import: ${err.message}`)}finally{e.target.value=''}};
+$('#importButton').onclick = () => $('#importFile').click();
+$('#importFile').onchange = async event => {
+  const input = event.target, file = input.files[0];
+  if (!file) return;
+  try {
+    if (file.size > 16_000_000) throw Error('The library exceeds the 16 MB import limit.');
+    const incoming = normalize(JSON.parse(await file.text()));
+    if (incoming.projects.length > maxLibraryStories) throw Error('The library exceeds the story limit.');
+    const reserved = incoming.projects.find(project => project.id === starterStoryId);
+    if (reserved) {
+      reserved.id = id();
+      if (incoming.activeId === starterStoryId) incoming.activeId = reserved.id;
+    }
+    if (!confirm('Replace your current library with this file? Export first if you want a backup.')) return;
+    const demo = state.projects.find(project => project.id === starterStoryId);
+    const replacement = incoming.projects.find(project => project.id === incoming.activeId);
+    for (const project of [...state.projects,...incoming.projects]) {
+      setSession(draftKey(project.id),'');
+      setSession(routeKey(project.id),'');
+    }
+    state = {...incoming,projects:[...incoming.projects,demo]};
+    markDirty(replacement);
+    render();
+    error();
+  } catch (err) {
+    alert(`Could not import: ${err.message}`);
+  } finally {
+    input.value = '';
+  }
+};
 const storyDrawer = $('#sidebar');
 $('#openMenu').onclick = () => storyDrawer.showModal();
 $('#closeMenu').onclick = () => storyDrawer.close();
@@ -1152,10 +1228,14 @@ storyDrawer.addEventListener('click', event => {
 });
 (async () => {
   try {
-    const response = await fetch('/api/state');
+    const response = await fetch('/api/starter/reset',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
+    });
     if (!response.ok) throw Error(`HTTP ${response.status}`);
     revision = response.headers.get('etag');
     state = normalize(await response.json());
+    setSession(draftKey(starterStoryId),'');
+    setSession(routeKey(starterStoryId),'');
     render();
     status('Saved locally');
   } catch (e) {

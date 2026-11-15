@@ -33,7 +33,9 @@ On long stories, the native client also applies its own tool-output limits. If C
 3. In the native agent window, say “Use the Story Studio MCP tools to write and save the queued reply.” The agent reads the prepared context, writes the next turn, and saves it.
 4. Read the reply in the browser and review any suggested map updates under **Character & lore**. If the reply has yet to appear after the tool reports success, check for unsaved browser edits before refreshing.
 
-You can also work from the native agent. For example, ask “List my Story Studio stories, then draft and save the next reply in The Lantern Room.” Ask for a draft in chat if you want to review it before saving. If a newer library revision prevents a save, keep the draft in chat, reread the context, then retry when it still fits the story.
+You can also work from the native agent. For example, ask “List my Story Studio stories, then draft and save the next reply in The Late Ferry.” Ask for a draft in chat if you want to review it before saving. If a newer library revision prevents a save, keep the draft in chat, reread the context, then retry when it still fits the story.
+
+**The Late Ferry** is a temporary demo. MCP replies appear in its transcript, and reloading the browser resets the demo and clears its queue.
 
 **MCP context** excludes turns manually kept out of AI context and OpenRouter turns labeled explicit or unverified. A native agent can still remember anything shared earlier in its conversation. Start a fresh session when handing off a story after editing its context labels or removing sensitive prose. [See the browser handoff steps](README.md#context-and-sensitive-scenes).
 

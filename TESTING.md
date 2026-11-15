@@ -49,3 +49,9 @@ In Chromium, opened the graph from a synthetic ferry story and verified that a s
 The responsive audit covered Chromium at 320–2560 pixels wide and WebKit at five desktop, tablet, and phone sizes. Tested manual writing and editing, Story drawer keyboard navigation, the inline model picker, Connection, and the Prompt preview. Touch emulation used a 100-story library with long titles, multilingual names, and unbroken prose. No physical phone was used.
 
 A simulated OpenRouter response added explicit labels and an inferred date to a browser-written scene. The browser preserved the flagged prose locally and allowed a non-explicit timed graph proposal to be reviewed. A real stdio MCP client then read the queued continuation, confirmed the flagged prose was absent and the approved event was present, and saved a follow-up with its own date. This test exercised the app handoff without a live model or paid request.
+
+## The Late Ferry starter
+
+Opened the bundled story in Chromium with an empty data directory. Verified six turns, six characters, the dated relationship events across midnight, the two alternate takes, keyword lore, and the reviewable map update. Kept the map update and added a manual turn. Reloading restored the original story and cleared the draft. The demo alone created no library file.
+
+Created a regular story alongside the demo, added a turn, and confirmed it survived reload and appeared in the ZIP. The demo stayed out of both the saved library and the export. The automated MCP test also submits a temporary demo reply, compares the saved library byte-for-byte, and checks that a stale edit cannot reappear after a reset.

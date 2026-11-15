@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { strFromU8, unzipSync } from 'fflate';
+import { starterStoryId } from '../public/library.js';
 
 async function freePort() {
   const server = createServer();
@@ -112,6 +114,46 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     assert.equal(final.messages.length, 3);
     assert.equal(final.messages[2].storyTime, '1904-09-23T08:30');
     assert.deepEqual(final.messages[2].alternatives, ['Mara tests the bridge.','Mara checks the rope first.']);
+
+    const disk = await readFile(join(directory,'library.json'),'utf8');
+    const demo = toolData(await client.callTool({name:'get_story_context',arguments:{storyId:starterStoryId}}));
+    assert.equal(demo.title,'The Late Ferry');
+    assert.equal(demo.cast.length,6);
+    const demoReply = await client.callTool({name:'submit_reply',arguments:{
+      storyId:starterStoryId,revision:demo.revision,reply:'Noor confirmed the two flashes from shore.'
+    }});
+    assert.equal(toolData(demoReply).turnNumber,7);
+    const live = await (await fetch(origin+'/api/state')).json();
+    assert.equal(live.projects.find(story => story.id === starterStoryId).messages.length,7);
+    assert.equal(await readFile(join(directory,'library.json'),'utf8'),disk);
+
+    const jsonHeaders = {'content-type':'application/json',origin};
+    const exportResponse = await fetch(origin+'/api/export',{
+      method:'POST',headers:jsonHeaders,body:JSON.stringify(live)
+    });
+    assert.equal(exportResponse.status,200);
+    const archive = unzipSync(new Uint8Array(await exportResponse.arrayBuffer()));
+    assert.deepEqual(JSON.parse(strFromU8(archive['library.json'])),JSON.parse(disk));
+
+    const reset = await fetch(origin+'/api/starter/reset',{
+      method:'POST',headers:jsonHeaders,body:'{}'
+    });
+    assert.equal(reset.status,200);
+    const restored = await reset.json();
+    assert.equal(restored.projects.find(story => story.id === starterStoryId).messages.length,6);
+    assert.equal(await readFile(join(directory,'library.json'),'utf8'),disk);
+
+    const starter = restored.projects.find(story => story.id === starterStoryId);
+    const openedDemo = await fetch(origin+'/api/starter',{
+      method:'PUT',headers:{...jsonHeaders,'if-match':reset.headers.get('etag')},body:JSON.stringify(starter)
+    });
+    assert.equal(openedDemo.status,200);
+    const demoRevision = (await openedDemo.json()).revision;
+    await fetch(origin+'/api/starter/reset',{method:'POST',headers:jsonHeaders,body:'{}'});
+    const delayedEdit = await fetch(origin+'/api/starter',{
+      method:'PUT',headers:{...jsonHeaders,'if-match':demoRevision},body:JSON.stringify({...starter,title:'Stale edit'})
+    });
+    assert.equal(delayedEdit.status,409);
   } finally {
     await client.close();
     if (childPid) process.kill(childPid);
