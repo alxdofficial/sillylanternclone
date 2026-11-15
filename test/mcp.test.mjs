@@ -43,6 +43,20 @@ test('native MCP handshake, private context, queued replies, alternates and revi
       agentRequest:{mode:'send',speakerId:'primary',turnNumber:2}
     }]
   };
+  book.projects.push({
+    id:'handoff',title:'The Morning After',characterName:'Mara',character:'An archivist.',
+    cast:[{id:'iona',name:'Iona',description:'A pilot.',personality:'',scenario:'',examples:''}],
+    persona:'',lore:'An old harbor.',notes:'',storyStartAt:'1904-09-23T08:00',
+    relationships:[{from:'primary',to:'iona',label:'They agreed to meet at the harbor café.',turn:1,storyTime:'1904-09-23T08:10'}],
+    messages:[
+      {role:'assistant',content:'EXPLICIT PROSE MARKER',turnNumber:1,contentSensitivity:'explicit',
+        graphSuggestions:[{kind:'fact',note:'UNREVIEWED GRAPH MARKER'}]},
+      {role:'assistant',content:'UNVERIFIED PROSE MARKER',turnNumber:2,contentSensitivity:'unclassified'},
+      {role:'assistant',content:'ALL ROUTES PRIVATE MARKER',turnNumber:3,excludeFromContext:true},
+      {role:'user',content:'Write their conversation at the café.',turnNumber:4}
+    ],
+    agentRequest:{mode:'send',speakerId:narrator.id,turnNumber:4}
+  });
   await writeFile(join(directory, 'library.json'), JSON.stringify(book));
   const source = join(dirname(fileURLToPath(import.meta.url)), '..');
   const client = new Client({name:'story-studio-test',version:'0.1.0'});
@@ -122,6 +136,18 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     assert.equal(final.messages.length, 3);
     assert.equal(final.messages[2].storyTime, '1904-09-23T08:30');
     assert.deepEqual(final.messages[2].alternatives, ['Mara tests the bridge.','Mara checks the rope first.']);
+
+    const handoffCalls = [
+      {name:'get_story_context',arguments:{storyId:'handoff'}},
+      {name:'wait_for_queued_turn',arguments:{waitSeconds:1}}
+    ];
+    for (const call of handoffCalls) {
+      const handoff = toolData(await client.callTool(call));
+      assert.equal(handoff.storyId,'handoff');
+      assert.match(handoff.prompt,/Relationship map:[\s\S]*They agreed to meet at the harbor café/);
+      assert.match(handoff.prompt,/Write their conversation at the café/);
+      assert.doesNotMatch(JSON.stringify(handoff),/EXPLICIT PROSE MARKER|UNVERIFIED PROSE MARKER|ALL ROUTES PRIVATE MARKER|UNREVIEWED GRAPH MARKER/);
+    }
 
     const disk = await readFile(join(directory,'library.json'),'utf8');
     const demo = toolData(await client.callTool({name:'get_story_context',arguments:{storyId:starterStoryId}}));
