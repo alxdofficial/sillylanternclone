@@ -44,7 +44,9 @@ Tested browser → server → simulated OpenRouter → browser → MCP stdio. Th
 
 ## Live OpenRouter route retest
 
-On 16 November 2026, sent three matched fictional-adult directions per preset through Story Studio’s live OpenRouter route. Ran two additional matched directions per custom model. Recorded host, HTTP status, and the DeepSeek reply label without retaining the drafts. The preset fixtures supplied no story date, so metadata flagged the time field while returning valid labels. The custom fixtures supplied a date and returned complete metadata. See [model results](MODELS.md).
+On 16 November 2026, sent three matched fictional-adult directions per preset through Story Studio’s live OpenRouter route. DeepSeek labeled three of three Cydonia and MythoMax replies explicit, two of three Magnum replies, and one of three UnslopNemo replies. The preset fixtures supplied no story date, so metadata flagged the time field while returning valid labels. Dated custom fixtures returned complete metadata. Two matched scenes per custom route yielded explicit labels twice for Weaver and Lunaris, and once each for Dolphin Mistral 24B, Skyfall, and ReMM SLERP.
+
+Tested the exact metadata model, `deepseek/deepseek-v4.1-flash`, as a plain-prose writer in three dated fixtures. The Baidu and River hosts returned prose classified explicit. The Cohere response ended with `stop` and contained no prose. We recorded host, status and labels without retaining the drafts.
 
 ## Story timeline and responsive review
 

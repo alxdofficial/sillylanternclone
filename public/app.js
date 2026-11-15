@@ -39,6 +39,7 @@ function setSession(key, value) {
 }
 const routeKey = id => 'story-route:' + id;
 const modelKey = id => 'story-model:' + id;
+const retiredPresets = new Set(['anthracite-org/magnum-v4-72b','thedrummer/unslopnemo-12b','sao10k/l3.1-euryale-70b']);
 function writingModel(project) {
   const model = getSession(modelKey(project.id));
   return model && isModelId(model) ? model : '';
@@ -1807,6 +1808,13 @@ storyDrawer.addEventListener('click', event => {
     demoGeneration = response.headers.get('x-story-studio-demo-generation');
     state = normalize(await response.json());
     baseLibrary = structuredClone(state);
+    const migration = 'story-model-presets:2026-11-16';
+    if (!getSession(migration)) {
+      for (const project of state.projects) {
+        if (retiredPresets.has(writingModel(project))) setSession(modelKey(project.id),'');
+      }
+      setSession(migration,'done');
+    }
     setSession(draftKey(starterStoryId),'');
     render();
     status('Saved locally');

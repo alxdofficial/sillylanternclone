@@ -1,8 +1,6 @@
 // OpenRouter list prices in USD per million tokens, checked 2026-11-15.
 export const models = [
   {id:'thedrummer/cydonia-24b-v4.1', name:'Cydonia 24B v4.1', input:0.30, output:0.50, maxOutputTokens:8000},
-  {id:'anthracite-org/magnum-v4-72b', name:'Magnum v4 72B', input:2.50, output:5.00},
-  {id:'thedrummer/unslopnemo-12b', name:'UnslopNemo 12B', input:0.40, output:0.40},
   {id:'gryphe/mythomax-l2-13b', name:'MythoMax 13B', input:0.08, output:0.11}
 ];
 

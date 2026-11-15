@@ -1,21 +1,15 @@
 # OpenRouter models for fictional adult writing
 
-These are candidates for stories about fictional adults. OpenRouter's catalog and [roleplay guide](https://openrouter.ai/blog/tutorials/sillytavern-openrouter/) describe the models and their providers. Whether a particular scene is accepted depends on the prompt and hosting provider.
+Story Studio offers two OpenRouter presets for stories about fictional adults. Response behavior can vary by prompt and hosting provider.
 
-In a 16 November 2026 retest through Story Studio, DeepSeek classified three of three Cydonia and MythoMax replies as explicit, two of three Magnum replies, and one of three UnslopNemo replies. Cydonia, MythoMax and UnslopNemo ran on Parasail. Magnum ran on Mancer 2. Cydonia was also the only preset tested here with Story Studio’s 8,000-token prose limit.
-
-Two additional test scenes produced explicit replies twice on [Weaver via Mancer 2](https://openrouter.ai/mancer/weaver), once on [Dolphin Mistral 24B via Venice](https://openrouter.ai/cognitivecomputations/dolphin-mistral-24b-venice-edition), and once on [Skyfall 36B v2 via Parasail](https://openrouter.ai/thedrummer/skyfall-36b-v2). These can be entered as custom model IDs. The counts reflect this small sample and these hosts.
+In a 16 November 2026 retest through Story Studio, DeepSeek classified three of three replies from each preset as explicit. Both ran on Parasail. Cydonia has Story Studio’s 8,000-token prose limit. MythoMax is suited to shorter scenes.
 
 Prices checked on 15 November 2026. One estimated chapter uses 2,000 billed input tokens and 5,000 billed output tokens total. The estimate covers the writing model. DeepSeek metadata calls add a separate charge, and extra context, retries, or splitting a chapter into multiple turns can add input tokens.
 
 | Model | What to try it for | Context | USD per million input / output tokens | Estimated USD per chapter |
 | --- | --- | ---: | ---: | ---: |
 | [Cydonia 24B v4.1](https://openrouter.ai/thedrummer/cydonia-24b-v4.1) | First choice for creative prose | 131K | $0.30 / $0.50 | $0.00310 |
-| [Magnum v4 72B](https://openrouter.ai/anthracite-org/magnum-v4-72b) | More expensive prose comparison | 32K | $2.50 / $5.00 | $0.03000 |
-| [UnslopNemo 12B](https://openrouter.ai/thedrummer/unslopnemo-12b) | Lightweight adventure writing and roleplay | 1,024K | $0.40 / $0.40 | $0.00280 |
 | [MythoMax 13B](https://openrouter.ai/gryphe/mythomax-l2-13b) | Cheap short scenes with compact context | 8K | $0.08 / $0.11 | $0.00071 |
-
-[Grok 4.7](https://openrouter.ai/x-ai/grok-4.7) is a general writing and planning comparison. The listed $2.00 input and $6.00 output per million tokens would be about $0.034 per chapter at this usage. Its availability and moderation can differ from the consumer Grok app. For Jess's main workflow, start with Cydonia.
 
 To compare, use the same short scene with consenting fictional adults and the same direction. Check whether each model follows the point of view, keeps the voices distinct, and maintains the desired level of detail. Review the [provider routing guidance](https://openrouter.ai/blog/tutorials/sillytavern-openrouter/) if a request is unavailable or rejected. Story Studio requests providers that deny data collection, which can narrow availability.
 
