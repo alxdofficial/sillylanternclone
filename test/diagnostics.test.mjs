@@ -41,6 +41,9 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
         assert.equal(request.provider.require_parameters,undefined);
         assert.match(request.messages[0].content,/For a scene, begin directly in the story/);
         assert.doesNotMatch(request.messages[0].content,/JSON Schema|Classify authorDirection/);
+        if (request.messages.at(-1).content.endsWith('removal fixture')) {
+          return Response.json({choices:[{finish_reason:'stop',message:{content:'[removed]'}}]});
+        }
         const preamble = request.messages.at(-1).content.endsWith('preamble fixture')
           ? "I've been instructed to write approximately 250 words.\\n\\n" : '';
         return Response.json({provider:'Fixture Writing Host',usage:{prompt_tokens:120,completion_tokens:30},
@@ -98,6 +101,9 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     const withPreamble = await generate('fixture/prose','preamble fixture');
     assert.equal(withPreamble.status,200);
     assert.deepEqual(await withPreamble.json(),draft);
+    const removed = await generate('fixture/prose','removal fixture');
+    assert.equal(removed.status,500);
+    assert.match((await removed.json()).error,/writing provider returned a removal placeholder/);
     const withInvalid = await generate('fixture/prose','invalid proposals');
     assert.equal(withInvalid.status,200);
     const rejected = await withInvalid.json();
@@ -154,6 +160,8 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     assert.deepEqual(rejectedLog?.mapUpdateRejections,rejected.updateRejections);
     assert.doesNotMatch(contents,/PRIVATE_INVALID_NAME|OTHER_INVALID_NAME|bad time/);
     assert.ok(events.some(event=>event.requestId===withPreamble.headers.get('x-story-studio-request-id') && event.prosePreambleRemoved));
+    assert.ok(events.some(event=>event.requestId===removed.headers.get('x-story-studio-request-id')
+      && event.code==='OPENROUTER_REMOVAL_PLACEHOLDER' && event.finishReason==='stop' && !event.metadata));
     assert.doesNotMatch(contents,new RegExp(fixture));
     assert.ok(!contents.includes(scene.text));
   } finally {

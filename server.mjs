@@ -206,7 +206,10 @@ async function generateOpenRouter(messages, model, key, diagnostics, metadata = 
   if (['stop','length','content_filter','error','tool_calls'].includes(finish)) {
     diagnostics[metadata ? 'metadataFinishReason' : 'finishReason'] = details.finishReason = finish;
   }
-  if (finish === 'content_filter' || finish === 'error') {
+  if (finish === 'content_filter') {
+    throw diagnosticError('OPENROUTER_CONTENT_FILTERED','OpenRouter reported that the response was filtered.');
+  }
+  if (finish === 'error') {
     throw diagnosticError('OPENROUTER_INCOMPLETE_REPLY','OpenRouter reported an incomplete response.');
   }
   const text = choice?.message?.content;
@@ -307,6 +310,9 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     diagnostics.outputFormat = 'text';
     const messages = buildMessages(project,instruction,mode,{model,includeSensitive:true,openRouter:true});
     const output = await generateOpenRouter(messages,model,key,diagnostics);
+    if (/^\[(?:removed|redacted)\][.!]?$/i.test(output.text)) {
+      throw diagnosticError('OPENROUTER_REMOVAL_PLACEHOLDER','The writing provider returned a removal placeholder. No story reply came back.');
+    }
     const text = stripWritingPreamble(output.text);
     if (text !== output.text) diagnostics.prosePreambleRemoved = true;
     if (!text) throw diagnosticError('OPENROUTER_EMPTY_REPLY','OpenRouter returned no story prose for this request.');
