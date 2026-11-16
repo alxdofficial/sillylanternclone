@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { continuityMessages,inspectContinuity,runContinuity,runStoryEdit } from '../continuity.mjs';
-import { recentTokenCap, recentTurns, storyEditContext } from '../public/prompt.js';
+import { applyStoryEdits } from '../story-edits.mjs';
+import { storyAtTurn } from '../public/graph-history.js';
+import { nextTurnNumber, recentTokenCap, recentTurns, storyEditContext } from '../public/prompt.js';
 
 const sceneTime = '1998-10-25T00:13';
 const world = 'A ferry shelter at the pier.';
@@ -29,22 +31,24 @@ const fact = {kind:'fact',note:'The ferry leaves at dawn.'};
 const scene = {input:'safe',reply:'safe',storyTime:sceneTime,updates:[fact]};
 
 test('scene continuity includes the new draft and eligible recent prose only', () => {
-  const [system,source] = continuityMessages(story,'LATEST DIRECTION','LATEST DRAFT',options);
+  const messages = continuityMessages(story,'LATEST DIRECTION','LATEST DRAFT',options);
+  const [system] = messages;
+  const source = JSON.parse(messages.at(-1).content);
   assert.equal(system.role,'system');
   assert.match(system.content,/inspect_continuity/);
   assert.match(system.content,/record_scene/);
-  assert.deepEqual(JSON.parse(source.content).recentTurns,[
+  assert.deepEqual(messages.slice(1,3),[
     {role:'assistant',content:'Mara brings Iona the ledger.'},
     {role:'user',content:'Check the ferry schedule.'}
   ]);
-  assert.deepEqual(
-    [JSON.parse(source.content).authorDirection,JSON.parse(source.content).draft],
-    ['LATEST DIRECTION','LATEST DRAFT']
-  );
-  assert.doesNotMatch(source.content,/WITHHELD|The bridge is closed|shelter at the pier/);
+  assert.deepEqual([source.authorDirection,source.draft],['LATEST DIRECTION','LATEST DRAFT']);
+  const context = JSON.stringify(messages);
+  assert.doesNotMatch(context,/WITHHELD/);
+  assert.match(context,/The bridge is closed/);
+  assert.match(context,/shelter at the pier/);
   const snapshot = {...story,messages:recentTurns(story.messages,recentTokenCap,{includeSensitive:true})};
   assert.match(JSON.stringify(snapshot.messages),/WITHHELD PAIRED REPLY/);
-  assert.doesNotMatch(continuityMessages(snapshot,'LATEST DIRECTION','LATEST DRAFT',options)[1].content,/WITHHELD/);
+  assert.doesNotMatch(JSON.stringify(continuityMessages(snapshot,'LATEST DIRECTION','LATEST DRAFT',options)),/WITHHELD/);
 });
 
 test('relationship inspection pages through matching dated events once and skips unknown endpoints', () => {
@@ -120,7 +124,7 @@ test('a parallel final edit is retried as a single batch before any metadata cha
   const worldEdit = {kind:'world',action:'append',text:'There is a signal bell.'};
   const notesEdit = {kind:'notes',action:'append',text:'Use short sentences.'};
   const saved = await runStoryEdit(project,'Add a bell and change the writing notes.',async messages => {
-    if (messages.length === 2) return assistant(
+    if (messages.at(-1).role === 'user') return assistant(
       call('edit_story_state',{changes:[worldEdit],message:'Bell added.'},'world-edit'),
       call('edit_story_state',{changes:[notesEdit],message:'Notes updated.'},'notes-edit')
     );
@@ -159,4 +163,70 @@ test('continuity can recover an entire long profile one page at a time', () => {
     recovered += page.personality;
   }
   assert.equal(recovered,personality);
+});
+
+test('the OpenRouter editor inspects existing events and waits for read results before committing', async () => {
+  const project = {
+    title:'A harbor',
+    cast:[{id:'ada',name:'Ada',description:'An island pilot.'},{id:'mina',name:'Mina',description:'The signal keeper.'}],
+    relationships:[{from:'ada',to:'mina',label:'They share the key.',turn:0},
+      {from:'mina',to:'ada',label:'They trade maps.',turn:0}],
+    lore:'The tower opens at dawn.',
+    notes:'Keep the prose close to Ada.',
+    authorNote:'Preserve the quiet tone.',
+    messages:[{role:'assistant',content:'First scene.',turnNumber:1},{role:'assistant',content:'Second scene.',turnNumber:2}]
+  };
+  const changes = [{kind:'remove_relationship',eventIndex:0},
+    {kind:'edit_relationship',eventIndex:1,label:'Mina lends Ada the marked map.',storyTime:sceneTime},
+    {kind:'rename_character',name:'Mina',newName:'Mira'},
+    {kind:'field',field:'authorNote',text:'Keep the quiet tone and use present tense.'}];
+  let attempts = 0;
+  const result = await runStoryEdit(project,'Update the map handoff, rename Mina, edit the author note, and remove the key event.',async messages => {
+    if (++attempts === 1) return assistant(
+      call('edit_story_state',{changes,message:'Updated the graph.'},'early'),
+      call('inspect_continuity',{section:'relationships'},'events')
+    );
+    assert.equal(project.relationships.length,2);
+    assert.match(JSON.parse(messages.at(-2).content).error,/Review the read results/);
+    const {events} = JSON.parse(messages.at(-1).content);
+    assert.equal(events[1].eventIndex,1);
+    return assistant(call('edit_story_state',{changes,message:'Updated the graph.',historySafe:true},'final'));
+  });
+  assert.equal(result.count,4);
+  assert.equal(project.cast[1].name,'Mira');
+  assert.equal(project.relationships.length,1);
+  assert.equal(project.relationships[0].label,'Mina lends Ada the marked map.');
+  assert.equal(project.relationships[0].storyTime,sceneTime);
+  assert.equal(project.authorNote,'Keep the quiet tone and use present tense.');
+  assert.equal(project.messages.length,2);
+});
+
+test('a failed metadata batch is atomic and rewind restores legacy writing notes', () => {
+  const project = {
+    cast:[],lore:'',continuity:'',notes:'Keep the prose quiet.',relationships:[],
+    graphHistory:[{turn:0,cast:[],lore:'',continuity:''}],
+    messages:[{role:'assistant',content:'First scene.',turnNumber:1},{role:'assistant',content:'Second scene.',turnNumber:2}]
+  };
+  const before = structuredClone(project);
+  const notes = {kind:'notes',action:'replace',text:'Use more dialogue.'};
+  assert.throws(()=>applyStoryEdits(project,[notes,{kind:'remove_relationship',eventIndex:1}]),
+    {diagnosticCode:'STORY_EDIT_EVENT_UNKNOWN'});
+  assert.deepEqual(project,before);
+  assert.equal(applyStoryEdits(project,[notes]),1);
+  assert.equal(storyAtTurn(project,0).notes,'Keep the prose quiet.');
+  assert.equal(storyAtTurn(project,1).notes,'Use more dialogue.');
+});
+
+test('malformed tool-call envelopes are not replayed to the provider',async()=>{
+  let attempts = 0;
+  await assert.rejects(runContinuity(story,'A direction.','A draft.',options,async()=>{
+    attempts++;
+    return assistant({id:'broken',type:'function',function:{name:'record_scene',arguments:{}}});
+  },()=>{}),{diagnosticCode:'CONTINUITY_NOT_RECORDED'});
+  assert.equal(attempts,1);
+});
+
+test('turn numbering works with imports larger than the JavaScript argument limit',()=>{
+  const messages = Array.from({length:150_000},()=>({role:'assistant',content:'A scene.'}));
+  assert.equal(nextTurnNumber({messages}),150_001);
 });

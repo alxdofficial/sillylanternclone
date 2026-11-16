@@ -31,7 +31,7 @@ test('the page can see whether an agent is watching, writing or gone', async () 
   let childPid;
   const agents = async () => (await (await fetch(origin + '/api/agent')).json()).agents;
   try {
-    await client.connect(new StdioClientTransport({command:join(source, 'bin', 'story-studio-mcp'), env:{PORT:String(port), STORY_STUDIO_DATA:directory}}));
+    await client.connect(new StdioClientTransport({command:join(source, 'bin', 'story-studio-mcp'), env:{PORT:String(port), STORY_STUDIO_DATA:directory, STORY_STUDIO_LEGACY_QUEUE:'1'}}));
     childPid = toolData(await client.callTool({name:'open_studio', arguments:{}})).pid;
     assert.deepEqual(await agents(), []);
 

@@ -36,11 +36,12 @@
         <div class="story-tabs" role="tablist" aria-label="Story views">
           <button type="button" id="writeTab" role="tab" aria-selected="true" aria-controls="writeView">Write</button>
           <button type="button" id="bookTab" role="tab" aria-selected="false" aria-controls="bookView" tabindex="-1">Book view</button>
+          <button type="button" id="graphTab" role="tab" aria-selected="false" aria-controls="graphView" tabindex="-1">Graph</button>
           <button type="button" id="displayNamesTab" role="tab" aria-selected="false" aria-controls="displayNamesView" tabindex="-1">Display names</button>
         </div>
-        <button id="settingsButton" class="tool" aria-haspopup="dialog">Character &amp; lore</button>
       </div>
       <div class="studio-tools">
+        <button type="button" class="tool" id="pasteReply" aria-haspopup="dialog">Add prose</button>
         <button id="providerButton" class="tool" aria-haspopup="dialog"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v5m6-5v5M7 8h10v4a5 5 0 0 1-10 0zm5 9v4"/></svg> Connection</button>
         <div class="story-heading-actions">
           <button type="button" class="button subtle" id="toggleStoryTurns" aria-controls="storyTurnSidebar" aria-expanded="false">Turns</button>
@@ -65,38 +66,51 @@
         <div class="document-toolbar">
           <span id="documentLocation">Manuscript</span>
           <div class="document-actions">
+            <button type="button" class="tool" id="toggleDirections" aria-pressed="false">Directions</button>
+            <button type="button" class="tool" id="toggleComposer" aria-expanded="true" aria-controls="writingComposer">Hide composer</button>
             <button type="button" class="tool" id="focusWriting" aria-pressed="false">Focus</button>
             <button id="promptPreview" class="tool" aria-haspopup="dialog"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l3 3v15H6zm3 8h6m-6 4h6"/></svg> Prompt</button>
           </div>
         </div>
         <div id="messages" class="messages"></div>
-        <div class="composer">
+        <div class="composer" id="writingComposer">
           <div class="composer-content">
-          <div class="route-bar">
-            <div class="route-control">
+          <div class="route-bar" id="routeModels">
+            <div class="route-control" id="modeControl">
               <label for="authorMode">Mode</label>
               <select id="authorMode"><option value="story">Progress the story</option><option value="agent">Editor agent</option></select>
             </div>
-            <div class="route-control">
-              <label for="sceneProvider" id="sceneProviderLabel">Write with</label>
-              <select id="sceneProvider"><option value="mcp">MCP</option><option value="openrouter">OpenRouter</option><option id="manualWriteOption" value="manual">Manual</option></select>
-            </div>
-            <label class="context-toggle" id="sensitiveSceneLabel"><input id="sensitiveScene" type="checkbox"> Sensitive scene</label>
             <div class="route-control" id="sceneModelControl" hidden>
-              <label for="sceneModel">Model</label>
+              <label id="sceneModelLabel" for="sceneModel">Writer</label>
               <select id="sceneModel" aria-describedby="routeSummary"><option value="" disabled>Pick a model</option></select>
             </div>
-            <button id="contextIndicator" type="button" class="text-button context-indicator" aria-haspopup="dialog">Context</button>
-            <span id="composerWatcherStatus" class="watcher-status" data-watcher-status="offline" role="status" hidden>No MCP watcher</span>
-            <p id="routeSummary" class="route-hint" role="status"></p>
+            <div class="route-control" id="continuityModelControl" hidden>
+              <label for="continuityModel">Continuity agent</label>
+              <select id="continuityModel" aria-describedby="routeSummary"></select>
+            </div>
           </div>
+          <div class="route-details">
+            <label class="context-toggle" id="sensitiveSceneLabel"><input id="sensitiveScene" type="checkbox"> Sensitive scene</label>
+            <p id="routeSummary" class="route-hint" role="status"></p>
+            <div class="route-tools">
+              <button id="toggleStoryFlow" type="button" class="text-button story-flow-toggle" aria-expanded="false" aria-controls="storyFlowPanel">Story Flow</button>
+              <button id="contextIndicator" type="button" class="text-button context-indicator" aria-haspopup="dialog"><span aria-hidden="true" class="context-icon">≡</span> Context</button>
+            </div>
+          </div>
+          <section id="storyFlowPanel" class="story-flow-panel" aria-labelledby="storyFlowHeading" hidden>
+            <div class="story-flow-header">
+              <h3 id="storyFlowHeading">Story Flow</h3>
+              <button id="requestStoryFlow" type="button" class="button subtle">Suggest directions</button>
+            </div>
+            <p id="storyFlowStatus" class="story-flow-status" role="status"></p>
+            <div id="storyFlowOptions" class="story-flow-options" role="group" aria-labelledby="storyFlowHeading"></div>
+          </section>
           <p id="composerEditStatus" class="route-hint" role="status" hidden></p>
           <label id="instructionLabel" for="instruction" class="sr-only">What happens next?</label>
           <textarea id="instruction" rows="2" placeholder="Write the next beat or tell the narrator what happens…"></textarea>
           <label class="context-toggle" id="verifyComposerEditLabel" hidden><input id="verifyComposerEdit" type="checkbox"> I’ve verified this text is non-explicit</label>
           <div class="composer-bottom">
-            <button class="button subtle" id="pasteReply">Add reply</button>
-            <button class="button subtle" id="cancelAgentEdit" hidden>Cancel request</button>
+            <button class="button subtle" id="saveComposerOnly" hidden>Save without rewriting</button>
             <button class="button subtle" id="cancelComposerEdit" hidden>Cancel edit</button>
             <p class="shortcut" id="composeShortcut">⌘/Ctrl + Enter to send</p>
             <button class="button primary" id="sendButton">Send &amp; write ↗</button>
@@ -163,31 +177,11 @@
         </aside>
         </div>
       </section>
-      <div class="sr-only" id="interactionStatus" role="status"></div>
-    </div>
-  </main>
-</div>
-<div id="turnMenu" class="turn-menu" role="group" aria-label="Turn actions" hidden>
-  <button type="button" id="turnDetails">Time and context</button>
-  <button type="button" id="chapterBreak" hidden>Start new chapter here</button>
-  <button type="button" id="branchTurn">Branch from here</button>
-  <button type="button" class="danger" id="rewindTurn">Rewind to here</button>
-</div>
-<dialog id="confirmDanger" class="form-dialog" aria-labelledby="dangerTitle" aria-describedby="dangerDetail">
-  <form method="dialog">
-    <header class="dialog-top"><h2 id="dangerTitle"></h2></header>
-    <div class="dialog-body"><p id="dangerDetail"></p></div>
-    <footer class="dialog-actions">
-      <button class="button subtle" value="cancel" autofocus>Cancel</button>
-      <button class="button primary danger" id="dangerConfirm" value="confirm"></button>
-    </footer>
-  </form>
-</dialog>
-<dialog id="settingsDialog" aria-labelledby="settingsHeading">
+<section id="graphView" class="graph-view" role="tabpanel" aria-labelledby="graphTab" hidden>
+  <div class="graph-workspace">
 <form id="settingsForm">
   <header class="dialog-top settings-head">
     <h2 id="settingsHeading">Character &amp; lore</h2>
-    <button type="button" id="closeSettings" class="icon" aria-label="Close">×</button>
   </header>
   <div class="settings-tabs" role="tablist" aria-label="Story settings">
     <button type="button" role="tab" id="castTab" aria-controls="castPanel" aria-selected="true">Cast</button>
@@ -240,7 +234,7 @@
         </div>
         <div id="relationshipEditor" hidden>
           <label id="relationshipLabel" for="relationshipText">What happened?</label>
-          <input id="relationshipText" maxlength="400" placeholder="e.g. Lina asks Mae to watch the ticket window">
+          <input id="relationshipText" placeholder="e.g. Lina asks Mae to watch the ticket window">
           <label>In-story date and time<input id="relationshipTime" type="datetime-local" step="60"></label>
           <div class="inspector-actions">
             <button type="button" class="button primary" id="storeRelationship">Add event</button>
@@ -261,7 +255,7 @@
       <label>Keyword lore <span>One rule per line: keyword, keyword | lore. Use * | lore for always-on entries.</span><textarea name="loreRules" rows="5" placeholder="castle, palace | The castle stands above the sea.&#10;* | Magic has a cost."></textarea></label>
     </section>
     <section role="tabpanel" id="writingPanel" aria-labelledby="writingTab" hidden>
-      <label>Story title<input name="title" maxlength="160"></label>
+      <label>Story title<input name="title"></label>
       <label>Opening premise<textarea name="premise" rows="3"></textarea></label>
       <label>Writing notes<textarea name="notes" rows="4"></textarea></label>
       <details class="profile-details"><summary>Author’s note and post-history instructions</summary>
@@ -271,11 +265,33 @@
     </section>
   </div>
   <footer class="dialog-actions settings-actions">
-    <button type="button" class="button subtle" id="cancelSettings">Cancel</button>
+    <button type="button" class="button subtle" id="cancelSettings">Discard changes</button>
     <button class="button primary" type="submit">Save changes</button>
   </footer>
 </form>
+  </div>
+</section>
+      <div class="sr-only" id="interactionStatus" role="status"></div>
+    </div>
+  </main>
+</div>
+<div id="turnMenu" class="turn-menu" role="group" aria-label="Turn actions" hidden>
+  <button type="button" id="turnDetails">Time and context</button>
+  <button type="button" id="chapterBreak" hidden>Start new chapter here</button>
+  <button type="button" id="branchTurn">Branch from here</button>
+  <button type="button" class="danger" id="rewindTurn">Rewind to here</button>
+</div>
+<dialog id="confirmDanger" class="form-dialog" aria-labelledby="dangerTitle" aria-describedby="dangerDetail">
+  <form method="dialog">
+    <header class="dialog-top"><h2 id="dangerTitle"></h2></header>
+    <div class="dialog-body"><p id="dangerDetail"></p></div>
+    <footer class="dialog-actions">
+      <button class="button subtle" value="cancel" autofocus>Cancel</button>
+      <button class="button primary danger" id="dangerConfirm" value="confirm"></button>
+    </footer>
+  </form>
 </dialog>
+
 <dialog id="editDialog" class="form-dialog" aria-labelledby="editHeading">
   <form id="editForm">
     <header class="dialog-top"><h2 id="editHeading">Time and context</h2><button type="button" class="icon" id="closeEdit" aria-label="Close">×</button></header>
@@ -294,23 +310,14 @@
     <header class="dialog-top"><div><h2 id="providerHeading">Connection</h2><p>Choose how Story Studio works with your models.</p></div><button type="button" id="closeProvider" class="icon" aria-label="Close">×</button></header>
     <div id="routerFields" class="dialog-body">
       <section class="connection-row">
-        <div><h3>Writing route</h3><p class="form-note">Applies to the current story and composer mode.</p></div>
-        <label class="connection-route-label">Write with <select id="connectionRoute"><option value="mcp">MCP</option><option value="openrouter">OpenRouter</option><option value="manual">Manual</option></select></label>
-      </section>
-      <section class="connection-row">
-        <div><h3>Connected session</h3><p class="form-note">Use the same session for setup and writing.</p></div>
-        <div class="watcher-controls" aria-label="MCP watcher">
-          <div class="watcher-actions"><span class="watcher-status" data-watcher-status="offline" role="status">No MCP watcher</span><button type="button" class="button" data-copy-watcher>Copy watcher instructions</button></div>
-          <p class="form-note">Leave the Codex or Claude session open while you work.</p>
-          <p class="form-note copy-watcher-feedback" role="status"></p>
-          <textarea rows="5" readonly hidden aria-label="Watcher instructions"></textarea>
-        </div>
+        <div><h3>Native chat</h3><p class="form-note">Use the installed Story Studio MCP tools in Codex or Claude.</p></div>
+        <div><p>Ask your agent to open Story Studio and work with it directly in chat. Use Book view or Graph beside your chat.</p></div>
       </section>
       <section class="connection-row" id="connectionOpenRouter">
         <div><h3>OpenRouter</h3><p class="form-note" id="modelBilling"></p></div>
         <div>
           <label>OpenRouter API key<input id="keyInput" type="password" placeholder="Enter an API key" autocomplete="off"></label><p class="form-note">The key stays in this tab until you reload or close it.</p>
-          <label>OpenRouter model<select id="modelPreset" aria-describedby="modelPolicy modelPrice"><option value="" disabled>Choose a model</option></select></label>
+          <div class="connection-model"><label for="modelPreset">OpenRouter model</label><select id="modelPreset" aria-describedby="modelPolicy modelPrice"><option value="" disabled>Choose a model</option></select></div>
           <button type="button" id="removeUserModel" class="button danger" hidden>Remove user-added model</button><p id="modelPolicy" class="form-note"></p>
           <div class="model-price" id="modelPrice" aria-live="polite" hidden><p id="modelEstimate"></p><p id="modelRates"></p><p class="form-note"><span id="modelChapterAssumption">A chapter assumes 2,000 input and 5,000 output tokens total. </span><a id="modelSource" rel="noopener noreferrer" target="_blank">OpenRouter listing</a> · rates checked Nov 16, 2026.</p></div>
           <label id="customModel" hidden>Custom model ID<input id="modelInput" placeholder="author/model" autocomplete="off"></label><p id="modelError" class="form-note validation-message" role="alert"></p>
@@ -320,14 +327,34 @@
     <footer class="dialog-actions"><button type="button" class="button subtle" id="cancelProvider">Cancel</button><button class="button primary" type="submit">Save connection</button></footer>
   </form>
 </dialog>
-<dialog id="pasteDialog" class="form-dialog" aria-labelledby="pasteHeading"><form id="pasteForm"><header class="dialog-top"><div><h2 id="pasteHeading">Add a co-writer reply</h2><p>Add text without calling a model.</p></div><button type="button" id="closePaste" class="icon" aria-label="Close">×</button></header><div class="dialog-body"><textarea id="pasteText" aria-label="Co-writer reply" rows="10" required placeholder="Paste the response here…"></textarea></div><footer class="dialog-actions"><button type="button" class="button subtle" id="cancelPaste">Cancel</button><button class="button primary" type="submit">Add to scene</button></footer></form></dialog>
+<dialog id="pasteDialog" class="form-dialog" aria-labelledby="pasteHeading">
+  <form id="pasteForm">
+    <header class="dialog-top"><h2 id="pasteHeading">Add prose</h2><button type="button" id="closePaste" class="icon" aria-label="Close">×</button></header>
+    <div class="dialog-body">
+      <label>Story prose<textarea id="pasteText" rows="9" required></textarea></label>
+      <label>AI context<select id="pasteSensitivity">
+        <option value="unclassified">Unverified</option>
+        <option value="reviewed-safe">Verified non-explicit</option>
+        <option value="explicit">Explicit</option>
+      </select></label>
+    </div>
+    <footer class="dialog-actions"><button type="button" id="cancelPaste" class="button subtle">Cancel</button><button class="button primary" type="submit">Add to story</button></footer>
+  </form>
+</dialog>
 <dialog id="promptDialog" class="form-dialog" aria-labelledby="promptHeading">
   <header class="dialog-top"><h2 id="promptHeading">Prompt preview</h2><button type="button" id="closePrompt" class="icon" aria-label="Close">×</button></header>
   <div class="dialog-body">
     <section class="context-summary" aria-label="Context usage">
+      <label id="contextStageField" hidden>Pass
+        <select id="contextStage">
+          <option value="writer">Writer</option>
+          <option value="continuity">Continuity agent</option>
+        </select>
+      </label>
+      <p id="contextModel"></p>
       <p id="contextTotal"></p>
       <div class="context-bar" id="contextBar" aria-hidden="true"></div>
-      <dl id="contextParts"></dl>
+      <dl id="contextParts" class="context-parts"></dl>
       <p class="form-note" id="contextLimits"></p>
     </section>
     <details id="promptTextDetails" open>
@@ -364,7 +391,7 @@
     <div class="dialog-body">
       <label>Manuscript <textarea id="setupManuscript" rows="9" placeholder="Paste your existing story here…"></textarea></label>
       <label>Or choose a text or Markdown file <input id="setupManuscriptFile" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown"></label>
-      <p class="form-note">Up to 100,000 words and 2 MB. Put chapter, turn, or scene headings on their own lines to keep those breaks.</p>
+      <p class="form-note">Put chapter, turn, or scene headings on their own lines to keep those breaks.</p>
       <p id="setupImportError" class="form-note validation-message" role="alert"></p>
     </div>
     <footer class="dialog-actions setup-actions">
@@ -374,28 +401,24 @@
   </form>
   <form id="setupChat" hidden>
     <div class="setup-connection">
-      <label for="setupProvider">Chat with <select id="setupProvider"><option value="openrouter">OpenRouter</option><option value="mcp">MCP agent</option></select></label>
+      <strong class="setup-provider-label">OpenRouter</strong>
       <label for="setupModel" id="setupModelField">OpenRouter model <select id="setupModel"><option value="" disabled selected>Choose a model</option></select></label>
       <label for="setupKey" id="setupKeyField">OpenRouter API key <input id="setupKey" type="password" autocomplete="off"></label>
       <p class="form-note" id="setupProviderNote"></p>
-      <div class="setup-agent-instructions watcher-controls" id="setupAgentInstructions" hidden>
-        <div class="watcher-actions"><span class="watcher-status" data-watcher-status="offline" role="status">No MCP watcher</span><button type="button" class="button" data-copy-watcher>Copy watcher instructions</button></div>
-        <p class="form-note copy-watcher-feedback" role="status"></p>
-        <textarea rows="5" readonly hidden aria-label="Watcher instructions"></textarea>
-      </div>
+
     </div>
     <div class="setup-chat-workspace">
     <aside class="setup-reference" aria-label="Story setup references">
     <section class="setup-source" id="setupSource" hidden aria-label="Manuscript context">
       <p id="setupSourceSummary"></p>
       <details>
-        <summary>Preview the manuscript excerpts</summary>
+        <summary>Preview a sample of the manuscript</summary>
         <ol class="setup-excerpts" id="setupExcerpts"></ol>
       </details>
     </section>
     <details class="setup-source" id="setupContextDetails">
       <summary>Additional context</summary>
-      <label for="setupContext">Notes or reference text <span>Shares the chat’s 20,000-word limit</span></label>
+      <label for="setupContext">Notes or reference text</label>
       <textarea id="setupContext" rows="3" placeholder="Character notes, background, or writing preferences…"></textarea>
     </details>
     </aside>
@@ -403,11 +426,11 @@
     <ol id="setupConversation" class="setup-conversation" aria-label="Brainstorm conversation" tabindex="0" hidden></ol>
     <div class="setup-chat-input">
       <label for="setupMessage" id="setupMessageLabel">What kind of story are you imagining?</label>
-      <textarea id="setupMessage" rows="2" aria-describedby="setupWordCount setupFeedback" placeholder="A premise, a character, or even just a mood…"></textarea>
-      <p id="setupWordCount" class="form-note"></p>
+      <textarea id="setupMessage" rows="2" aria-describedby="setupFeedback" placeholder="A premise, a character, or even just a mood…"></textarea>
       <details class="setup-context-meter">
         <summary id="setupContextUsage">Context</summary>
-        <p class="form-note" id="setupContextBreakdown"></p>
+        <div class="context-bar" id="setupContextBar" aria-hidden="true"></div>
+        <dl class="context-parts" id="setupContextBreakdown"></dl>
         <p class="form-note" id="setupContextLimits"></p>
       </details>
       <p id="setupFeedback" class="form-note" role="status"></p>
@@ -428,9 +451,10 @@
       <section class="setup-source-review" id="setupSourceReview" hidden aria-label="Imported story">
         <p id="setupReviewSummary"></p>
         <label class="context-toggle" id="setupSuggestionField"><input type="checkbox" id="setupUseSuggestions" checked> Use suggested chapter breaks</label>
-        <label class="context-toggle"><input type="checkbox" id="setupReviewedAll"> I reviewed the full manuscript as non-explicit. Allow it in future MCP context.</label>
+        <label class="context-toggle"><input type="checkbox" id="setupReviewedAll"> I reviewed the full manuscript as non-explicit. Allow it in future general AI context.</label>
       </section>
-      <label>Story title <input id="setupTitle" maxlength="160" required></label>
+      <label class="context-toggle" id="setupReferencesReview" hidden><input type="checkbox" id="setupReferencesReviewed"> Allow my non-explicit setup chat and reference notes in future OpenRouter agent context.</label>
+      <label>Story title <input id="setupTitle" required></label>
       <label>Opening premise <textarea id="setupScenario" rows="2" placeholder="What is happening as the story starts?"></textarea></label>
       <label>World &amp; setting <textarea id="setupLore" rows="2" placeholder="Where and when does it take place?"></textarea></label>
       <label>Story start <input id="setupStartAt" type="datetime-local" aria-describedby="setupStartHint"></label>

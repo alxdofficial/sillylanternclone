@@ -2,7 +2,7 @@
 # Opens a Claude Code session whose only tools are Story Studio's MCP tools.
 # With no shell, file or web tools, the agent can only see the writing
 # context Story Studio prepares, which leaves out turns marked explicit,
-# unverified or outside AI context. It starts watching for queued turns.
+# unverified or outside AI context. The writer gives directions in this chat.
 set -eu
 cd "${0:A:h:h}"
 source bin/launcher-log.zsh
@@ -23,4 +23,4 @@ fi
 config="{\"mcpServers\":{\"story-studio\":{\"type\":\"stdio\",\"command\":\"${app//\"/\\\"}/bin/story-studio-mcp\",\"env\":{$server_env}}}}"
 
 exec claude --tools= --strict-mcp-config --mcp-config="$config" --allowedTools=mcp__story-studio \
-  "${STORY_STUDIO_PROMPT:-Briefly tell me you're connecting to Story Studio and to leave this chat open. Then watch for my setup, writing, continuity, and story edits.}"
+  "${STORY_STUDIO_PROMPT:-Connect to Story Studio, give me the Book view link, and briefly tell me how to ask for writing and story edits in this chat.}"

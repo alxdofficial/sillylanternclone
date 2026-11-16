@@ -4,14 +4,16 @@ import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
-import { agentOutputLimit, agentReasoning, canWriteSensitive, continuityModel, isAgentModel, isModelId, models, proseOutputLimit, setupChatOutputLimit, setupDraftModel, setupDraftOutputLimit } from './public/models.js';
-import { buildMessages, getCast, legacyCastFields, migrateLegacyCast, storyTextFields, validCast, validRelationships, validSensitivity, isStoryTime, writeInputProblem } from './public/prompt.js';
-import { maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
+import { agentOutputLimit, agentReasoning, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isModelId, isWriterModel, models, proseOutputLimit, setupChatOutputLimit, setupDraftModel, setupDraftOutputLimit } from './public/models.js';
+import { buildWritingContext, getCast, legacyCastFields, migrateLegacyCast, storyTextFields, validCast, validRelationships, validSensitivity, isStoryTime, estimateContextTokens } from './public/prompt.js';
+import { libraryByteLimit, maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory } from './examples/the-late-ferry.mjs';
 import { isWritingRefusal, stripWritingPreamble } from './openrouter-format.mjs';
 import { runContinuity, runStoryEdit } from './continuity.mjs';
 import { validStoryEditInstruction } from './story-edits.mjs';
-import { runSetup, setupMessages } from './setup-chat.mjs';
+import { agentBudget } from './public/agent-context.js';
+import { runStoryFlow, storyFlowOutputLimit } from './story-flow.mjs';
+import { runChunkedSetup, runSetup, setupMessages, setupPromptFits } from './setup-chat.mjs';
 import { setupQueue } from './setup-queue.mjs';
 import { createLogger, createTrace, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
 import { fileURLToPath } from 'node:url';
@@ -27,7 +29,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   console.error('Story Studio: PORT must be a number from 1 to 65535.');
   process.exit(1);
 }
-const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/agent','/api/generate','/api/story-edits','/api/setup','/api/setup/mcp','/api/export']);
+const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/agent','/api/generate','/api/story-edits','/api/story-flow','/api/setup','/api/setup/mcp','/api/export']);
 const methodNames = new Set(['GET','POST','PUT']);
 const modelIds = new Set(models.map(model => model.id));
 let starter = createStarterStory();
@@ -158,8 +160,8 @@ function reportAgent(report) {
   return true;
 }
 
-const libraryLimit = 16_000_000;
-function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && [...storyTextFields,...legacyCastFields].every(k=>p[k]===undefined || typeof p[k]==='string') && ['lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.sourcePrefix===undefined || typeof m.sourcePrefix==='string') && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
+const libraryLimit = libraryByteLimit;
+function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && [...storyTextFields,...legacyCastFields].every(k=>p[k]===undefined || typeof p[k]==='string') && ['lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.standalone===undefined || m.role==='assistant' && m.standalone===true) && (m.sourcePrefix===undefined || typeof m.sourcePrefix==='string') && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
 const openRouterStatusHints = {
   401:'Check your API key.',
   402:'Check your balance and key spending limit.',
@@ -169,22 +171,32 @@ const openRouterStatusHints = {
 };
 
 async function generateOpenRouter(messages, model, key, diagnostics, {
-  stage = 'prose', maxOutputTokens = proseOutputLimit(model), tools, signal
+  stage = 'prose', maxOutputTokens = proseOutputLimit(model), tools, signal, prefixLength
 } = {}) {
+  if (stage !== 'prose' && estimateContextTokens(JSON.stringify({messages,tools})) >
+      (prefixLength ? agentBudget(model,maxOutputTokens).window * 0.97 - maxOutputTokens : agentBudget(model,maxOutputTokens).inputLimit)) {
+    throw Object.assign(diagnosticError('AGENT_CONTEXT_FULL','The setup, story state, or tool results exceed this model’s shared input budget.'),{status:400});
+  }
   const started = Date.now();
   const metadata = stage === 'metadata';
   const details = diagnostics[stage] = {model:modelIds.has(model) ? model : 'custom',maxOutputTokens};
   log('info','generation_started',{requestId:diagnostics.requestId,storyRef:diagnostics.storyRef,
     provider:'openrouter',stage,...details});
-  const timeout = AbortSignal.timeout(tools ? 45_000 : maxOutputTokens > 2048 ? 240_000 : 120_000);
+  const timeout = AbortSignal.timeout(tools || maxOutputTokens > 2048 ? 240_000 : 120_000);
   const upstreamSignal = signal ? AbortSignal.any([signal,timeout]) : timeout;
   const timedOut = error => errorCode(error) === 'TIMEOUT' || upstreamSignal.reason?.name === 'TimeoutError';
   const exchange = {requestId:diagnostics.requestId,storyRef:diagnostics.storyRef,stage,exchangeId:randomUUID()};
   const reasoning = tools || (stage === 'setup-chat' && isAgentModel(model)) ? agentReasoning(model) : undefined;
+  const claudeAgent = stage !== 'prose' && model.startsWith('anthropic/');
+  const outbound = claudeAgent && prefixLength ? messages.map((message,index)=>index === prefixLength - 1
+    ? {...message,content:[{type:'text',text:message.content,cache_control:{type:'ephemeral'}}]}
+    : message) : messages;
   const payload = {
-    model, messages, max_tokens:maxOutputTokens,
-    provider:{data_collection:'deny',...(reasoning ? {require_parameters:true} : {})},
-    ...(tools ? {tools,tool_choice:'auto'} : {}), reasoning
+    model, messages:outbound, max_tokens:maxOutputTokens,
+    provider:{data_collection:'deny',...(tools || reasoning ? {require_parameters:true} : {})},
+    ...(tools ? {tools,tool_choice:'auto'} : {}), reasoning,
+    ...(diagnostics.storyRef && stage !== 'prose' ? {session_id:`studio-${diagnostics.storyRef}-${stage}`} : {}),
+    ...(claudeAgent && !prefixLength ? {cache_control:{type:'ephemeral'}} : {})
   };
   trace('request',{...exchange,payload},key);
   let response;
@@ -232,6 +244,9 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
   if (Number.isSafeInteger(result?.usage?.completion_tokens) && result.usage.completion_tokens >= 0) {
     details.outputTokens = result.usage.completion_tokens;
   }
+  const cache = result?.usage?.prompt_tokens_details;
+  if (Number.isSafeInteger(cache?.cached_tokens)) details.cachedInputTokens = cache.cached_tokens;
+  if (Number.isSafeInteger(cache?.cache_write_tokens)) details.cacheWriteTokens = cache.cache_write_tokens;
   if (Number.isFinite(result?.usage?.cost) && result.usage.cost >= 0) details.costUsd = result.usage.cost;
   const choice = result?.choices?.[0];
   const finish = choice?.finish_reason;
@@ -267,11 +282,11 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
   return {text:text.trim(), truncated:finish === 'length'};
 }
 async function generateSetup(req,res,diagnostics) {
-  const {mode,model,key,messages,manuscript,context} = await body(req) || {};
+  const {mode,model,key,messages,manuscript,context} = await body(req,libraryLimit) || {};
   const prompt = setupMessages(messages,mode,manuscript,context,'prepare_story_setup');
   if (!prompt) {
     diagnostics.code = 'INVALID_SETUP_CONVERSATION';
-    return json(res,400,{error:'Check the setup messages and manuscript excerpts. Your chat messages and additional context share a 20,000-word limit.'});
+    return json(res,400,{error:'Check the setup conversation and manuscript reference.'});
   }
   if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
     diagnostics.code = 'OPENROUTER_KEY_REQUIRED';
@@ -290,25 +305,36 @@ async function generateSetup(req,res,diagnostics) {
   try {
     const complete = drafting ? storyToolCompletion(selected,key,diagnostics,'setup-draft',signal,setupDraftOutputLimit)
       : messages => generateOpenRouter(messages,selected,key,diagnostics,{stage:'setup-chat',maxOutputTokens:setupChatOutputLimit,signal});
-    return json(res,200,await runSetup(prompt,mode,manuscript,complete));
+    const inputLimit = agentBudget(selected,drafting ? setupDraftOutputLimit : setupChatOutputLimit).inputLimit;
+    if (setupPromptFits(prompt,mode,manuscript,inputLimit)) {
+      return json(res,200,await runSetup(prompt,mode,manuscript,complete));
+    }
+    if (!drafting) {
+      return json(res,400,{error:'The setup exceeds this model’s chat budget. Prepare the setup draft to process the source in sections.'});
+    }
+    const extract = storyToolCompletion(selected,key,diagnostics,'setup-extract',signal,agentOutputLimit,{taskTimeout:false});
+    const prepare = storyToolCompletion(selected,key,diagnostics,'setup-draft',signal,setupDraftOutputLimit,{taskTimeout:false});
+    const result = await runChunkedSetup({messages,mode,manuscript,context,complete:extract,prepare,inputLimit});
+    diagnostics.setupSections = result.sections;
+    return json(res,200,result);
   } catch (error) {
     if (signal.aborted) return;
     diagnostics.code = errorCode(error,'SETUP_GENERATION_FAILED');
-    return json(res,502,{error:error.diagnosticCode ? error.message : 'Story Studio could not prepare a setup reply.'});
+    return json(res,error.status || 502,{error:error.diagnosticCode ? error.message : 'Story Studio could not prepare a setup reply.'});
   }
 }
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8'};
 const staticAssets = new Set([
   '/index.html','/app.js','/prompt.js','/models.js','/graph-history.js','/library.js',
-  '/manuscript.js','/display-names.js','/sync.js','/style.css'
+  '/manuscript.js','/agent-context.js','/model-picker.js','/story-flow.js','/display-names.js','/sync.js','/style.css'
 ]);
-function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens = agentOutputLimit) {
-  const budget = AbortSignal.timeout(60_000);
-  const combined = signal ? AbortSignal.any([signal,budget]) : budget;
-  return async (messages,tools) => {
+function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens = agentOutputLimit,{taskTimeout = true} = {}) {
+  const budget = taskTimeout ? AbortSignal.timeout(300_000) : undefined;
+  const combined = budget && signal ? AbortSignal.any([signal,budget]) : budget || signal;
+  return async (messages,tools,prefixLength) => {
     diagnostics.toolRounds = (diagnostics.toolRounds || 0) + 1;
     try {
-      return await generateOpenRouter(messages,model,key,diagnostics,{stage,maxOutputTokens,tools,signal:combined});
+      return await generateOpenRouter(messages,model,key,diagnostics,{stage,maxOutputTokens,tools,signal:combined,prefixLength});
     } finally {
       (diagnostics.toolCalls ||= []).push(diagnostics[stage]);
     }
@@ -316,9 +342,9 @@ function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens 
 }
 
 async function generateStoryEdits(req,res,diagnostics) {
-  const {storyId,revision,model,key,instruction} = await body(req) || {};
+  const {storyId,revision,model,key,instruction} = await body(req,libraryLimit) || {};
   if (typeof storyId !== 'string' || typeof revision !== 'string' || !validStoryEditInstruction(instruction)) {
-    return json(res,400,{error:'Enter a story edit request of up to 20,000 words.'});
+    return json(res,400,{error:'Enter a story edit request.'});
   }
   if (!isAgentModel(model)) return json(res,400,{error:'Choose a supported model for Agent mode.'});
   if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) return json(res,400,{error:'Enter an OpenRouter API key in Connection.'});
@@ -327,12 +353,12 @@ async function generateStoryEdits(req,res,diagnostics) {
   const index = library.projects.findIndex(item => item.id === storyId);
   if (index < 0) return json(res,404,{error:'Story not found.'});
   const project = structuredClone(library.projects[index]);
-  if (project.agentEditRequest) return json(res,409,{error:'Cancel the queued MCP edit before sending another request.'});
   Object.assign(diagnostics,{provider:'openrouter',mode:'story-edit',storyRef:storyReference(storyId),model});
   const signal = disconnectSignal(res);
   try {
-    const result = await runStoryEdit(project,instruction,storyToolCompletion(model,key,diagnostics,'story-edit',signal));
+    const result = await runStoryEdit(project,instruction,storyToolCompletion(model,key,diagnostics,'story-edit',signal),model);
     if (signal.aborted) return;
+    delete project.agentEditRequest;
     project.agentEditNotice = {message:result.message};
     library.projects[index] = project;
     if (!await saveState(library,revision,false)) return json(res,409,{error:'The story changed before saving the edit. Try again from the latest version.'});
@@ -341,7 +367,32 @@ async function generateStoryEdits(req,res,diagnostics) {
   } catch (failure) {
     if (signal.aborted) return;
     diagnostics.code = errorCode(failure,'STORY_EDIT_FAILED');
-    return json(res,502,{error:failure.diagnosticCode ? failure.message : 'Story Studio could not edit the story metadata.'});
+    return json(res,failure.status || (failure.diagnosticCode === 'AGENT_CONTEXT_FULL' ? 400 : 502),{error:failure.diagnosticCode ? failure.message : 'Story Studio could not edit the story metadata.'});
+  }
+}
+
+function flowCompletion(model,key,diagnostics,signal) {
+  return storyToolCompletion(model,key,diagnostics,'story-flow',signal,storyFlowOutputLimit);
+}
+
+async function suggestStoryFlow(req,res,diagnostics) {
+  const {project,agentModel = continuityModel,key,sensitive = false} = await body(req,libraryLimit) || {};
+  if (!validateState({activeId:project?.id,projects:[project]}) || typeof sensitive !== 'boolean'
+      || !isContinuityModel(agentModel,sensitive)) {
+    return json(res,400,{error:'Choose a supported continuity agent and story for Story Flow.'});
+  }
+  if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
+    return json(res,400,{error:'Enter an OpenRouter API key in Connection.'});
+  }
+  Object.assign(diagnostics,{provider:'openrouter',storyRef:storyReference(project.id),model:agentModel});
+  const signal = disconnectSignal(res);
+  try {
+    const options = await runStoryFlow(project,flowCompletion(agentModel,key,diagnostics,signal),{model:agentModel,sensitive});
+    if (!signal.aborted) return json(res,200,{options});
+  } catch (failure) {
+    if (signal.aborted) return;
+    diagnostics.code = errorCode(failure,'STORY_FLOW_FAILED');
+    return json(res,failure.status || 502,{error:failure.diagnosticCode ? failure.message : 'Story Studio could not suggest directions.'});
   }
 }
 
@@ -412,13 +463,14 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
 }
 if (url.pathname === '/api/setup' && req.method === 'POST') return generateSetup(req,res,diagnostics);
 if (url.pathname === '/api/story-edits' && req.method === 'POST') return generateStoryEdits(req,res,diagnostics);
+if (url.pathname === '/api/story-flow' && req.method === 'POST') return suggestStoryFlow(req,res,diagnostics);
 if (url.pathname === '/api/setup/mcp' && req.method === 'POST') {
   const request = await body(req);
   if (['status','claim','claim-next'].includes(request?.action)) diagnostics.readOnly = true;
   return json(res,200,setupQueue(request));
 }
 if (url.pathname === '/api/generate' && req.method === 'POST') {
-  const {project,instruction,provider,model,key,mode='send',sensitive=false} = await body(req, libraryLimit);
+  const {project,instruction,provider,model,key,mode='send',sensitive=false,agentModel=continuityModel,flow=false} = await body(req, libraryLimit) || {};
   if (!validateState({activeId:project?.id,projects:[project]}) || typeof instruction !== 'string') {
     diagnostics.code = 'INVALID_STORY_REQUEST';
     return json(res,400,{error:'Invalid story request.'});
@@ -437,22 +489,26 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
       diagnostics.code = 'OPENROUTER_KEY_REQUIRED';
       return json(res,400,{error:'Enter an OpenRouter API key in Connection.'});
     }
-    if (typeof model !== 'string' || !isModelId(model)) {
+    if (!isWriterModel(model)) {
       diagnostics.code = 'OPENROUTER_MODEL_INVALID';
       return json(res,400,{error:'Enter a specific OpenRouter model ID (author/model).'});
     }
     if (typeof sensitive !== 'boolean' || (sensitive && !canWriteSensitive(model))) {
       diagnostics.code = 'SENSITIVE_ARTIST_REQUIRED';
-      return json(res,400,{error:'Choose Cydonia for a sensitive scene.'});
+      return json(res,400,{error:'Choose an NSFW-friendly writer for a sensitive scene.'});
     }
-    const inputProblem = mode !== 'alternate' && writeInputProblem(instruction,model);
-    if (inputProblem) {
-      diagnostics.code = 'WRITE_INPUT_TOO_LONG';
-      return json(res,400,{error:inputProblem});
+    if (!isContinuityModel(agentModel,sensitive)) {
+      diagnostics.code = 'CONTINUITY_MODEL_REQUIRED';
+      return json(res,400,{error:sensitive ? 'Choose a supported sensitive-scene continuity agent.'
+        : 'Choose a supported continuity agent.'});
     }
     diagnostics.model = modelIds.has(model) ? model : 'custom';
     diagnostics.outputFormat = 'text';
-    const messages = buildMessages(project,instruction,mode,{model,includeSensitive:sensitive,openRouter:true});
+    const {messages,problem} = buildWritingContext(project,instruction,mode,{model,includeSensitive:sensitive,openRouter:true});
+    if (problem) {
+      diagnostics.code = 'WRITE_INPUT_TOO_LONG';
+      return json(res,400,{error:problem});
+    }
     const output = await generateOpenRouter(messages,model,key,diagnostics,{signal});
     if (signal.aborted) return;
     const text = stripWritingPreamble(output.text);
@@ -466,9 +522,9 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     if (output.truncated) draft.truncated = true;
     const suggest = !output.truncated && project.graphUpdates !== false && mode === 'send';
     try {
-      diagnostics.metadataModel = continuityModel;
-      const parsed = await runContinuity(project,instruction,text,{suggest,truncated:output.truncated,mode,sensitive},
-        storyToolCompletion(continuityModel,key,diagnostics,'metadata',signal),
+      diagnostics.metadataModel = agentModel;
+      const parsed = await runContinuity(project,instruction,text,{suggest,truncated:output.truncated,mode,sensitive,model:agentModel},
+        storyToolCompletion(agentModel,key,diagnostics,'metadata',signal),
         rejections => {
           diagnostics.mapUpdateRejections = rejections;
           diagnostics.invalidMapUpdates = rejections.length;
@@ -483,6 +539,18 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     diagnostics.replySensitivity = draft.reply;
     diagnostics.mapProposals = draft.suggestions.length;
     diagnostics.unverifiedLabels = draft.input === 'unclassified' || draft.reply === 'unclassified';
+    if (flow === true && !output.truncated) {
+      try {
+        const held = sensitive || draft.input !== 'safe' || draft.reply !== 'safe';
+        draft.flowOptions = await runStoryFlow(project,flowCompletion(agentModel,key,diagnostics,signal),{
+          model:agentModel,instruction,prose:text,sensitive:held,updates:held ? [] : draft.suggestions
+        });
+      } catch (failure) {
+        if (signal.aborted) return;
+        diagnostics.flowCode = errorCode(failure,'STORY_FLOW_FAILED');
+        draft.flowUnavailable = true;
+      }
+    }
     return json(res, 200, draft);
   } catch (e) {
     if (signal.aborted) return;

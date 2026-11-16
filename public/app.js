@@ -1,14 +1,16 @@
-import { applyTurnGraphUpdates, captureGraphVersion, graphChangesByTurn, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
-import { bookChapters, bookMarkdown, maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
-import { defaultChapterStarts, manuscriptByteLimit, manuscriptPassages, manuscriptTurns, parseManuscript } from './manuscript.js';
+import { activeStoryFlow, normalizeStoryFlow, storyFlowTurn, validStoryFlowOptions } from './story-flow.js';
+import { applyTurnGraphUpdates, captureGraphVersion, ensureGraphBaseline, graphChangesByTurn, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
+import { bookChapters, bookMarkdown, libraryByteLimit, maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
+import { defaultChapterStarts, manuscriptByteLimit, manuscriptPassages, manuscriptReference, manuscriptTurns, parseManuscript } from './manuscript.js';
 import { mergeLibrary } from './sync.js';
 import { createDisplayNameMatcher } from './display-names.js';
-import { buildMessages, formatMessages, storyTextFields, narrator, resolveCastName, migrateLegacyCast, castFields, maxCastMembers, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
+import { enhanceSelect } from './model-picker.js';
+import { buildWritingContext, formatMessages, storyTextFields, narrator, resolveCastName, migrateLegacyCast, castFields, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
-import { models, chapterCost, canWriteSensitive, isAgentModel, isModelId, modelLabel, modelContextWindow, proseOutputLimit, setupDraftModel, agentOutputLimit, setupChatOutputLimit, setupDraftOutputLimit } from './models.js';
-import { countWords, maxStoryFieldWords, withinStoryFieldLimit, writeInputProblem } from './prompt.js';
-import { dateWriterTurn, maxSetupRelationships, maxSetupWords, mcpOmissionReason, queuedTurn, replyInput, setupInputWords, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
-import { continuityRecentTokenCap, estimateContextTokens, storyEditContext, storyOverview, storyPromptUsage, writingHistoryLimit, writingPromptLimit } from './prompt.js';
+import { models, chapterCost, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isModelId, isWriterModel, modelLabel, modelContextWindow, setupDraftModel, setupChatOutputLimit, setupDraftOutputLimit } from './models.js';
+import { dateWriterTurn, mcpOmissionReason, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
+import { estimateContextTokens, writingHistoryLimit } from './prompt.js';
+import { agentBudget, continuityContext, editorContext, normalizeAgentHistory, normalizeSetupHistory } from './agent-context.js';
 
 const settingsFields = ['title', 'lore', 'notes', ...storyTextFields];
 const castLabels = {name:'Name', nickname:'Aliases', description:'Description', personality:'Personality', scenario:'Scenario', examples:'Example dialogue'};
@@ -24,53 +26,7 @@ let draftStartAt = '', draftStartSource = '';
 let estimatedEdgeDates = new WeakSet();
 let connecting = false, pinnedGraph = null, hoverGraph = null, deletedEvent = null, shownEvents = 12;
 let pendingGraphReview = [];
-// Live activity: local MCP agents (from /api/agent) and an OpenRouter request in progress.
-let agentActivity = [], generatingFor = null;
-const watcherInstructions = `Connect this local session to Story Studio. First tell me briefly what you're doing and that I should leave this chat open while I write. If the story-studio tools are missing, follow README.md and MCP.md in the Story Studio repo and register its stdio server in this client. Tell me if you need me to sign in, approve the tools, or open a fresh session. Use open_studio if Studio is not running.
-
-Use the MCP tools directly. This Python example shows how to recognize each job. You don't need to run a Python script.
-
-while True:
-    job = call_tool("wait_for_queued_turn")
-    if job["status"] == "idle":
-        continue
-    kind = job["pendingRequest"]["mode"]
-    if kind == "setup":
-        handle_setup(job)       # submit_setup_response
-    elif kind == "edit":
-        handle_edit(job)        # edit_story_state
-    elif kind == "continuity":
-        record_continuity(job)  # record_scene
-    else:
-        write_scene(job)        # submit_reply or decline_turn
-
-Follow each job's prompt and use the IDs it provides. When submit_reply leaves continuity pending, record it before waiting again. Handle requests across stories and setup wizards from this same session. Stay quiet while waiting. Stop when I ask, or tell me if Studio becomes unreachable. Use only Story Studio's filtered tools for story data.`;
-
-function syncWatcherStatus() {
-  const ready = agentActivity.find(agent => agent.state === 'watching');
-  const working = agentActivity.find(agent => agent.state === 'writing');
-  const label = ready ? `${ready.client} ready` : working ? `${working.client} working` : 'No MCP watcher';
-  for (const target of document.querySelectorAll('[data-watcher-status]')) {
-    if (target.textContent !== label) target.textContent = label;
-    target.dataset.watcherStatus = ready ? 'ready' : working ? 'working' : 'offline';
-  }
-}
-
-for (const button of document.querySelectorAll('[data-copy-watcher]')) {
-  button.onclick = async () => {
-    const section = button.closest('.watcher-controls');
-    const prompt = section.querySelector('textarea');
-    const feedback = section.querySelector('.copy-watcher-feedback');
-    try {
-      await navigator.clipboard.writeText(watcherInstructions);
-      feedback.textContent = 'Copied. Paste into your local agent chat.';
-    } catch {
-      prompt.value = watcherInstructions;
-      prompt.hidden = false;
-      prompt.select();
-    }
-  };
-}
+let generatingFor = null;
 const temporarySession = new Map();
 function getSession(key) {
   if (temporarySession.has(key)) return temporarySession.get(key);
@@ -88,18 +44,22 @@ function setSession(key, value) {
 }
 const modeKey = id => 'story-author-mode:' + id;
 const authorMode = project => getSession(modeKey(project.id)) === 'agent' ? 'agent' : 'story';
-const routeKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-route:' : 'story-route:') + id;
 const modelKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-model:' : 'story-model:') + id;
 const retiredPresets = new Set(['anthracite-org/magnum-v4-72b','thedrummer/unslopnemo-12b','sao10k/l3.1-euryale-70b','gryphe/mythomax-l2-13b']);
 function writingModel(project, mode = 'story') {
   const model = getSession(modelKey(project.id,mode));
   return model && (mode === 'agent' ? isAgentModel(model) : isPreset(model) || userModels.includes(model)) ? model : '';
 }
-function writingRoute(project, mode = 'story') {
-  const route = getSession(routeKey(project.id,mode));
-  return route === 'openrouter' || route === 'manual' && mode === 'story' ? route : 'mcp';
+const continuityKey = (storyId,sensitive) => 'story-continuity-model:' + (sensitive ? 'sensitive:' : '') + storyId;
+function selectedContinuityModel(project) {
+  const sensitive = sensitiveDraft(project);
+  const model = getSession(continuityKey(project.id,sensitive));
+  return isContinuityModel(model,sensitive) ? model : continuityModel;
 }
 const draftKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-draft:' : 'story-draft:') + id;
+const flowKey = id => 'story-flow-enabled:' + id;
+const flowEnabled = project => getSession(flowKey(project.id)) === 'true';
+const flowNotice = new Map();
 const sensitiveKey = id => 'story-sensitive-draft:' + id;
 const sensitiveDraft = project => getSession(sensitiveKey(project.id)) === 'true';
 const pendingComposerEdits = new Map();
@@ -180,8 +140,11 @@ function adoptLibrary(library) {
     if (!local || local === project) return project;
     for (const key of Object.keys(local)) if (!(key in project)) delete local[key];
     for (const [key, value] of Object.entries(project)) {
-      if (key === 'messages') { if (local.messages !== value) local.messages.splice(0, local.messages.length, ...value); }
-      else local[key] = value;
+      if (key === 'messages') {
+        if (local.messages === value) continue;
+        local.messages.length = value.length;
+        value.forEach((turn,index)=>{ local.messages[index] = turn; });
+      } else local[key] = value;
     }
     return local;
   });
@@ -189,8 +152,9 @@ function adoptLibrary(library) {
   state.activeId = library.activeId;
 }
 // After a 409, combine the page's edits with what the agent or another tab saved.
-async function mergeServerLibrary() {
-  const response = await fetch('/api/state');
+async function mergeServerLibrary({ifChanged = false} = {}) {
+  const response = await fetch('/api/state',ifChanged ? {headers:{'If-None-Match':revision}} : {});
+  if (response.status === 304) return;
   if (!response.ok) throw Error(`Couldn't read the latest library (${response.status}).`);
   const etag = response.headers.get('etag');
   const generation = response.headers.get('x-story-studio-demo-generation');
@@ -363,10 +327,18 @@ function render() {
   list.replaceChildren();
   const demo = state.projects.find(story=>story.id === starterStoryId);
   const openStory = story => {
+    if (settingsDraftChanged() && story.id !== current().id) {
+      $('#sidebar').close();
+      showStoryView('graph');
+      error('Save or discard your graph changes before switching stories.');
+      return;
+    }
     state.activeId = story.id;
+    const url = new URL(location.href);
+    url.searchParams.set('story',story.id);
+    history.replaceState(null,'',url);
     markDirty();
     error();
-    showStoryView('write');
     render();
     $('#sidebar').close();
   };
@@ -398,6 +370,7 @@ function render() {
   }
   if (yours.childElementCount === 1) yours.append(el('p','form-note','Start with a premise or import a manuscript from New story.'));
   list.append(yours);
+  if (storyView === 'graph' && !settingsDraftChanged()) loadSettings();
   renderMessages();
 }
 const storyActions = $('#storyActions');
@@ -519,7 +492,6 @@ $('#branchTurn').onclick = () => {
   for (let n = 2; names.has(label); n++) label = title + ' (' + n + ')';
   branch.id = id();
   branch.title = label;
-  setSession(routeKey(branch.id),writingRoute(project));
   setSession(modelKey(branch.id),writingModel(project));
   state.projects.unshift(branch);
   state.activeId = branch.id;
@@ -555,7 +527,7 @@ function attributedSpeaker(message) {
 
 function pairedReply(project, directionIndex) {
   const reply = project.messages[directionIndex + 1];
-  return project.messages[directionIndex]?.role === 'user' && reply?.role === 'assistant' ? reply : undefined;
+  return project.messages[directionIndex]?.role === 'user' && reply?.role === 'assistant' && !reply.standalone ? reply : undefined;
 }
 
 function turnPreview(text) {
@@ -582,7 +554,9 @@ function* storyTurns(project) {
     const preview = reply && !replyReason ? reply.content : !messageReason ? message.content : '';
     yield {
       selection:{kind:'turn',turn:message.turnNumber || index + 1,...(reply ? {replyTurn:reply.turnNumber || index + 2} : {})},
+      authorOnly:message.role === 'user' && !reply,
       time:timelineTime(message,reply), detail:turnPreview(preview), reason:messageReason || replyReason,
+      replyPreview:reply && !replyReason ? reply.content : '', replyReason,
       startsChapter:message.startsChapter || reply?.startsChapter, preview
     };
     if (reply) index++;
@@ -679,9 +653,14 @@ function renderStoryTurns(project, followLatest, match) {
   outlineScenes = new Map();
   let chapter = 0;
   for (const scene of storyTurns(project)) {
-    const {selection:{turn},detail,reason,startsChapter} = scene;
+    if (!showDirections && scene.authorOnly) continue;
+    const {selection,startsChapter} = scene;
+    const turn = !showDirections && selection.replyTurn ? selection.replyTurn : selection.turn;
+    const onlyProse = !showDirections && Boolean(selection.replyTurn);
+    const detail = onlyProse ? turnPreview(scene.replyPreview) : scene.detail;
+    const reason = onlyProse ? scene.replyReason : scene.reason;
     if (!chapter || startsChapter) fragment.append(el('h3','outline-chapter',`Chapter ${++chapter}`));
-    outlineScenes.set(turn,{...scene,chapter});
+    outlineScenes.set(turn,{...scene,selection:{...selection,turn},chapter,preview:onlyProse ? scene.replyPreview : scene.preview});
     const button = el('button','graph-turn');
     button.type = 'button';
     button.dataset.turnLink = turn;
@@ -719,8 +698,22 @@ const bookFirst = $('#bookFirst');
 const bookLast = $('#bookLast');
 const bookPositions = new Map();
 const spreadPositions = new Map();
-const storyViews = [['write','writeTab','writeView'],['book','bookTab','bookView'],['names','displayNamesTab','displayNamesView']];
+const storyViews = [['write','writeTab','writeView'],['book','bookTab','bookView'],['graph','graphTab','graphView'],['names','displayNamesTab','displayNamesView']];
 let bookStoryId, chapters = [], storyView = 'write', writeNeedsRender = false;
+let showDirections = getSession('studio-show-directions') === 'true';
+let showComposer = getSession('studio-hide-composer') !== 'true';
+
+$('#toggleDirections').onclick = event => {
+  showDirections = !showDirections;
+  setSession('studio-show-directions',showDirections ? 'true' : '');
+  event.currentTarget.setAttribute('aria-pressed',String(showDirections));
+  renderMessages();
+};
+$('#toggleComposer').onclick = () => {
+  showComposer = !showComposer;
+  setSession('studio-hide-composer',showComposer ? '' : 'true');
+  syncRoute();
+};
 let bookSpreadWanted = false, spreadCount = 1;
 
 function goToSpread(index) {
@@ -873,6 +866,10 @@ function showStoryView(view) {
     $(`#${panel}`).hidden = !selected;
   }
   $('#toggleStoryTurns').hidden = view !== 'write';
+  const url = new URL(location.href);
+  url.searchParams.set('view',view);
+  history.replaceState(null,'',url);
+  if (view === 'graph' && !settingsDraftChanged()) loadSettings();
   if (view === 'book') renderBook();
   else if (view === 'names') renderDisplayNames();
   else if (writeNeedsRender) renderMessages();
@@ -958,7 +955,7 @@ function renderMessages() {
   if (storyView !== 'write') {
     writeNeedsRender = true;
     if (storyView === 'book') renderBook();
-    else renderDisplayNames();
+    else if (storyView === 'names') renderDisplayNames();
     return;
   }
   writeNeedsRender = false;
@@ -992,6 +989,7 @@ function renderMessages() {
   project.messages.forEach((message,index) => {
     const fromAuthor = message.role === 'user';
     if (fromAuthor) previousDirection = message;
+    if (fromAuthor && !showDirections && !composerEdit?.canRegenerate) return;
     const omittedFromMcp = mcpOmissionReason(message,previousDirection);
     const turn = message.turnNumber || index + 1;
     const row = el('article','message ' + (fromAuthor ? 'user' : 'assistant'));
@@ -1098,7 +1096,7 @@ function closeComposerEdit() {
   $('#instruction').focus();
 }
 
-function saveComposerEdit() {
+function saveComposerEdit(rewrite = false) {
   const project = current();
   const {turnNumber, original, storyId, verified} = composerEdit;
   const message = project.messages.find(turn => turn.turnNumber === turnNumber);
@@ -1114,6 +1112,7 @@ function saveComposerEdit() {
   }
   const changed = input.value !== original;
   if (changed || verified && message.contentSensitivity !== 'reviewed-safe') {
+    if (changed || verified) delete project.storyFlow;
     message.content = input.value;
     if (changed) delete message.continuityPending;
     if (verified) setSensitivity(message,'reviewed-safe');
@@ -1125,10 +1124,9 @@ function saveComposerEdit() {
     markDirty(project);
     if (cancelsRequest) void save();
   }
-  const regenerate = composerEdit.canRegenerate && writingRoute(project) !== 'manual';
   error();
   closeComposerEdit();
-  return regenerate ? message : undefined;
+  return rewrite ? message : undefined;
 }
 
 function selectAlternative(message, index) {
@@ -1140,43 +1138,13 @@ function selectAlternative(message, index) {
   markDirty();
   renderMessages();
 }
-// What the writer should know about MCP for this story: a status line, and
-// a placeholder turn while a queued turn waits for or is being written by an agent.
-function mcpStatus(project) {
-  const queue = queuedTurn(project).request;
-  const watcher = agentActivity.find(agent => agent.state === 'watching');
-  if (queue) {
-    const writer = agentActivity.find(agent => agent.state === 'writing' && agent.storyId === project.id && agent.turnNumber === queue.turnNumber);
-    if (writer) return {
-      line:`${writer.client} is writing…`,
-      pending:{state:'Writing via MCP', active:true}
-    };
-    if (watcher) return {
-      line:`Queued · ${watcher.client} is watching`,
-      pending:{state:'Queued for MCP', active:true}
-    };
-    return {
-      line:'Queued · ask your agent to write the queued turn.',
-      pending:{state:'Waiting for an agent', active:false}
-    };
-  }
-  if (project.agentRequest) return {line:'The queued turn no longer matches the story, so no agent will write it. Queue a new turn when you are ready.'};
-  if (project.agentNotice) return {line:'Your agent did not write the last turn: ' + project.agentNotice.message
-    + (project.agentNotice.mode === 'replace' ? ' Click Edit on the author direction to try another rewrite.'
-      : project.messages.at(-1)?.role === 'user' && !isAvailableToMcp(project.messages.at(-1))
-      ? ' To write it, switch to OpenRouter and click Send & write with an empty box.'
-      : ' To try again, click Queue turn with an empty box.')};
-  return {line:''};
-}
 function renderPending() {
   if (storyView !== 'write') return;
   const box = $('#messages');
   $('#pendingTurn')?.remove();
   const project = current();
   if (!project) return;
-  const pending = generatingFor?.projectId === project.id
-    ? {state:'Writing', active:true}
-    : mcpStatus(project).pending;
+  const pending = generatingFor?.projectId === project.id ? {state:'Writing', active:true} : null;
   if (!pending) return;
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
   const row = el('article', 'message assistant pending'), body = el('div', 'message-body');
@@ -1186,75 +1154,163 @@ function renderPending() {
   box.append(row);
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
-function agentEditStatus(project) {
-  if (project.agentEditRequest) {
-    const editor = agentActivity.find(agent => agent.state === 'writing' && agent.storyId === project.id && agent.speaker === 'Editor');
-    return editor ? `${editor.client} is editing metadata…` : 'Metadata edit queued for MCP.';
-  }
-  return project.agentEditNotice?.message || 'Ask for changes to the world, character profiles, or notes.';
-}
-
 function syncRoute() {
   const project = current();
   const mode = authorMode(project);
   const editingStory = mode === 'agent';
-  const route = writingRoute(project,mode);
   const model = writingModel(project,mode);
-  const rewriting = composerEdit?.canRegenerate && route !== 'manual';
+  const rewriting = composerEdit?.canRegenerate && Boolean(model && openRouterKey);
+  const composerVisible = showComposer || Boolean(composerEdit);
+  $('#writingComposer').hidden = !composerVisible;
+  $('#toggleComposer').setAttribute('aria-expanded',String(composerVisible));
+  $('#toggleComposer').textContent = composerVisible ? 'Hide composer' : 'Show composer';
+  $('#toggleComposer').disabled = Boolean(composerEdit);
+  $('#toggleDirections').setAttribute('aria-pressed',String(showDirections));
   $('#authorMode').value = mode;
+  $('#routeModels').classList.toggle('editor-route',editingStory);
+  $('#routeModels').hidden = Boolean(composerEdit && !rewriting);
   $('#sensitiveSceneLabel').hidden = editingStory || Boolean(composerEdit && !rewriting);
   $('#sensitiveScene').checked = sensitiveDraft(project);
   $('#sensitiveScene').disabled = busy;
   $('#authorMode').disabled = busy || Boolean(composerEdit);
-  $('#sceneProviderLabel').textContent = editingStory ? 'Edit with' : 'Write with';
-  $('#manualWriteOption').hidden = editingStory;
-  $('#manualWriteOption').disabled = editingStory;
-  $('#sceneProvider').value = route;
-  const usesOpenRouter = route === 'openrouter';
-  $('#sceneModelControl').hidden = !usesOpenRouter;
-  $('#composerWatcherStatus').hidden = route !== 'mcp';
+  modePicker.sync();
+  $('#sceneModelControl').hidden = Boolean(composerEdit && !rewriting);
   sceneModelChoice.disabled = busy || Boolean(composerEdit);
   syncSceneModel(model,mode);
-  $('#routeSummary').textContent = !editingStory && project.agentEditRequest ? 'A metadata edit is queued. Open Editor agent to manage it.'
-    : !editingStory && sensitiveDraft(project) && route !== 'manual' && (!usesOpenRouter || !canWriteSensitive(model))
-      ? 'Choose Cydonia to generate a sensitive scene.'
-    : composerEdit ? '' : usesOpenRouter
-    ? !openRouterKey ? 'Add an API key in Connection' : !model ? 'Pick a model' : editingStory ? agentEditStatus(project) : ''
-    : editingStory ? agentEditStatus(project)
-    : route === 'manual' ? 'No model calls' : mcpStatus(project).line;
-  $('#sceneProvider').disabled = busy || Boolean(composerEdit);
+  $('#sceneModelLabel').textContent = editingStory ? 'Editor model' : 'Writer';
+  $('#continuityModelControl').hidden = editingStory || Boolean(composerEdit && !rewriting);
+  continuityModelChoice.disabled = busy;
+  syncContinuityModel(project);
+  $('#routeSummary').textContent = composerEdit ? ''
+    : !editingStory && sensitiveDraft(project) && model && !canWriteSensitive(model) ? 'Choose an NSFW-friendly writer.'
+    : !openRouterKey ? 'Add your API key in Connection.'
+    : editingStory ? project.agentEditNotice?.message || '' : '';
   $('#providerButton').disabled = busy || Boolean(composerEdit);
+  $('#pasteReply').disabled = busy || Boolean(composerEdit);
   $('#composerEditStatus').hidden = !composerEdit;
   $('#composerEditStatus').textContent = composerEdit ? `Editing turn ${composerEdit.turnNumber}` : '';
   $('#verifyComposerEditLabel').hidden = !composerEdit;
   $('#verifyComposerEdit').checked = Boolean(composerEdit?.verified);
   $('#instructionLabel').textContent = composerEdit ? 'Edit turn text' : editingStory ? 'What story information should change?' : 'What happens next?';
   $('#instruction').placeholder = editingStory ? 'Add world information or revise a character profile…' : 'Write the next beat or tell the narrator what happens…';
-  $('#pasteReply').hidden = Boolean(composerEdit) || editingStory;
-  $('#cancelAgentEdit').hidden = !editingStory || !project.agentEditRequest;
   $('#cancelComposerEdit').hidden = !composerEdit;
+  $('#saveComposerOnly').hidden = !rewriting;
   $('#composeShortcut').textContent = rewriting ? '⌘/Ctrl + Enter to rewrite'
     : composerEdit ? '⌘/Ctrl + Enter to save' : '⌘/Ctrl + Enter to send';
-  $('#sendButton').disabled = busy || Boolean(project.agentEditRequest);
-  $('#sendButton').textContent = editingStory ? busy ? 'Editing…' : route === 'mcp' ? 'Queue edit' : 'Apply edits'
-    : busy ? 'Writing…'
-    : composerEdit && !rewriting ? 'Save edit'
-    : composerEdit ? (route === 'mcp' ? 'Save & queue rewrite' : 'Save & rewrite ↗')
-    : route === 'manual' ? 'Save turn' : route === 'mcp' ? 'Queue turn' : 'Send & write ↗';
+  $('#sendButton').disabled = busy;
+  $('#sendButton').textContent = editingStory ? busy ? 'Editing…' : 'Apply edits'
+    : busy ? 'Writing…' : composerEdit ? rewriting ? 'Save & rewrite ↗' : 'Save edit' : 'Send & write ↗';
+  syncStoryFlow(project,editingStory);
   updateContextIndicator();
 }
 function speakerMetadata(speaker) {
   return {speakerId:speaker.id, speakerName:speaker.name};
 }
 
-function openRouterSnapshot(project, messages, replyTime, sensitive) {
+function syncStoryFlow(project,editingStory) {
+  const flow = activeStoryFlow(project);
+  const native = flow?.source === 'mcp';
+  const dismissKey = 'story-flow-dismissed:' + project.id;
+  const expanded = native ? getSession(dismissKey) !== JSON.stringify(flow.options) : flowEnabled(project) && !editingStory;
+  const panel = $('#storyFlowPanel');
+  const toggle = $('#toggleStoryFlow');
+  toggle.hidden = editingStory && !native;
+  toggle.disabled = busy || Boolean(composerEdit);
+  toggle.setAttribute('aria-expanded',String(expanded && !composerEdit));
+  panel.hidden = !expanded || Boolean(composerEdit);
+  if (panel.hidden) return;
+  const request = $('#requestStoryFlow');
+  const options = $('#storyFlowOptions');
+  const status = $('#storyFlowStatus');
+  request.hidden = native;
+  request.disabled = busy;
+  request.textContent = flow ? 'New directions' : 'Suggest directions';
+  options.replaceChildren(...(flow?.options || []).map(({title,direction},index)=>{
+    const button = el('button','story-flow-choice');
+    button.type = 'button';
+    button.append(el('span','story-flow-title',title),el('span','story-flow-description',direction));
+    button.disabled = busy || flow.selected !== undefined;
+    if (flow.selected === index) button.setAttribute('aria-pressed','true');
+    button.onclick = () => void chooseStoryFlow(project,flow,index);
+    return button;
+  }));
+  status.textContent = flowNotice.get(project.id) || (native
+    ? flow.selected === undefined ? 'Pick a direction to send it to your agent.' : 'Direction selected. Return to your agent to continue.'
+    : '');
+  status.hidden = !status.textContent;
+}
+
+async function chooseStoryFlow(project,flow,index) {
+  if (busy || current() !== project || JSON.stringify(activeStoryFlow(project)) !== JSON.stringify(flow)) return;
+  const option = flow.options[index];
+  if (flow.source === 'mcp') {
+    project.storyFlow = {...flow,selected:index};
+    markDirty(project);
+    syncRoute();
+    await save();
+    if (dirty) {
+      flowNotice.set(project.id,'The direction could not be saved. Check the save notice and try again.');
+      syncRoute();
+    }
+    return;
+  }
+  const field = $('#instruction');
+  field.value = option.direction;
+  setSession(draftKey(project.id),option.direction);
+  await generate();
+}
+
+async function requestStoryFlow() {
+  if (!state || busy || composerEdit) return;
+  const project = current();
+  if (!openRouterKey) {
+    openConnection();
+    return error('Enter your OpenRouter key to suggest directions.');
+  }
+  const transcript = JSON.stringify(project.messages);
+  flowNotice.set(project.id,'Suggesting directions…');
+  setBusy(true);
+  try {
+    const {options} = await api('/api/story-flow',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({project:openRouterSnapshot(project,project.messages),key:openRouterKey,
+        agentModel:selectedContinuityModel(project),sensitive:sensitiveDraft(project)})
+    });
+    await mergeServerLibrary({ifChanged:true});
+    if (!state.projects.includes(project) || JSON.stringify(project.messages) !== transcript) {
+      throw Error('The story changed while the directions were prepared. Ask for new directions.');
+    }
+    if (!validStoryFlowOptions(options)) throw Error('The model did not return three or four distinct directions.');
+    project.storyFlow = {source:'openrouter',afterTurn:storyFlowTurn(project),options};
+    flowNotice.delete(project.id);
+    markDirty(project);
+    await save();
+  } catch (failure) {
+    flowNotice.set(project.id,failure.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+$('#toggleStoryFlow').onclick = () => {
+  const project = current();
+  const flow = activeStoryFlow(project);
+  if (flow?.source === 'mcp') {
+    const key = 'story-flow-dismissed:' + project.id;
+    setSession(key,$('#storyFlowPanel').hidden ? '' : JSON.stringify(flow.options));
+  } else setSession(flowKey(project.id),flowEnabled(project) ? '' : 'true');
+  syncRoute();
+};
+$('#requestStoryFlow').onclick = () => void requestStoryFlow();
+
+function openRouterSnapshot(project, messages, replyTime) {
   return {
     id:project.id,
     ...Object.fromEntries(settingsFields.map(key => [key,project[key] || ''])),
     storyStartAt:project.storyStartAt, storyStartSource:project.storyStartSource, graphUpdates:project.graphUpdates,
     cast:project.cast, relationships:project.relationships, replyTime,
     contextTime:lastStoryTime({...project,messages}),
-    messages:recentTurns(messages,recentTokenCap,{includeSensitive:sensitive})
+    messages, agentHistory:project.agentHistory, setupHistory:project.setupHistory
   };
 }
 
@@ -1265,26 +1321,18 @@ function setBusy(value) {
 }
 
 async function generateAgentEdit(project) {
-  if (project.agentEditRequest) return;
   const input = $('#instruction');
   const instruction = input.value.trim();
   if (!instruction) return input.focus();
-  if (countWords(instruction) > 20_000) return error('Agent requests can be up to 20,000 words.');
   error();
-  const provider = writingRoute(project,'agent');
   const model = writingModel(project,'agent');
   const key = openRouterKey;
-  if (provider === 'mcp') {
-    delete project.agentEditNotice;
-    project.agentEditRequest = {id:id(),instruction};
-    setSession(draftKey(project.id,'agent'),'');
-    markDirty(project);
-    return render();
-  }
   if (!model || !key) {
     openConnection();
     return error('Choose an Editor agent model and enter your OpenRouter key.');
   }
+  const budgetProblem = editorContext(project,instruction,model).problem;
+  if (budgetProblem) return error(budgetProblem);
   setBusy(true);
   try {
     await save();
@@ -1306,31 +1354,29 @@ async function generate() {
   if (busy || !state) return;
   const project = current();
   if (authorMode(project) === 'agent') return generateAgentEdit(project);
-  if (project.agentEditRequest) return;
-  const provider = writingRoute(project);
-  if (composerEdit && (!composerEdit.canRegenerate || provider === 'manual')) return saveComposerEdit();
   const model = writingModel(project);
   const key = openRouterKey;
+  if (composerEdit && (!composerEdit.canRegenerate || !model || !key)) return saveComposerEdit();
   const sensitive = sensitiveDraft(project);
-  if (sensitive && provider !== 'manual' && (provider !== 'openrouter' || !canWriteSensitive(model))) {
-    return error('Choose Cydonia to generate a sensitive scene.');
+  const agentModel = selectedContinuityModel(project);
+  if (sensitive && !canWriteSensitive(model)) {
+    return error('Choose an NSFW-friendly writer to generate a sensitive scene.');
   }
   const field = $('#instruction');
   const changedDirection = composerEdit?.canRegenerate && field.value !== composerEdit.original;
-  const inputProblem = writeInputProblem(field.value,provider === 'openrouter' ? model : '');
+  const inputProblem = promptForDraft().problem;
   if (inputProblem) {
     error(inputProblem);
     return field.focus();
   }
   const originalDirection = composerEdit?.canRegenerate && project.messages.find(turn=>turn.turnNumber === composerEdit.turnNumber);
-  if (originalDirection && provider !== 'manual' && (originalDirection.excludeFromContext ||
+  if (originalDirection && (originalDirection.excludeFromContext ||
     (!sensitive && !composerEdit.verified && !isAvailableToMcp(originalDirection)))) {
     return error('This direction is withheld from the selected model. Verify the edited text as non-explicit if it is eligible.');
   }
-  if (composerEdit?.canRegenerate && provider === 'openrouter' && (!model || !key)) return openConnection();
   let editedTurn;
   if (composerEdit) {
-    editedTurn = saveComposerEdit();
+    editedTurn = saveComposerEdit(true);
     if (!editedTurn) return;
   }
   const input = $('#instruction');
@@ -1338,46 +1384,31 @@ async function generate() {
   // An empty composer answers a writer turn that has no reply yet, such as
   // after a failed request or a turn an agent handed back.
   const lastTurn = project.messages.at(-1);
-  const authorTurn = editedTurn ?? (!direction && provider !== 'manual' && lastTurn?.role === 'user' && !lastTurn.excludeFromContext ? lastTurn : undefined);
+  const authorTurn = editedTurn ?? (!direction && lastTurn?.role === 'user' && !lastTurn.excludeFromContext ? lastTurn : undefined);
   const answering = Boolean(authorTurn);
   const directionIndex = answering ? project.messages.indexOf(authorTurn) : project.messages.length;
   const replacement = editedTurn ? pairedReply(project,directionIndex) : undefined;
   if (!direction && !answering) return input.focus();
   error();
-  const resumedProblem = authorTurn && writeInputProblem(authorTurn.content,provider === 'openrouter' ? model : '');
-  if (resumedProblem) return error(resumedProblem);
-  if (authorTurn?.excludeFromContext || (provider !== 'manual' && !sensitive && authorTurn
+  if (authorTurn?.excludeFromContext || (!sensitive && authorTurn
     && (authorTurn.contentSensitivity === 'explicit' || (!changedDirection && !isAvailableToMcp(authorTurn))))) {
     error('This direction is outside the selected model’s context. Check its label in ⋯ → Time and context.');
     return;
   }
-  if (provider === 'openrouter' && (!model || !key)) {
+  if (!model || !key) {
     openConnection();
     error('Enter your OpenRouter key and choose a model, then send again.');
     return;
   }
 
-  // Any new request replaces an earlier queue and notice; MCP sets a new queue below.
   delete project.agentNotice;
   delete project.agentRequest;
-  if (answering && provider === 'mcp') {
-    if (changedDirection && authorTurn.contentSensitivity === 'unclassified') delete authorTurn.contentSensitivity;
-    project.agentRequest = {mode:replacement ? 'replace' : 'send',speakerId:narrator.id,turnNumber:authorTurn.turnNumber,
-      ...(replacement ? {replyTurnNumber:replacement.turnNumber} : {})};
-    markDirty();
-    return render();
-  }
   if (!answering) {
-    const turnNumber = appendTurn(project, {role:'user', content:direction, ...(sensitive ? {contentSensitivity:'explicit'} : provider === 'openrouter' ? {contentSensitivity:'unclassified'} : {})});
+    appendTurn(project,{role:'user',content:direction,contentSensitivity:sensitive ? 'explicit' : 'unclassified'});
     input.value = '';
     showLatestStoryTurn();
-    setSession(draftKey(project.id), '');
-    if (provider === 'mcp') project.agentRequest = {mode:'send',speakerId:narrator.id,turnNumber};
+    setSession(draftKey(project.id),'');
     markDirty();
-    if (provider !== 'openrouter') {
-      setSession(sensitiveKey(project.id),'');
-      return render();
-    }
   }
   if (answering && (sensitive || !['explicit','reviewed-safe'].includes(authorTurn.contentSensitivity))) {
     setSensitivity(authorTurn,sensitive ? 'explicit' : 'unclassified');
@@ -1394,21 +1425,23 @@ async function generate() {
     }
     const contextProject = replacement ? storyAtTurn(project,directionIndex) : project;
     const history = project.messages.slice(0,directionIndex);
-    const snapshot = openRouterSnapshot(contextProject,history,replacement?.storyTime ?? authorTurn?.storyTime,sensitive);
+    const snapshot = openRouterSnapshot(contextProject,history,replacement?.storyTime ?? authorTurn?.storyTime);
     const response = await api('/api/generate', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        project:snapshot, instruction:authorTurn?.content ?? direction, provider, model, key, sensitive,
+        project:snapshot, instruction:authorTurn?.content ?? direction, provider:'openrouter', model, agentModel, key, sensitive,
+        flow:flowEnabled(project),
         mode:replacement ? 'replace' : 'send'
       })
     });
     const {text} = response;
     setSession(sensitiveKey(project.id),'');
+    await mergeServerLibrary({ifChanged:true});
     if (!text?.trim()) throw Error('The co-writer returned an empty response.');
     const target = state.projects.find(item => item.id === project.id);
     if (!target || JSON.stringify(target.messages) !== originalHistory) {
-      throw Error('The scene changed while writing. Try again from the updated scene.');
+      throw Error('The story changed while writing. Try again from the updated scene.');
     }
     const savedDirection = target.messages[directionIndex];
     if (savedDirection.contentSensitivity !== 'explicit'
@@ -1427,15 +1460,21 @@ async function generate() {
       if (!reply.selectedAlternative) delete reply.firstTakeSuggestions;
     }
     const suggestions = target.graphUpdates === false ? [] : graphSuggestions(response.suggestions);
-    const contextChanged = JSON.stringify(openRouterSnapshot(target,history,snapshot.replyTime,sensitive)) !== JSON.stringify(snapshot);
+    const contextChanged = JSON.stringify(openRouterSnapshot(target,history,snapshot.replyTime)) !== JSON.stringify(snapshot);
     if (!replacement) appendTurn(target, {role:'assistant', content:prose, ...speakerMetadata(narrator),
       contentSensitivity:validSensitivity(response.reply) ? response.reply : 'unclassified',
       storyTime:recordStoryTime(target,response.storyTime)});
     if (!replacement) dateWriterTurn(target);
     if (!replacement) applyTurnGraphUpdates(target,target.messages.at(-1),suggestions,{
       allowAutomatic:!contextChanged && isAvailableToMcp(savedDirection) && response.input === 'safe' && response.reply === 'safe'
-        && !(target.id === current().id && $('#settingsDialog').open)
+        && !(target.id === current().id && settingsDraftChanged())
     });
+    if (validStoryFlowOptions(response.flowOptions)) {
+      target.storyFlow = {source:'openrouter',afterTurn:storyFlowTurn(target),options:response.flowOptions};
+      flowNotice.delete(target.id);
+    } else if (response.flowUnavailable) {
+      flowNotice.set(target.id,'The scene was saved. Use Suggest directions to try again.');
+    }
     markDirty(target);
     if (current().id !== project.id) return;
     if (response.truncated) {
@@ -1443,7 +1482,7 @@ async function generate() {
       error('This reply reached Story Studio’s output limit and may end mid-scene.' +
         (unverified ? ' Any unverified text stays outside general AI context until you check its label in ⋯ → Time and context.' : ''));
     } else if (response.metadataFailed) {
-      error('Your draft is in the story. DeepSeek could not verify its labels or suggest map updates. Check the labels in ⋯ → Time and context before using this turn with a general model.');
+      error('Your draft is in the story. The selected continuity agent could not verify its labels or suggest map updates. Check the labels in ⋯ → Time and context before using this turn with a general model.');
     }
   } catch (e) {
     if (current().id === project.id) {
@@ -1622,12 +1661,11 @@ function refreshCastGraph() {
   empty.hidden = editors.length !== 0;
   graph.hidden = editors.length === 0;
   $('.graph-key').hidden = editors.length === 0;
-  $('#addCharacter').disabled = editors.length >= maxCastMembers;
   $('#connectCharacters').disabled = editors.length < 2;
   updateGraphSelection();
 }
 narrowGraph.onchange = shortGraph.onchange = () => {
-  if ($('#settingsDialog').open) refreshCastGraph();
+  if (storyView === 'graph') refreshCastGraph();
 };
 
 const timeLabel = time => time ? time.replace('T',' ') : 'Undated';
@@ -1652,7 +1690,12 @@ function renderGraphTurns() {
     entries.push({time, label:edges.length === 1 ? `${nameOf(first.from)} → ${nameOf(first.to)}` : 'Relationship events',
       detail:edges.length === 1 ? turnPreview(first.label) : countEvents(edges.length), selection:{kind:'moment',time}});
   }
-  for (const turn of storyTurns(current())) entries.push({...turn,label:eventTime(turn.selection.turn)});
+  for (const entry of storyTurns(current())) {
+    if (entry.authorOnly && !showDirections) continue;
+    const onlyProse = !showDirections && Boolean(entry.selection.replyTurn);
+    entries.push({...entry,label:eventTime(onlyProse ? entry.selection.replyTurn : entry.selection.turn),
+      ...(onlyProse ? {detail:turnPreview(entry.replyPreview),reason:entry.replyReason} : {})});
+  }
   entries.sort((a,b) => Number(!a.time) - Number(!b.time) || a.time.localeCompare(b.time)
     || (a.selection.turn ?? Infinity) - (b.selection.turn ?? Infinity));
   const rail = $('#graphTurns');
@@ -1749,7 +1792,7 @@ function appendTurnGraphChanges(preview, selection, edges) {
   for (const note of notes) {
     const label = note.kind === 'character' ? 'Character added · ' + note.name
       : note.kind === 'profile' ? 'Profile updated · ' + note.name
-      : note.kind === 'world' ? 'World setting' : 'Story memory';
+      : note.kind === 'world' ? 'World setting' : note.kind === 'writing' ? 'Writing notes' : 'Story memory';
     const row = el('div','relationship-row');
     row.append(el('strong','',label),el('p','relationship-copy',note.note));
     preview.append(row);
@@ -1803,8 +1846,10 @@ function renderInspector() {
     const edges = draftRelationships.filter(edge => matchesTimeline(edge,selection));
     if (message) {
       preview.replaceChildren();
-      if (reply) preview.append(timelineText(message,'Direction',message,time),
-        timelineText(reply,attributedSpeaker(reply) || 'Prose',message,time));
+      if (reply) {
+        if (showDirections) preview.append(timelineText(message,'Direction',message,time));
+        preview.append(timelineText(reply,attributedSpeaker(reply) || 'Prose',message,time));
+      }
       else preview.append(el('p','inspector-copy',message.content));
       appendTurnGraphChanges(preview,selection,edges);
       preview.hidden = false;
@@ -1974,11 +2019,8 @@ $('#storeRelationship').onclick = () => {
     Object.assign(edge,{label,storyTime});
     estimatedEdgeDates.delete(edge);
   }
-  else if (draftRelationships.length < maxGraphEvents) {
+  else {
     draftRelationships.push({from,to,label,turn,storyTime});
-  } else {
-    $('#graphStatus').textContent = 'This map has reached its event limit.';
-    return;
   }
   clearConnection();
   refreshCastGraph();
@@ -2013,7 +2055,6 @@ function reviewSuggestion(item) {
   let applied = true;
   if (suggestion.kind === 'character') {
     if (resolveName(suggestion.name)) return 'That character already exists.';
-    if (castEditors().length >= maxCastMembers) return 'The cast is full.';
     addCastEditor({id:id(),name:suggestion.name,description:suggestion.note});
   } else if (suggestion.kind === 'profile') {
     const id = resolveName(suggestion.name);
@@ -2031,13 +2072,12 @@ function reviewSuggestion(item) {
   } else if (suggestion.kind === 'relationship') {
     const from = resolveName(suggestion.from), to = resolveName(suggestion.to);
     if (!from || !to || from === to) return 'Add both characters with distinct names first.';
-    if (draftRelationships.length >= maxGraphEvents) return 'The map has reached its event limit.';
     if (!draftRelationships.some(edge => edge.from === from && edge.to === to && edge.label === suggestion.label && edge.turn === item.turnNumber)) {
       const storyTime = suggestion.storyTime || relationshipTime(current(),{turn:item.turnNumber},draftStartAt);
       draftRelationships.push({from,to,label:suggestion.label,turn:item.turnNumber,storyTime});
     }
   } else {
-    const input = $('#settingsForm').elements.continuity;
+    const input = $('#settingsForm').elements[suggestion.kind === 'writing' ? 'notes' : 'continuity'];
     const next = addDatedFact(input.value,suggestion.note,item.turnNumber);
     applied = next !== input.value;
     input.value = next;
@@ -2061,7 +2101,7 @@ function renderGraphReview() {
   container.append(el('h3','','Review map updates'), el('p','form-note','Keep only non-explicit facts you want future models to see.'));
   for (const item of pending) {
     const {suggestion} = item;
-    const text = suggestion.kind === 'fact' ? suggestion.note : suggestion.kind === 'world' ? 'World: ' + suggestion.note
+    const text = suggestion.kind === 'writing' ? 'Writing notes: ' + suggestion.note : suggestion.kind === 'fact' ? suggestion.note : suggestion.kind === 'world' ? 'World: ' + suggestion.note
       : ['character','profile'].includes(suggestion.kind) ? suggestion.name + ': ' + suggestion.note : suggestion.from + ' → ' + suggestion.to + ': ' + suggestion.label;
     const row = el('div','graph-suggestion', `Turn ${item.turnNumber} · ${text}`);
     const add = el('button','text-button','Keep');
@@ -2090,9 +2130,28 @@ function setDraftStart(time) {
 $('#storyStartAt').onchange = event => setDraftStart(event.target.value);
 $('#storyStartAt').oninput = event => event.target.setCustomValidity('');
 
+let settingsStoryId, settingsBaseline;
+function settingsSnapshot() {
+  const form = $('#settingsForm');
+  return JSON.stringify([
+    settingsFields.map(key=>form.elements[key].value),
+    readCast(), draftRelationships, $('#storyStartAt').value,
+    $('#graphUpdates').checked, pendingGraphReview.map(({status})=>status)
+  ]);
+}
+function settingsDraftChanged() {
+  return Boolean(settingsBaseline && settingsStoryId === current()?.id &&
+    (editingRelationship || settingsSnapshot() !== settingsBaseline));
+}
 function openSettings(initialTab = $('#castTab')) {
   if (!state) return;
+  showStoryView('graph');
+  selectSettingsTab(initialTab,true);
+}
+function loadSettings(initialTab = $('#settingsForm [role="tab"][aria-selected="true"]'), restore = true) {
   const project = current();
+  const previousSelection = restore && settingsStoryId === project.id ? pinnedGraph : null;
+  settingsStoryId = project.id;
   const form = $('#settingsForm');
   for (const key of settingsFields) {
     form.elements[key].value = project[key] || '';
@@ -2124,8 +2183,12 @@ function openSettings(initialTab = $('#castTab')) {
   renderGraphTurns();
   renderGraphReview();
   selectSettingsTab(initialTab);
-  $('#settingsDialog').showModal();
-  initialTab.focus();
+  if (previousSelection) {
+    if (previousSelection.kind === 'character' && castEditors().some(editor=>editor.dataset.id === previousSelection.id)) {
+      selectCastEditor(previousSelection.id);
+    } else if (previousSelection.kind !== 'character') pinGraph(previousSelection);
+  }
+  settingsBaseline = settingsSnapshot();
 }
 function addCastEditor(character) {
   const card = el('fieldset', 'cast-card');
@@ -2139,7 +2202,6 @@ function addCastEditor(character) {
     input.value = character[field] || '';
     input.dataset.field = field;
     if (field === 'name' || field === 'nickname') {
-      input.maxLength = 100;
       input.oninput = () => { input.setCustomValidity(''); refreshEditorName(card); };
     } else {
       input.rows = field === 'personality' ? 2 : 4;
@@ -2168,7 +2230,6 @@ function addCastEditor(character) {
   return card;
 }
 $('#addCharacter').onclick = () => {
-  if (castEditors().length >= maxCastMembers) return;
   const card = addCastEditor({id:id()});
   refreshCastGraph();
   selectCastEditor(card.dataset.id,true);
@@ -2180,13 +2241,6 @@ function readCast() {
     ...Object.fromEntries([...card.querySelectorAll('[data-field]')].map(input =>
       [input.dataset.field, input.value.trim()]))
   }));
-}
-
-function checkLongField(field, previous = '') {
-  const text = field.value.trim();
-  const valid = text === previous.trim() || withinStoryFieldLimit(text);
-  field.setCustomValidity(valid ? '' : `Use up to ${maxStoryFieldWords.toLocaleString()} words in this field.`);
-  return valid;
 }
 
 let editingSensitivity;
@@ -2212,11 +2266,35 @@ function openTurnDetails(index) {
   showEditSensitivity(sensitivity,heldForReview);
   $('#editDialog').showModal();
 }
-function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');p = migrateLegacyCast({...p});if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() && countWords(p.agentEditRequest.instruction)<=20_000 ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentEditNotice && typeof p.agentEditNotice.message==='string' ? {agentEditNotice:{message:p.agentEditNotice.message.slice(0,300)}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(storyTextFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.continuityPending===true)result.continuityPending=true;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
-if(m.role==='assistant'&&m.startsChapter===true)result.startsChapter=true;if(m.role==='assistant'&&typeof m.sourcePrefix==='string')result.sourcePrefix=m.sourcePrefix;if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})};});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
+function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');p = migrateLegacyCast({...p});if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentHistory?{agentHistory:normalizeAgentHistory(p.agentHistory)}:{}),...(normalizeSetupHistory(p.setupHistory)?{setupHistory:normalizeSetupHistory(p.setupHistory)}:{}),...(normalizeStoryFlow(p.storyFlow)?{storyFlow:normalizeStoryFlow(p.storyFlow)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentEditNotice && typeof p.agentEditNotice.message==='string' ? {agentEditNotice:{message:p.agentEditNotice.message.slice(0,300)}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(storyTextFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.continuityPending===true)result.continuityPending=true;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
+if(m.role==='assistant'&&m.standalone===true)result.standalone=true;if(m.role==='assistant'&&m.startsChapter===true)result.startsChapter=true;if(m.role==='assistant'&&typeof m.sourcePrefix==='string')result.sourcePrefix=m.sourcePrefix;if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})};});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 
 const modelChoice = $('#modelPreset');
 const sceneModelChoice = $('#sceneModel');
+const continuityModelChoice = $('#continuityModel');
+const modePicker = enhanceSelect($('#authorMode'));
+const sceneModelPicker = enhanceSelect(sceneModelChoice);
+const continuityModelPicker = enhanceSelect(continuityModelChoice);
+const connectionPicker = enhanceSelect(modelChoice);
+let continuitySensitive;
+function syncContinuityModel(project) {
+  const sensitive = sensitiveDraft(project);
+  if (sensitive !== continuitySensitive) {
+    continuitySensitive = sensitive;
+    continuityModelChoice.replaceChildren(...models.filter(model=>isContinuityModel(model.id,sensitive))
+      .map(model=>presetOption(model,'agent')));
+  }
+  continuityModelChoice.value = selectedContinuityModel(project);
+  continuityModelPicker.sync();
+}
+continuityModelChoice.onchange = () => {
+  const project = current();
+  const sensitive = sensitiveDraft(project);
+  if (isContinuityModel(continuityModelChoice.value,sensitive)) {
+    setSession(continuityKey(project.id,sensitive),continuityModelChoice.value);
+  }
+  syncRoute();
+};
 const userModelsKey = 'story-studio-user-openrouter-models';
 const isPreset = id => models.some(model => model.id === id);
 function readUserModels() {
@@ -2249,16 +2327,30 @@ window.addEventListener('storage', event => {
     syncRoute();
   }
 });
+function presetOption(model,mode,priced = false) {
+  const name = modelLabel(model,{agent:mode === 'agent'});
+  const cost = priced && mode === 'story' ? chapterCost(model) : undefined;
+  const detail = cost === undefined ? '' : `~$${cost.toFixed(5)} / chapter`;
+  const option = new Option([name,detail].filter(Boolean).join(' · '),model.id);
+  option.dataset.name = model.name;
+  const tag = mode === 'agent' ? model.tier : model.sensitiveWriter ? 'NSFW-friendly' : '';
+  if (tag) option.dataset.tag = tag;
+  if (detail) option.dataset.detail = detail;
+  return option;
+}
+
 function modelOptions(mode, {priced = false, addModel = false} = {}) {
   const placeholder = new Option('Pick a model','');
   placeholder.disabled = true;
-  const list = models.filter(model => mode !== 'agent' || isAgentModel(model.id)).map(model => {
-    const name = mode === 'agent' ? model.name : modelLabel(model);
-    const label = priced && mode === 'story' ? `${name} · ~$${chapterCost(model).toFixed(5)} / chapter` : name;
-    return new Option(label,model.id);
-  });
+  const list = models.filter(model => mode === 'agent' ? isAgentModel(model.id) : isWriterModel(model.id))
+    .map(model=>presetOption(model,mode,priced));
   if (mode !== 'agent') {
-    list.push(...userModels.map(id=>new Option(id + ' · User-added',id)));
+    for (const id of userModels) {
+      const option = new Option(id + ' · User-added',id);
+      option.dataset.name = id;
+      option.dataset.tag = 'User-added';
+      list.push(option);
+    }
     if (addModel) list.push(new Option('Add model by ID…','custom'));
   }
   return [placeholder,...list];
@@ -2270,6 +2362,7 @@ function syncSceneModel(model,mode) {
     sceneModelOptionsKey = optionsKey;
   }
   sceneModelChoice.value = model;
+  sceneModelPicker.sync();
 }
 sceneModelChoice.onchange = () => {
   if (busy || !state) return;
@@ -2279,7 +2372,7 @@ sceneModelChoice.onchange = () => {
     syncRoute();
     return openConnection(true);
   }
-  if (mode === 'agent' ? !isAgentModel(model) : !isModelId(model)) return;
+  if (mode === 'agent' ? !isAgentModel(model) : !isWriterModel(model)) return;
   setSession(modelKey(current().id,mode),model);
   syncRoute();
 };
@@ -2290,8 +2383,8 @@ function showModelPrice() {
   const model = models.find(item => item.id === modelChoice.value);
   $('#customModel').hidden = modelChoice.value !== 'custom';
   $('#removeUserModel').hidden = !userModels.includes(modelChoice.value);
-  $('#modelPrice').hidden = !model;
-  if (!model) return;
+  $('#modelPrice').hidden = !model || chapterCost(model) === undefined;
+  if ($('#modelPrice').hidden) return;
   $('#modelEstimate').textContent = `~$${chapterCost(model).toFixed(5)} per chapter`;
   $('#modelRates').textContent = `$${tokenRateFormat.format(model.input)} input / $${tokenRateFormat.format(model.output)} output per million tokens`;
   $('#modelSource').href = 'https://openrouter.ai/' + model.id;
@@ -2303,18 +2396,16 @@ function openConnection(addModel = false) {
   if (!state || busy) return;
   const mode = authorMode(current());
   const model = writingModel(current(),mode);
-  const connectionRoute = $('#connectionRoute');
-  connectionRoute.querySelector('[value="manual"]').disabled = mode === 'agent';
-  connectionRoute.value = addModel === true ? 'openrouter' : writingRoute(current(),mode);
   modelChoice.replaceChildren(...modelOptions(mode,{priced:true,addModel:true}));
   modelChoice.value = addModel === true ? 'custom' : model;
+  connectionPicker.sync();
   $('#modelPolicy').textContent = mode === 'agent' ? 'These models can use the story-state editing tools.'
-    : 'Choose Cydonia for sensitive scenes. Other artists use general story context.';
+    : 'NSFW-friendly writers can use sensitive context when you enable Sensitive scene.';
   $('#modelEstimate').hidden = mode === 'agent';
   $('#modelChapterAssumption').hidden = mode === 'agent';
   $('#modelBilling').textContent = mode === 'agent'
     ? 'The selected model receives your request and the story metadata. OpenRouter bills that edit.'
-    : 'OpenRouter bills the artist and the DeepSeek continuity pass.';
+    : 'OpenRouter bills the writer and the selected continuity agent separately.';
   $('#modelInput').value = '';
   showModelPrice();
   $('#modelError').textContent = '';
@@ -2325,27 +2416,27 @@ function openConnection(addModel = false) {
 $('#providerButton').onclick = openConnection;
 $('#closeProvider').onclick = $('#cancelProvider').onclick = () => $('#providerDialog').close();
 providerDialog.addEventListener('close', () => {
+  connectionPicker.close?.();
   $('#keyInput').value = '';
 });
 $('#providerForm').onsubmit = event => {
   event.preventDefault();
   const project = current();
   const mode = authorMode(project);
-  const route = $('#connectionRoute').value;
   const custom = modelChoice.value === 'custom';
   const modelInput = $('#modelInput');
   const model = custom ? modelInput.value.trim().toLowerCase() : modelChoice.value;
-  if ((route === 'openrouter' || custom) && (mode === 'agent' ? !isAgentModel(model) : !isModelId(model))) {
+  if (mode === 'agent' ? !isAgentModel(model) : !isWriterModel(model)) {
     $('#modelError').textContent = mode === 'agent' ? 'Choose a model supported by Editor agent.' : custom
       ? 'Enter a specific model ID in author/model format.'
       : 'Choose an OpenRouter model.';
-    (custom ? modelInput : modelChoice).focus();
+    if (custom) modelInput.focus();
+    else connectionPicker.focus();
     return;
   }
   if (custom && !isPreset(model) && !userModels.includes(model)) saveUserModels([...userModels,model]);
   openRouterKey = $('#keyInput').value.trim();
   if (model) setSession(modelKey(project.id,mode),model);
-  setSession(routeKey(project.id,mode),route);
   syncRoute();
   renderMessages();
   $('#providerDialog').close();
@@ -2358,17 +2449,13 @@ $('#removeUserModel').onclick = () => {
   clearRemovedModelSelections();
   modelChoice.replaceChildren(...modelOptions('story',{priced:true,addModel:true}));
   modelChoice.value = '';
+  connectionPicker.sync();
   showModelPrice();
   syncRoute();
-  modelChoice.focus();
+  connectionPicker.focus();
 };
-$('#sceneProvider').onchange = event => {
-  setSession(routeKey(current().id,authorMode(current())), event.target.value);
-  syncRoute();
-  if (event.target.value === 'openrouter' && !openRouterKey) openConnection();
-  renderMessages();
-};
-$('#pasteReply').onclick=()=>{$('#pasteText').value='';$('#pasteDialog').showModal()};
+
+$('#pasteReply').onclick=()=>{$('#pasteForm').reset();$('#pasteDialog').showModal()};
 $('#closePaste').onclick=$('#cancelPaste').onclick=()=>$('#pasteDialog').close();
 $('#pasteForm').onsubmit=event=>{
   event.preventDefault();
@@ -2378,8 +2465,7 @@ $('#pasteForm').onsubmit=event=>{
   delete project.agentRequest;
   delete project.agentNotice;
   appendTurn(project,{role:'assistant',content:text,...speakerMetadata(narrator),
-    ...(sensitiveDraft(project) ? {contentSensitivity:'explicit'} : {})});
-  setSession(sensitiveKey(project.id),'');
+    standalone:true,contentSensitivity:$('#pasteSensitivity').value});
   markDirty();
   $('#pasteDialog').close();
   render();
@@ -2407,7 +2493,7 @@ cardInput.onchange = async () => {
     const fields = {name:'name', nickname:'nickname', description:'description', personality:'personality', scenario:'scenario', examples:'mes_example'};
     if (!Object.values(fields).some(key => typeof data[key] === 'string' && data[key].trim())) throw Error('No supported character fields found.');
     const editor = castEditors().find(item => item.dataset.id === characterId);
-    if (!editor || !$('#settingsDialog').open) return;
+    if (!editor || storyView !== 'graph') return;
     for (const [field, key] of Object.entries(fields)) {
       const input = editor.querySelector(`[data-field="${field}"]`);
       input.value = typeof data[key] === 'string' ? data[key].trim() : '';
@@ -2422,8 +2508,7 @@ cardInput.onchange = async () => {
   }
 };
 
-$('#settingsButton').onclick = () => openSettings();
-$('#closeSettings').onclick = $('#cancelSettings').onclick = () => $('#settingsDialog').close();
+$('#cancelSettings').onclick = () => loadSettings(undefined,false);
 $('#settingsForm').noValidate = true;
 $('#settingsForm').addEventListener('input', event => {
   if (event.target.matches('textarea')) event.target.setCustomValidity('');
@@ -2439,14 +2524,6 @@ $('#settingsForm').onsubmit = event => {
     return;
   }
   form.elements.title.setCustomValidity('');
-  for (const key of settingsFields.slice(1)) {
-    const field = form.elements[key];
-    if (checkLongField(field,project[key])) continue;
-    selectSettingsTab(field.closest('#worldPanel') ? $('#worldTab') : $('#writingTab'));
-    if (field.closest('details')) field.closest('details').open = true;
-    field.reportValidity();
-    return;
-  }
   if (!isStoryTime($('#storyStartAt').value)) {
     selectSettingsTab($('#worldTab'));
     $('#storyStartAt').setCustomValidity('Enter an in-story starting date and time.');
@@ -2454,17 +2531,6 @@ $('#settingsForm').onsubmit = event => {
     return;
   }
   setDraftStart($('#storyStartAt').value);
-  for (const editor of castEditors()) {
-    const previous = project.cast?.find(member=>member.id === editor.dataset.id);
-    for (const field of editor.querySelectorAll('textarea')) {
-      if (checkLongField(field,previous?.[field.dataset.field])) continue;
-      selectSettingsTab($('#castTab'));
-      selectCastEditor(editor.dataset.id);
-      if (field.closest('details')) field.closest('details').open = true;
-      field.reportValidity();
-      return;
-    }
-  }
   const cast = readCast();
   if (!validCast(cast)) {
     const missingName = [...$('#castEditors').querySelectorAll('[data-field=name]')].find(input => !input.value.trim());
@@ -2476,7 +2542,7 @@ $('#settingsForm').onsubmit = event => {
     }
     return;
   }
-  if (!project.graphHistory?.length) captureGraphVersion(project, 0);
+  ensureGraphBaseline(project);
   for (const key of settingsFields) project[key] = form.elements[key].value.trim();
   project.cast = cast;
   project.storyStartAt = draftStartAt;
@@ -2493,7 +2559,7 @@ $('#settingsForm').onsubmit = event => {
   }
   captureGraphVersion(project, Math.max(nextTurnNumber(project)-1, project.graphHistory.at(-1)?.turn || 0));
   markDirty();
-  $('#settingsDialog').close();
+  settingsBaseline = undefined;
   render();
 };
 $('#settingsForm').elements.title.oninput = event => event.target.setCustomValidity('');
@@ -2523,7 +2589,6 @@ const setupDialog = $('#setupDialog');
 const setupChat = $('#setupChat');
 const setupReview = $('#setupReview');
 const setupImport = $('#setupImport');
-const setupProvider = $('#setupProvider');
 const setupModel = $('#setupModel');
 const setupKey = $('#setupKey');
 const setupMessage = $('#setupMessage');
@@ -2536,10 +2601,9 @@ const setupCast = $('#setupCast');
 const setupAddCharacter = $('#setupAddCharacter');
 const setupRelationships = $('#setupRelationships');
 const setupAddRelationship = $('#setupAddRelationship');
-const maxSetupCast = 8;
-let setupMessages = [], setupRequest, setupReviewBack = 'choice', setupImportBack = 'choice';
+let setupMessages = [], setupReviewedMessages, setupRequest, setupReviewBack = 'choice', setupImportBack = 'choice';
 let setupImportFromMessage = false;
-let setupManuscript, setupMcpSession, setupSuggestedChapters = [];
+let setupManuscript, setupSuggestedChapters = [];
 
 function setupStep(step) {
   $('#setupChoice').hidden = step !== 'choice';
@@ -2564,7 +2628,6 @@ function addSetupCharacter({name='',description=''} = {}) {
   entry.dataset.castId = id();
   const nameField = el('input','setup-character-name');
   nameField.value = name;
-  nameField.maxLength = 100;
   nameField.required = true;
   nameField.oninput = syncSetupRelationshipChoices;
   const descriptionField = el('textarea','setup-character-description');
@@ -2583,7 +2646,6 @@ function addSetupCharacter({name='',description=''} = {}) {
   };
   entry.append(el('legend','','Character'),nameLabel,descriptionLabel,remove);
   setupCast.append(entry);
-  setupAddCharacter.disabled = setupCast.children.length >= maxSetupCast;
   syncSetupRelationshipChoices();
   return nameField;
 }
@@ -2596,7 +2658,7 @@ function syncSetupRelationshipChoices() {
     select.replaceChildren(new Option('Choose a character',''),...named.map(([key,name])=>new Option(name,key)));
     select.value = named.some(([key])=>key === value) ? value : '';
   }
-  setupAddRelationship.disabled = named.length < 2 || setupRelationships.children.length >= maxSetupRelationships;
+  setupAddRelationship.disabled = named.length < 2;
 }
 
 function addSetupRelationship({from='',to='',label=''} = {}) {
@@ -2606,7 +2668,6 @@ function addSetupRelationship({from='',to='',label=''} = {}) {
   fromField.required = toField.required = true;
   const note = el('input','setup-relationship-note');
   note.value = label;
-  note.maxLength = 400;
   note.required = true;
   const fields = [['From',fromField],['To',toField],['Relationship',note]].map(([name,field]) => {
     const wrapper = el('label','',name);
@@ -2639,6 +2700,8 @@ function fillSetupReview({title='',scenario='',lore='',notes='',cast=[],continui
   setupSuggestedChapters = chapterStarts.length || !setupManuscript ? chapterStarts : defaultChapterStarts(setupManuscript);
   $('#setupUseSuggestions').checked = true;
   $('#setupReviewedAll').checked = false;
+  $('#setupReferencesReviewed').checked = false;
+  $('#setupReferencesReview').hidden = !setupMessages.length && !setupContext.value.trim() && !setupMessage.value.trim();
   updateManuscriptReview();
   setupCast.replaceChildren();
   setupRelationships.replaceChildren();
@@ -2694,79 +2757,37 @@ function syncSetupChat() {
   const pending = Boolean(setupRequest);
   const content = setupMessage.value.trim();
   const context = setupContext.value.trim();
-  const words = setupInputWords(setupMessages,context,content);
-  const tooLong = words > maxSetupWords;
-  const canTransferDraft = tooLong && Boolean(content);
-  const mcp = setupProvider.value === 'mcp';
   const draftModel = setupDraftModel(setupModel.value);
   const draftName = models.find(({id})=>id === draftModel).name;
   const manuscriptAction = setupManuscript ? 'Replace manuscript' : 'Use as manuscript';
-  setupProvider.disabled = pending;
-  $('#setupModelField').hidden = mcp;
-  $('#setupKeyField').hidden = mcp || Boolean(openRouterKey);
-  $('#setupProviderNote').textContent = mcp
-    ? 'Your MCP watcher handles setup as well as writing. It receives this chat, your additional context, and the previewed manuscript excerpts.'
-    : `OpenRouter receives this chat, any additional context, and the previewed manuscript excerpts. ${draftName} prepares the draft. Both use your OpenRouter credits.`;
-  $('#setupAgentInstructions').hidden = !mcp;
+  $('#setupKeyField').hidden = Boolean(openRouterKey);
+  const usage = updateSetupContextUsage(content,context,draftModel);
+  const canTransferDraft = (usage.chatFull || usage.draftFull) && Boolean(content);
+  $('#setupProviderNote').textContent = 'OpenRouter receives the full setup chat, additional context, and any attached manuscript. ' + draftName + ' prepares the draft.';
   setupModel.disabled = pending;
   setupKey.disabled = pending;
   setupMessage.readOnly = pending;
   setupContext.readOnly = pending;
-  $('#setupSend').disabled = pending || tooLong || !content;
-  $('#setupDraft').disabled = pending || tooLong || (!setupMessages.length && !content && !context && !setupManuscript);
+  $('#setupSend').disabled = pending || usage.chatFull || !content;
+  $('#setupDraft').disabled = pending || (!setupMessages.length && !content && !context && !setupManuscript);
   setupAttach.disabled = pending;
   setupAttach.hidden = Boolean(setupManuscript) && !canTransferDraft;
   setupAttach.textContent = canTransferDraft ? manuscriptAction : 'Import a manuscript';
   $('#setupReviewLocally').disabled = pending;
   $('#backSetupChat').disabled = pending;
-  $('#setupSend').textContent = mcp ? 'Queue message' : 'Send';
-  $('#setupWordCount').textContent = `${words.toLocaleString()} / ${maxSetupWords.toLocaleString()} words across your chat and additional context`;
-  updateSetupContextUsage(content,context,mcp,draftModel);
-  if (!pending) setupFeedback.textContent = tooLong
-    ? 'Shorten your current message or additional context to fit the 20,000-word setup limit.' : '';
-}
-
-function closeMcpSetup() {
-  const sessionId = setupMcpSession;
-  setupMcpSession = undefined;
-  if (sessionId) void fetch('/api/setup/mcp',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'cancel',sessionId}),keepalive:true}).catch(() => {});
-}
-
-async function requestMcpSetup(payload,request) {
-  const sessionId = setupMcpSession ||= id();
-  const call = (action,body = {}) => api('/api/setup/mcp',{method:'POST',headers:{'Content-Type':'application/json'},
-    signal:request.signal,body:JSON.stringify({action,sessionId,...body})});
-  await call('queue',payload);
-  if (request.signal.aborted || setupMcpSession !== sessionId) return;
-  syncSetupChat();
-  setupFeedback.textContent = 'Queued for your MCP watcher.';
-  const deadline = Date.now() + 8 * 60_000;
-  while (!request.signal.aborted && Date.now() < deadline) {
-    await new Promise(resolve => setTimeout(resolve,1000));
-    if (request.signal.aborted) return;
-    const result = await call('status');
-    if (result.status === 'done') {
-      if (result.error) throw Error(result.error);
-      return result;
-    }
-    if (result.status === 'closed') break;
-    if (result.status === 'working') setupFeedback.textContent = 'Your MCP agent is preparing a response…';
-  }
-  if (request.signal.aborted) return;
-  closeMcpSetup();
-  throw Error('The MCP setup request expired. Start a watcher if needed, then queue the request again.');
+  if (!pending) setupFeedback.textContent = (usage.chatFull || usage.draftFull)
+    ? 'Prepare setup draft to have the agent review large sources in sections.' : '';
 }
 
 async function requestSetup(mode) {
   if (setupRequest) return;
   const content = setupMessage.value.trim();
   const context = setupContext.value.trim();
-  if (setupInputWords(setupMessages,context,content) > maxSetupWords) return;
-  const mcp = setupProvider.value === 'mcp';
+  const usage = updateSetupContextUsage(content,context,setupDraftModel(setupModel.value));
+  if (mode === 'chat' && usage.chatFull) return;
   const key = openRouterKey || setupKey.value.trim();
   setupChatError.textContent = '';
-  if (!mcp && (!setupModel.value || !key)) {
+  if (!setupModel.value || !key) {
     setupChatError.textContent = !setupModel.value ? 'Choose an OpenRouter model.' : 'Enter your OpenRouter API key.';
     (!setupModel.value ? setupModel : setupKey).focus();
     return;
@@ -2774,19 +2795,19 @@ async function requestSetup(mode) {
   if (mode === 'chat' && !content) return;
   const messages = content ? [...setupMessages,{role:'user',content}] : setupMessages;
   const request = new AbortController();
-  const manuscript = setupManuscript && {turnCount:setupManuscript.turns.length,hasChapters:setupManuscript.hasChapters,
-    passages:setupManuscript.passages};
+  const manuscript = setupManuscript?.reference;
   setupRequest = request;
   if (mode === 'chat') renderSetupChat(messages);
   try {
     syncSetupChat();
-    setupFeedback.textContent = mode === 'chat' ? 'Thinking…' : 'Preparing your setup draft…';
+    setupFeedback.textContent = mode === 'chat' ? 'Thinking…'
+      : usage.draftFull ? 'Reviewing the source in sections…' : 'Preparing your setup draft…';
     const payload = {mode,messages,manuscript,context};
-    const result = mcp ? await requestMcpSetup(payload,request)
-      : await api('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},signal:request.signal,
-        body:JSON.stringify({...payload,model:setupModel.value,key})});
+    const result = await api('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},signal:request.signal,
+      body:JSON.stringify({...payload,model:setupModel.value,key})});
     if (setupRequest !== request || !setupDialog.open) return;
     if (mode === 'draft') {
+      setupReviewedMessages = messages;
       fillSetupReview({...result.draft,title:setupManuscript?.title || result.draft.title});
       setupReviewBack = 'chat';
       setupStep('review');
@@ -2798,7 +2819,6 @@ async function requestSetup(mode) {
     }
   } catch (failure) {
     if (!request.signal.aborted && setupDialog.open) {
-      if (mcp) closeMcpSetup();
       renderSetupChat();
       setupChatError.textContent = failure.message;
     }
@@ -2812,11 +2832,18 @@ async function requestSetup(mode) {
 
 $('#newProject').onclick = () => {
   if (!state) return;
+  if (settingsDraftChanged()) {
+    $('#sidebar').close();
+    showStoryView('graph');
+    error('Save or discard your graph changes before starting a new story.');
+    return;
+  }
   if (state.projects.length - 1 >= maxLibraryStories) {
     alert('Your library has reached its story limit.');
     return;
   }
   setupMessages = [];
+  setupReviewedMessages = undefined;
   setupChat.reset();
   setupModel.replaceChildren(...modelOptions('setup'));
   setupModel.value = '';
@@ -2838,11 +2865,11 @@ $('#closeSetup').onclick = () => setupDialog.close();
 setupDialog.addEventListener('close',() => {
   setupRequest?.abort();
   setupRequest = undefined;
-  closeMcpSetup();
   setupKey.value = '';
   setupMessage.value = '';
   setupContext.value = '';
   setupMessages = [];
+  setupReviewedMessages = undefined;
   setupManuscript = undefined;
   setupImport.reset();
   updateManuscriptSource();
@@ -2864,8 +2891,8 @@ $('#setupExisting').onclick = () => {
 };
 setupAttach.onclick = () => {
   setupImportBack = 'chat';
-  setupImportFromMessage = Boolean(setupMessage.value.trim()) &&
-    setupInputWords(setupMessages,setupContext.value,setupMessage.value) > maxSetupWords;
+  const usage = updateSetupContextUsage(setupMessage.value,setupContext.value,setupDraftModel(setupModel.value));
+  setupImportFromMessage = Boolean(setupMessage.value.trim()) && (usage.chatFull || usage.draftFull);
   if (setupImportFromMessage) {
     $('#setupManuscriptFile').value = '';
     $('#setupManuscript').value = setupMessage.value;
@@ -2879,7 +2906,6 @@ $('#backSetupImport').onclick = () => {
 };
 $('#backSetupChat').onclick = () => setupStep(setupManuscript ? 'import' : 'choice');
 $('#backSetupReview').onclick = () => setupStep(setupReviewBack);
-setupProvider.onchange = () => { closeMcpSetup(); syncSetupChat(); };
 setupModel.onchange = syncSetupChat;
 $('#setupUseSuggestions').onchange = updateManuscriptReview;
 
@@ -2893,12 +2919,13 @@ setupImport.onsubmit = async event => {
   submit.disabled = true;
   try {
     if (file && pasted.trim()) throw Error('Choose either the pasted manuscript or a file. Clear the other field to continue.');
-    if (file?.size > manuscriptByteLimit) throw Error('The manuscript exceeds 2 MB.');
+    if (file?.size > manuscriptByteLimit) throw Error('The manuscript exceeds the 16 MB library transfer limit.');
     const text = file ? await file.text() : pasted;
     if (!setupDialog.open || setupImport.hidden) return;
     const manuscript = parseManuscript(text);
-    setupManuscript = {...manuscript,passages:manuscriptPassages(manuscript.turns),
-      title:manuscript.title || file?.name.replace(/\.[^.]+$/u,'').slice(0,160) || ''};
+    setupManuscript = {...manuscript,passages:manuscriptPassages(manuscript.turns),reference:manuscriptReference(manuscript),
+      title:manuscript.title || file?.name.replace(/\.[^.]+$/u,'') || ''};
+    setupManuscript.tokens = estimateContextTokens(JSON.stringify(setupManuscript.reference));
     if (setupImportFromMessage) setupMessage.value = '';
     setupImportFromMessage = false;
     updateManuscriptSource();
@@ -2935,11 +2962,6 @@ setupReview.onsubmit = event => {
     return;
   }
   const cast = [], names = new Set();
-  for (const field of setupReview.querySelectorAll('textarea')) {
-    if (field.closest('[hidden]') || checkLongField(field)) continue;
-    field.reportValidity();
-    return;
-  }
   for (const card of setupCast.children) {
     const field = card.querySelector('.setup-character-name');
     const name = field.value.trim(), key = name.toLowerCase();
@@ -2975,11 +2997,18 @@ setupReview.onsubmit = event => {
   const messages = setupManuscript
     ? manuscriptTurns(setupManuscript,$('#setupUseSuggestions').checked ? setupSuggestedChapters : [],$('#setupReviewedAll').checked)
     : [];
+  const context = setupContext.value.trim();
+  const pendingNote = setupMessage.value.trim();
+  const planning = setupReviewedMessages || setupMessages;
+  const setupHistory = normalizeSetupHistory({context,reviewed:$('#setupReferencesReviewed').checked,
+    messages:pendingNote && planning.at(-1)?.content !== pendingNote
+      ? [...planning,{role:'user',content:pendingNote}] : planning});
   const projectId = id();
   const newStory = {
     id:projectId,title,
     lore:$('#setupLore').value.trim(),premise:$('#setupScenario').value.trim(),notes:$('#setupNotes').value.trim(),
     storyStartAt,storyStartSource:setupStart ? 'author' : 'estimate',messages,relationships,
+    ...(setupHistory && (setupHistory.context || setupHistory.messages.length) ? {setupHistory} : {}),
     ...(setupManuscript ? {continuity:$('#setupContinuity').value.trim(),nextTurn:messages.length + 1} : {}),
     cast:cast.map(member => ({...Object.fromEntries(castFields.map(field => [field,''])),...member}))
   };
@@ -3019,15 +3048,7 @@ $('#sensitiveScene').onchange = event => {
   setSession(sensitiveKey(current().id),event.target.checked ? 'true' : '');
   syncRoute();
 };
-$('#cancelAgentEdit').onclick = () => {
-  const project = current();
-  const request = project.agentEditRequest;
-  if (!request) return;
-  if (!$('#instruction').value.trim()) setSession(draftKey(project.id,'agent'),request.instruction);
-  delete project.agentEditRequest;
-  markDirty(project);
-  render();
-};
+$('#saveComposerOnly').onclick = () => saveComposerEdit();
 $('#cancelComposerEdit').onclick = closeComposerEdit;
 $('#verifyComposerEdit').onchange = event => {
   if (composerEdit) composerEdit.verified = event.target.checked;
@@ -3050,15 +3071,11 @@ $('#instruction').onkeydown = event => {
     void generate();
   }
 };
-function promptForDraft() {
+function draftInputs() {
   const direction = $('#instruction').value.trim();
   const project = current();
-  const provider = writingRoute(project);
-  const options = {
-    model: provider === 'openrouter' ? writingModel(project) : '',
-    includeSensitive:provider === 'openrouter' && canWriteSensitive(writingModel(project)) && sensitiveDraft(project),
-    openRouter:provider === 'openrouter'
-  };
+  const model = writingModel(project);
+  const options = {model,includeSensitive:canWriteSensitive(model) && sensitiveDraft(project),openRouter:true};
   if (composerEdit?.canRegenerate) {
     const index = project.messages.findIndex(turn=>turn.turnNumber === composerEdit.turnNumber);
     if (index >= 0) {
@@ -3066,47 +3083,67 @@ function promptForDraft() {
       const history = project.messages.slice(0,index);
       const source = reply ? storyAtTurn(project,index) : project;
       const replyTime = reply?.storyTime || project.messages[index].storyTime;
-      const context = options.openRouter ? openRouterSnapshot(source,history,replyTime,options.includeSensitive)
-        : {...source,messages:history,replyTime};
-      return buildMessages(context,direction,reply ? 'replace' : 'send',options);
+      return {project:openRouterSnapshot(source,history,replyTime),direction,mode:reply ? 'replace' : 'send',options};
     }
   }
-  // Without a new direction, show what a queued turn or a reply to the last
-  // writer turn sends, laid out exactly as the MCP server lays it out.
-  const queued = provider === 'mcp' && !direction ? queuedTurn(project).request : null;
-  const source = queued?.mode === 'replace'
-    ? {...storyAtTurn(project,project.messages.findIndex(turn => turn.turnNumber === queued.turnNumber)),
-      messages:project.messages,agentRequest:queued}
-    : project;
-  const input = direction ? {project:source,direction,mode:'send'}
-    : replyInput(source,queued?.mode || 'send',options);
-  const context = options.openRouter ? openRouterSnapshot(input.project,input.project.messages,input.project.replyTime,options.includeSensitive) : input.project;
-  return buildMessages(context,input.direction,input.mode,options);
+  const input = direction ? {project,direction,mode:'send'} : replyInput(project,'send',options);
+  return {...input,project:openRouterSnapshot(input.project,input.project.messages,input.project.replyTime),options};
+}
+
+function promptForDraft() {
+  const {project,direction,mode,options} = draftInputs();
+  return buildWritingContext(project,direction,mode,options);
 }
 
 const contextNumber = new Intl.NumberFormat();
+const modelName = model => models.find(item=>item.id === model)?.name || model || 'No model selected';
 const contextEstimate = tokens => `≈${contextNumber.format(tokens)} input tokens`;
-function windowLabel(route,model) {
-  if (route === 'mcp') return 'MCP window unknown';
+function windowLabel(model) {
   if (!model) return 'model unselected';
   const limit = modelContextWindow(model);
   return limit ? `${contextNumber.format(limit)} window` : 'model window unknown';
 }
 
-function updateSetupContextUsage(content,context,mcp,draftModel) {
+const contextColors = {
+  'Names and aliases':'#e6a9be', 'Character profiles':'#bc99e0', 'World and premise':'#95b2ed',
+  'Writing notes':'#e7a774', 'Story graph':'#8ecbb3', 'Story history':'#7e9ed2', 'Recent story':'#7e9ed2',
+  'Agent history':'#d998a6', 'Setup history':'#d2b68a', 'Current direction':'#e4d092', 'Current request':'#e4d092',
+  'Setup chat':'#bc99e0', 'Additional context':'#e7a774', 'Manuscript':'#8ecbb3',
+  'Output reserve':'#86b9c0'
+};
+
+function renderContextMeter(bar, breakdown, parts, window) {
+  const colorOf = label => contextColors[label] || '#a9a1b6';
+  const taken = parts.reduce((sum,part)=>sum + part.tokens,0);
+  const segments = parts.filter(part=>part.tokens > 0);
+  if (window > taken) segments.push({label:'Available headroom',tokens:window - taken});
+  bar.replaceChildren(...segments.map(({label,tokens})=>{
+    const segment = el('span',label === 'Available headroom' ? 'available' : '');
+    segment.style.flexGrow = tokens;
+    segment.style.setProperty('--context-color',colorOf(label));
+    return segment;
+  }));
+  breakdown.replaceChildren(...parts.map(({label,tokens})=>{
+    const name = el('dt','',label);
+    name.style.setProperty('--context-color',colorOf(label));
+    return [name,el('dd','',contextNumber.format(tokens) + ' tokens')];
+  }).flat());
+}
+
+function updateSetupContextUsage(content,context,draftModel) {
   const chatTokens = setupMessages.reduce((sum,{content})=>sum + estimateContextTokens(content),estimateContextTokens(content));
-  const contextTokens = estimateContextTokens(context);
-  const excerpts = setupManuscript?.passages || [];
-  const excerptTokens = excerpts.length ? estimateContextTokens(JSON.stringify(excerpts)) : 0;
-  const route = mcp ? 'mcp' : 'openrouter';
+  const parts = [{label:'Setup chat',tokens:chatTokens},
+    {label:'Additional context',tokens:estimateContextTokens(JSON.stringify(context))},
+    {label:'Manuscript',tokens:setupManuscript?.tokens || 0}];
+  const used = parts.reduce((sum,part)=>sum + part.tokens,0);
   const selectedModel = setupModel.value;
-  $('#setupContextUsage').textContent = `Context · ${contextEstimate(chatTokens + contextTokens + excerptTokens)} · ${windowLabel(route,selectedModel)}`;
-  $('#setupContextBreakdown').textContent = `Chat and current message ${contextNumber.format(chatTokens)} · Additional context ${contextNumber.format(contextTokens)} · Previewed manuscript excerpts ${contextNumber.format(excerptTokens)} tokens`;
-  const draftWindow = modelContextWindow(draftModel);
-  const draftName = models.find(({id})=>id === draftModel).name;
-  $('#setupContextLimits').textContent = mcp
-    ? 'The MCP client controls the model window. The estimate covers what Studio sends to the client.'
-    : `Drafts use ${draftName} with a published window of at least ${contextNumber.format(draftWindow)} tokens. Studio allows up to ${contextNumber.format(setupChatOutputLimit)} output tokens for chat and ${contextNumber.format(setupDraftOutputLimit)} per draft call. The estimate covers the supplied text before instructions and tool definitions.`;
+  const chat = agentBudget(selectedModel || draftModel,setupChatOutputLimit);
+  const draft = agentBudget(draftModel,setupDraftOutputLimit);
+  $('#setupContextUsage').textContent = `Context · ${contextEstimate(used)} · ${modelName(selectedModel || draftModel)} · ${windowLabel(selectedModel || draftModel)}`;
+  renderContextMeter($('#setupContextBar'),$('#setupContextBreakdown'),[...parts,
+    {label:'Output reserve',tokens:chat.outputLimit}],chat.window);
+  $('#setupContextLimits').textContent = `The setup draft has ${contextNumber.format(draft.inputLimit)} input tokens and reserves ${contextNumber.format(draft.outputLimit)} for output. Estimates include the full manuscript when attached. Requests also include instructions and tool definitions.`;
+  return {chatFull:used > chat.inputLimit,draftFull:used > draft.inputLimit};
 }
 
 let contextEstimateTimer;
@@ -3114,74 +3151,77 @@ function updateContextIndicator() {
   if (!state) return;
   clearTimeout(contextEstimateTimer);
   const details = composerContext();
-  $('#contextIndicator').textContent = details.summary;
+  $('#contextIndicator').title = details.summary;
+  if ($('#promptDialog').open) renderContextPanel();
   return details;
 }
 
-function composerContext() {
+function composerContext(stage = 'writer') {
   const project = current();
   const mode = authorMode(project);
-  const route = writingRoute(project,mode);
-  const model = route === 'openrouter' ? writingModel(project,mode) : '';
-  if (route === 'manual' || (composerEdit && !composerEdit.canRegenerate)) {
+  const writer = writingModel(project,mode);
+  const useContinuity = mode === 'story' && stage === 'continuity';
+  const model = useContinuity ? selectedContinuityModel(project) : writer;
+  if (composerEdit && (!composerEdit.canRegenerate || !model || !openRouterKey)) {
     return {heading:'Context',summary:'Context · no model call',parts:[],
       limits:'This action saves the text locally. No model sees it.'};
   }
-  if (mode === 'story' && sensitiveDraft(project) && (route !== 'openrouter' || !canWriteSensitive(model))) {
-    return {heading:'Context',summary:'Context · sensitive route required',parts:[],
-      limits:'Choose Cydonia before sending this marked scene to a model.'};
+  if (mode === 'story' && sensitiveDraft(project) && !canWriteSensitive(writer)) {
+    return {heading:'Context',summary:'Context · sensitive route required',parts:[],modelName:modelName(model),
+      limits:'Choose an NSFW-friendly writer before sending this marked scene.'};
   }
   const edited = composerEdit && project.messages.find(turn=>turn.turnNumber === composerEdit.turnNumber);
-  if (edited && (edited.excludeFromContext || (!sensitiveDraft(project) && !isAvailableToMcp(edited)))) {
+  if (edited && (edited.excludeFromContext || (!sensitiveDraft(project) && !composerEdit.verified && !isAvailableToMcp(edited)))) {
     return {heading:'Context',summary:'Context · direction withheld',parts:[],
       limits:'This direction stays local until you choose an eligible route or review its context label.'};
   }
   const modelWindow = modelContextWindow(model);
-  const windowNote = route === 'mcp' ? 'The MCP client controls the model window and may add its own history.'
-    : modelWindow ? `The lowest published provider window is ${contextNumber.format(modelWindow)} tokens, including output.`
+  const windowNote = modelWindow ? `The lowest published provider window is ${contextNumber.format(modelWindow)} tokens, including output.`
       : 'Studio does not have a verified window for this model.';
-  let parts, messages, limits;
-  if (mode === 'agent') {
-    const {recentTurns,...overview} = storyOverview(project);
-    const request = project.agentEditRequest?.instruction || $('#instruction').value.trim();
-    const story = route === 'mcp' ? {overview,state:storyEditContext(project)} : overview;
-    parts = [
-      {label:route === 'mcp' ? 'Story state and cast' : 'Cast names and story time',tokens:estimateContextTokens(JSON.stringify(story))},
-      {label:'Recent eligible story turns',tokens:recentTurns.length ? estimateContextTokens(JSON.stringify(recentTurns)) : 0},
-      {label:'Current edit request',tokens:estimateContextTokens(request)}
-    ];
-    const output = route === 'openrouter' ? ` Studio allows ${contextNumber.format(agentOutputLimit)} output tokens per call.` : '';
-    limits = `${windowNote}${output} Studio includes up to ${contextNumber.format(continuityRecentTokenCap)} tokens of recent eligible story text. The initial estimate excludes instructions, tool definitions, and any additional story state the agent looks up.`;
+  let details, limits;
+  if (!model) return {heading:'Context',modelName:modelName(model),summary:'Context · select a model',
+    parts:[],limits:'Choose a model to see its context budget.'};
+  if (mode === 'agent' || useContinuity) {
+    if (useContinuity) {
+      const input = draftInputs();
+      details = continuityContext(input.project,input.direction,'',{model,mode:input.mode,
+        sensitive:sensitiveDraft(project),suggest:input.mode === 'send' && project.graphUpdates !== false});
+    } else details = editorContext(project,$('#instruction').value,model);
+    limits = windowNote + ' Studio budgets ' + contextNumber.format(details.inputLimit) + ' input tokens and keeps the current story state when it drops older exchanges.'
+      + (details.omitted ? ' ' + details.omitted + ' older exchanges omitted.' : '')
+      + (useContinuity ? ' This preview includes the current direction. The generated prose and any tool results are added during the call.' : '');
   } else {
-    messages = promptForDraft();
-    parts = storyPromptUsage(messages);
-    const output = route === 'openrouter' && model ? ` The writer can generate up to ${contextNumber.format(proseOutputLimit(model))} tokens.` : '';
-    const continuity = route === 'mcp' ? 'Afterward, the MCP continuity handoff includes the new scene and allows scoped lookups.'
-      : `Afterward, DeepSeek gets the new text and up to ${contextNumber.format(continuityRecentTokenCap)} eligible history tokens and can look up story state.`;
-    limits = `${windowNote} Studio budgets ${contextNumber.format(writingPromptLimit(model))} input tokens, including up to ${contextNumber.format(writingHistoryLimit(model))} for recent turns.${output} Story state includes world, characters, notes, and graph. ${continuity}`;
+    details = promptForDraft();
+    limits = windowNote + ' The current story state and direction share an input budget of ' + contextNumber.format(details.inputLimit)
+      + ' tokens, including up to ' + contextNumber.format(writingHistoryLimit(model)) + ' for recent story.';
   }
-  const tokens = parts.reduce((sum,part)=>sum + part.tokens,0);
-  return {heading:messages ? 'Prompt preview' : 'Editor agent context',summary:`Context · ${contextEstimate(tokens)} · ${windowLabel(route,model)}`,
-    parts,messages,limits};
+  const tokens = details.parts.reduce((sum,part)=>sum + part.tokens,0);
+  return {heading:mode === 'agent' ? 'Editor agent context' : useContinuity ? 'Continuity agent context' : 'Writer context',
+    modelName:modelName(model),canSelectPass:mode === 'story',
+    summary:`Context · ${contextEstimate(tokens)} · ${windowLabel(model)}`,
+    parts:[...details.parts,{label:'Output reserve',tokens:details.outputLimit}],
+    messages:mode === 'story' && !useContinuity && !details.problem ? details.messages : undefined,
+    window:modelWindow ?? (details.inputLimit + details.outputLimit),
+    limits:details.problem ? limits + ' ' + details.problem : limits};
 }
 
-$('#promptPreview').onclick = $('#contextIndicator').onclick = () => {
-  if (!state) return;
-  const {heading,summary,parts,messages,limits} = updateContextIndicator();
+function renderContextPanel() {
+  const {heading,modelName,canSelectPass,summary,parts,messages,limits,window} = composerContext($('#contextStage').value);
   $('#promptHeading').textContent = heading;
+  $('#contextStageField').hidden = !canSelectPass;
+  $('#contextModel').textContent = modelName || '';
+  $('#contextModel').hidden = !modelName;
   $('#contextTotal').textContent = summary;
-  $('#contextBar').replaceChildren(...parts.filter(part=>part.tokens > 0).map(({tokens})=>{
-    const segment = el('span');
-    segment.style.flexGrow = tokens;
-    return segment;
-  }));
-  $('#contextParts').replaceChildren(...parts.flatMap(({label,tokens})=>[
-    el('dt','',label),el('dd','',contextNumber.format(tokens) + ' tokens')
-  ]));
+  renderContextMeter($('#contextBar'),$('#contextParts'),parts,window || 0);
   $('#contextLimits').textContent = limits;
   $('#promptTextDetails').hidden = !messages;
-  $('#promptTextDetails').open = true;
   $('#promptContents').textContent = messages ? formatMessages(messages) : '';
+}
+$('#contextStage').onchange = renderContextPanel;
+$('#promptPreview').onclick = $('#contextIndicator').onclick = () => {
+  if (!state) return;
+  $('#contextStage').value = 'writer';
+  renderContextPanel();
   $('#promptDialog').showModal();
 };
 $('#closePrompt').onclick = () => $('#promptDialog').close();
@@ -3218,7 +3258,7 @@ $('#importFile').onchange = async event => {
   const input = event.target, file = input.files[0];
   if (!file) return;
   try {
-    if (file.size > 16_000_000) throw Error('The library exceeds the 16 MB import limit.');
+    if (file.size > libraryByteLimit) throw Error('The library exceeds the 16 MB import limit.');
     const incoming = normalize(JSON.parse(await file.text()));
     if (incoming.projects.length > maxLibraryStories) throw Error('The library exceeds the story limit.');
     const reserved = incoming.projects.find(project => project.id === starterStoryId);
@@ -3233,7 +3273,6 @@ $('#importFile').onchange = async event => {
     for (const project of [...state.projects,...incoming.projects]) {
       pendingComposerEdits.delete(project.id);
       setSession(draftKey(project.id),'');
-      setSession(routeKey(project.id),'');
       setSession(modelKey(project.id),'');
     }
     state = {...incoming,projects:[...incoming.projects,demo]};
@@ -3275,7 +3314,11 @@ storyDrawer.addEventListener('click', event => {
     }
     clearRemovedModelSelections();
     setSession(draftKey(starterStoryId),'');
+    const requested = new URLSearchParams(location.search);
+    if (state.projects.some(project=>project.id === requested.get('story'))) state.activeId = requested.get('story');
     render();
+    const view = requested.get('view');
+    if (storyViews.some(([name])=>name === view)) showStoryView(view);
     status('Saved locally');
   } catch (e) {
     status('Could not load');
@@ -3283,39 +3326,18 @@ storyDrawer.addEventListener('click', event => {
   }
 })();
 
-// While any turn is queued, pick up agent writes. Unsaved edits are merged by save() on its 409 instead.
-let checkingAgent = false;
-// Agent activity is cheap to read and never touches the library, so it is
-// checked every two seconds while the page is visible.
-let activityKey = '';
+// The native chat can save at any time. Refresh open reading views using the library revision.
+let checkingUpdates = false;
 setInterval(async () => {
-  if (!state || document.hidden) return;
-  try {
-    const result = await (await fetch('/api/agent')).json();
-    agentActivity = Array.isArray(result.agents) ? result.agents : [];
-  } catch {
-    agentActivity = [];
-  }
-  syncWatcherStatus();
-  const project = current();
-  if (!project) return;
-  const status = authorMode(project) === 'agent' ? {line:agentEditStatus(project)} : mcpStatus(project);
-  const key = JSON.stringify([project.id, status.line, status.pending]);
-  if (key === activityKey) return;
-  activityKey = key;
-  syncRoute();
-  renderPending();
-}, 2000);
-
-setInterval(async () => {
-  if (!state || !state.projects.some(p => p.agentRequest || p.agentEditRequest || p.messages.some((turn,index)=>turn.continuityPending && isAvailableToMcp(turn,precedingDirection(p.messages,index)))) || checkingAgent || dirty || pendingWrites || busy || document.querySelector('dialog[open]')) return;
-  checkingAgent = true;
+  if (!state || document.hidden || checkingUpdates || dirty || pendingWrites || busy ||
+    composerEdit || settingsDraftChanged() || document.querySelector('dialog[open]')) return;
+  checkingUpdates = true;
   const polledRevision = revision;
   try {
     const response = await fetch('/api/state', {headers:{'If-None-Match':polledRevision}});
     if (response.status !== 200) return;
     const updated = normalize(await response.json());
-    if (revision !== polledRevision || dirty || pendingWrites || busy || document.querySelector('dialog[open]')) return;
+    if (revision !== polledRevision || dirty || pendingWrites || busy || composerEdit || settingsDraftChanged() || document.querySelector('dialog[open]')) return;
     const generation = response.headers.get('x-story-studio-demo-generation');
     const {library} = mergeLibrary(baseLibrary, state, updated,{demoReset:generation !== demoGeneration});
     if (!library) return;
@@ -3328,6 +3350,6 @@ setInterval(async () => {
   } catch {
     // Keep the local state if the server is unavailable.
   } finally {
-    checkingAgent = false;
+    checkingUpdates = false;
   }
 }, 2500);

@@ -1,6 +1,6 @@
-export const manuscriptWordLimit = 100_000;
-export const manuscriptByteLimit = 2_000_000;
-const turnLimit = 3000;
+import { libraryByteLimit } from './library.js';
+
+export const manuscriptByteLimit = libraryByteLimit;
 const turnLength = 6500;
 const sampleLimit = 16;
 const sampleLength = 620;
@@ -39,16 +39,14 @@ function* proseSlices(text) {
 
 export function parseManuscript(text) {
   if (new TextEncoder().encode(text).length > manuscriptByteLimit) {
-    throw new RangeError('The manuscript exceeds 2 MB. Split it into smaller manuscripts and import them separately.');
+    throw new RangeError('The manuscript exceeds the 16 MB library transfer limit.');
   }
   let words = 0;
-  for (const _ of text.matchAll(/\S+/gu)) {
-    if (++words > manuscriptWordLimit) throw new RangeError('The manuscript exceeds 100,000 words.');
-  }
+  for (const _ of text.matchAll(/\S+/gu)) words++;
   if (!words) throw new Error('Paste some story text or choose a text file.');
   const turns = [];
   const titleLine = /^\s*#[ \t]+([^\r\n]+)(?:\r?\n|$)/u.exec(text);
-  const title = titleLine && !marker(titleLine[0]) ? titleLine[1].replace(/[ \t]+#+$/u,'').trim().slice(0,160) : '';
+  const title = titleLine && !marker(titleLine[0]) ? titleLine[1].replace(/[ \t]+#+$/u,'').trim() : '';
   let prefix = title ? titleLine[0] : '', startsChapter = false, hasChapters = false, offset = prefix.length;
   const add = content => {
     for (const slice of proseSlices(content)) {
@@ -60,7 +58,6 @@ export function parseManuscript(text) {
         ...(prefix ? {sourcePrefix:prefix} : {}),
         ...(startsChapter && turns.length ? {startsChapter:true} : {})};
       turns.push(turn);
-      if (turns.length > turnLimit) throw new RangeError('The manuscript has too many sections for one story. Split it into smaller manuscripts.');
       prefix = '';
       startsChapter = false;
     }
@@ -80,6 +77,12 @@ export function parseManuscript(text) {
   if (!turns.length) throw new Error('Add story prose below the headings before importing.');
   if (prefix) turns.at(-1).content += prefix;
   return {turns,words,hasChapters,title};
+}
+
+export function manuscriptReference(manuscript) {
+  if (!manuscript) return undefined;
+  return {turnCount:manuscript.turns.length,hasChapters:manuscript.hasChapters,
+    turns:manuscript.turns.map(turn=>({turn:turn.turnNumber,text:(turn.sourcePrefix || '') + turn.content}))};
 }
 
 export function manuscriptPassages(turns) {

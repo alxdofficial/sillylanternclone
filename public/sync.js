@@ -101,7 +101,7 @@ function conflictsWithRecordedContinuity(base, revised, completed) {
       original.selectedAlternative !== next.selectedAlternative;
     if (changesSource(scene,edited)) return true;
     const direction = base.messages[index-1];
-    return direction?.role === 'user' && changesSource(direction,revised.messages.find(turn=>turn.turnNumber === direction.turnNumber));
+    return !scene.standalone && direction?.role === 'user' && changesSource(direction,revised.messages.find(turn=>turn.turnNumber === direction.turnNumber));
   });
 }
 

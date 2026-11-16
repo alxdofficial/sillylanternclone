@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMessages, formatMessages, splitAgentReply, migrateLegacyCast, isStoryTime, recordStoryTime } from '../public/prompt.js';
+import { buildMessages, buildWritingContext, formatMessages, splitAgentReply, migrateLegacyCast, isStoryTime, recordStoryTime } from '../public/prompt.js';
 
 const story = {
   characterName: 'Iona', personaName: 'Ren',
@@ -89,8 +89,8 @@ test('narration uses the cast and retains legacy attribution without a character
   assert.match(prompt, /Mara knows the tide calendar/);
   assert.match(prompt, /Mara: Look east/);
   assert.match(prompt, /\[ASSISTANT\]\s+Iona: A lantern/);
-  assert.match(prompt, /Cast:\s+\[SYSTEM\]\s+Iona\s+Description: Iona keeps the station lit/);
-  assert.match(prompt, /\[SYSTEM\]\s+Mara\s+Description: Mara knows the tide calendar/);
+  assert.match(prompt, /Character profiles:\s+Iona\s+Description: Iona keeps the station lit/);
+  assert.match(prompt, /Mara\s+Description: Mara knows the tide calendar/);
   assert.doesNotMatch(prompt, /Mara keeps the station lit/);
 });
 
@@ -110,14 +110,19 @@ test('excluded text cannot activate lore or appear in an agent handoff', () => {
   assert.match(prompt, /Take the morning ferry/);
 });
 
-test('known small model gets a tighter budget without losing the latest direction', () => {
-  const messages = Array.from({length:600}, (_, i) => ({role:'user', content:`Turn ${i}: ` + 'lamp '.repeat(150)}));
-  const project = {...story,messages,lore:'This is the lighthouse. '.repeat(600)};
-  const large = buildMessages(project,'Board the ferry');
-  const small = buildMessages(project,'Board the ferry','send',{model:'gryphe/mythomax-l2-13b'});
-  assert.ok(large.length > small.length);
-  assert.equal(small.at(-1).content,'Board the ferry');
-  assert.ok(small.reduce((n,m)=> n + Math.ceil(Buffer.byteLength(m.content)/3) + 8,0) <= 1900);
+test('the shared prose budget trims history before it drops any story state', () => {
+  const messages = Array.from({length:110},(_,i)=>({role:'user',content:'Beat ' + i + ': ' + 'new boat '.repeat(185)}));
+  const project = {...story,messages,lore:'The dock is red. '.repeat(4200)};
+  const large = buildWritingContext(project,'Board the ferry','send',{model:'thedrummer/cydonia-24b-v4.1',openRouter:true});
+  const small = buildWritingContext(project,'Board the ferry','send',{model:'fixture/writer',openRouter:true});
+  assert.equal(large.problem,'');
+  assert.equal(small.problem,'');
+  assert.ok(large.messages.length > small.messages.length);
+  assert.match(small.messages[0].content,/The dock is red/);
+  assert.match(small.messages.at(-2).content,/Beat 109:/);
+  assert.equal(small.messages.at(-1).content,'Author direction:\nBoard the ferry');
+  const oversized = buildWritingContext({...project,lore:'World '.repeat(70_000)},'Another scene','send',{openRouter:true});
+  assert.match(oversized.problem,/shared input budget/);
 });
 
 test('the prompt fits relationship history around the recent prose', () => {
@@ -132,11 +137,7 @@ test('the prompt fits relationship history around the recent prose', () => {
   const large = buildMessages(project,'Ren takes the watch.','send',{model:'thedrummer/cydonia-24b-v4.1',openRouter:true});
   const events = messages => [...messages[0].content.matchAll(/Event (\d+):/g)].map(match => Number(match[1]));
   assert.deepEqual(events(large),Array.from({length:300},(_,index)=>index));
-  const small = buildMessages(project,'Ren takes the watch.','send',{model:'gryphe/mythomax-l2-13b',openRouter:true});
-  assert.ok(events(small).length < 300);
-  assert.equal(events(small)[0],0);
-  assert.deepEqual(small.at(-1),large.at(-1));
-  assert.ok(small.reduce((n,m)=> n + Math.ceil(Buffer.byteLength(m.content)/3) + 8,0) <= 1900);
+  assert.match(large.at(-1).content,/Ren takes the watch/);
 });
 
 test('auto-flagged turns stop at the MCP boundary while OpenRouter keeps scene continuity', () => {

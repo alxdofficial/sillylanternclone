@@ -6,26 +6,30 @@ export function agentTool(name,description,schema,handle) {
   return {schema,handle,definition:{type:'function',function:{name,description,parameters}}};
 }
 
-export async function runAgentTask({messages,completions,action,reads = [],text,code,failure}) {
+export async function runAgentTask({messages,completions,action,reads = [],text,code,failure,prefixLength}) {
   const tools = [...reads,...(action ? [action] : [])].map(entry=>entry.definition);
   const finalName = action?.definition.function.name;
   for (let round=0; round<4; round++) {
-    const response = await completions(messages,tools);
+    const response = await completions(messages,tools,prefixLength);
     if (text && typeof response?.text === 'string') return text(response);
     const calls = response?.tool_calls;
     if (!Array.isArray(calls) || !calls.length || calls.length > 4) break;
-    if (calls.some(call=>typeof call?.id !== 'string' || !call.id || call.type !== 'function') ||
+    if (calls.some(call=>typeof call?.id !== 'string' || !call.id || call.type !== 'function'
+      || typeof call.function?.name !== 'string' || !call.function.name
+      || typeof call.function.arguments !== 'string') ||
       new Set(calls.map(call=>call.id)).size !== calls.length) break;
     messages.push(response);
     const results = [];
-    const multipleFinalCalls = finalName && calls.filter(call=>call.function?.name === finalName).length > 1;
+    const finalCalls = finalName ? calls.filter(call=>call.function.name === finalName).length : 0;
     for (const call of calls) {
       let args;
       try { args = JSON.parse(call.function.arguments); } catch { /* Return an argument error below. */ }
       let result = {error:'Use an available tool and match its argument schema.'};
       const selected = [action,...reads].find(entry=>entry?.definition.function.name === call.function?.name);
-      if (multipleFinalCalls && selected === action) {
+      if (finalCalls > 1 && selected === action) {
         result = {error:'Send one final tool call. Combine all intended changes into that call.'};
+      } else if (selected && selected === action && calls.length > 1) {
+        result = {error:'Review the read results, then send the final action on its own.'};
       } else if (selected) {
         const parsed = selected.schema.safeParse(args);
         if (parsed.success) {

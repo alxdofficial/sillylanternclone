@@ -54,7 +54,7 @@ test('agents watch for writing and metadata edits, decline requests, and get che
   try {
     await client.connect(new StdioClientTransport({
       command:join(source, 'bin', 'story-studio-mcp'),
-      env:{PORT:String(port), STORY_STUDIO_DATA:directory}
+      env:{PORT:String(port), STORY_STUDIO_DATA:directory, STORY_STUDIO_LEGACY_QUEUE:'1'}
     }));
     const instructions = client.getInstructions();
     assert.ok(instructions.length < 4096, 'Claude Code truncates server instructions at 4,096 characters');
@@ -64,7 +64,7 @@ test('agents watch for writing and metadata edits, decline requests, and get che
     assert.match(instructions, /decline_turn/);
     const {tools} = await client.listTools();
     assert.deepEqual(tools.map(item => item.name).sort(),
-      ['decline_turn', 'edit_story_state', 'get_story_context', 'get_story_state', 'inspect_continuity', 'list_stories', 'open_studio', 'record_scene', 'submit_reply',
+      ['decline_turn', 'edit_story_state', 'get_scene_continuity', 'get_story_context', 'get_story_state', 'inspect_continuity', 'list_stories', 'open_studio', 'record_scene', 'submit_reply',
         'submit_setup_response', 'wait_for_queued_turn', 'wait_for_setup_request']);
     const opened = toolData(await client.callTool({name:'open_studio', arguments:{}}));
     childPid = opened.pid;
@@ -72,14 +72,14 @@ test('agents watch for writing and metadata edits, decline requests, and get che
     const directionLimit = `${'brief '.repeat(7999)}ending`;
     const longContext = toolData(await client.callTool({name:'get_story_context',arguments:{storyId:'first',direction:directionLimit}}));
     assert.ok(longContext.prompt.includes(directionLimit));
-    const excessDirection = await client.callTool({name:'get_story_context',arguments:{storyId:'first',direction:`${directionLimit} more`}});
+    const excessDirection = await client.callTool({name:'get_story_context',arguments:{storyId:'first',direction:directionLimit.repeat(9)}});
     assert.equal(excessDirection.isError,true);
-    assert.match(excessDirection.content[0].text,/8,000 words/);
+    assert.match(excessDirection.content[0].text,/model input budget/);
     const excessWriterTurn = await client.callTool({name:'submit_reply',arguments:{
-      storyId:'first',revision:longContext.revision,writerTurn:`${directionLimit} more`,reply:'A fixture reply.'
+      storyId:'first',revision:longContext.revision,writerTurn:directionLimit.repeat(9),reply:'A fixture reply.'
     }});
     assert.equal(excessWriterTurn.isError,true);
-    assert.match(excessWriterTurn.content[0].text,/8,000 words/);
+    assert.match(excessWriterTurn.content[0].text,/model input budget/);
 
     const idle = toolData(await client.callTool({name:'wait_for_queued_turn', arguments:{waitSeconds:1}}));
     assert.equal(idle.status, 'idle');

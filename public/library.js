@@ -1,5 +1,6 @@
 // The starter is attached to the live library in memory and kept out of backups.
 export const starterStoryId = 'story-studio-starter-demo';
+export const libraryByteLimit = 16_000_000;
 export const maxLibraryStories = 100;
 
 export function withoutStarter(library) {

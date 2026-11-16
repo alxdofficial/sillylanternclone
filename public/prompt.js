@@ -1,26 +1,13 @@
 // Conversation assembly follows the block order of SillyTavern's default
 // Chat Completion preset. Implemented independently; see RESEARCH.md.
-import { models, proseOutputLimit } from './models.js';
+import { modelContextWindow, proseOutputLimit } from './models.js';
 
 export const storyTextFields = ['premise', 'authorNote', 'postHistory', 'loreRules', 'continuity'];
 export const legacyCastFields = ['characterName', 'characterNickname', 'character', 'personality', 'scenario', 'examples', 'personaName', 'persona'];
 
 export const narrator = Object.freeze({id:'story-studio:narrator', name:'Narrator'});
-// The largest older library could have thirteen stored cast members, a
-// separate character record, and a separate writer persona.
-export const maxCastMembers = 15;
-export const maxWriteWords = 8000;
-export const maxSetupWords = 20_000;
-export const maxSetupReplyCharacters = 6000;
-export const maxSetupRelationships = 24;
-export const countWords = text => text.match(/\S+/gu)?.length ?? 0;
-export const maxStoryFieldWords = 20_000;
-export const withinStoryFieldLimit = text => countWords(text) <= maxStoryFieldWords;
+export const maxSetupReplyCharacters = 6000; // Legacy queued setup transport.
 
-export function setupInputWords(messages, context = '', draft = '') {
-  return messages.reduce((words, {role,content}) => role === 'user' ? words + countWords(content) : words,
-    countWords(context) + countWords(draft));
-}
 export const castFields = ['name', 'nickname', 'description', 'personality', 'scenario', 'examples'];
 
 const hasLegacyCast = project => legacyCastFields.some(field => Object.hasOwn(project,field)) || Object.hasOwn(project,'storyWriterId');
@@ -120,7 +107,7 @@ export function resolveCastName(cast, value) {
 }
 
 export function validCast(cast) {
-  if (!Array.isArray(cast) || cast.length > maxCastMembers) return false;
+  if (!Array.isArray(cast)) return false;
   const ids = new Set([narrator.id]);
   for (const character of cast) {
     if (!character || typeof character.id !== 'string' || !character.id || ids.has(character.id)) return false;
@@ -174,14 +161,12 @@ export function recordStoryTime(project, inferred) {
   return time;
 }
 
-export const maxGraphEvents = 1000;
-
 export function validRelationships(edges) {
-  return Array.isArray(edges) && edges.length <= maxGraphEvents && edges.every(edge => edge
+  return Array.isArray(edges) && edges.every(edge => edge
     && typeof edge.from === 'string' && typeof edge.to === 'string' && edge.from !== edge.to
     && (edge.turn === undefined || Number.isSafeInteger(edge.turn) && edge.turn >= 0)
     && (edge.storyTime === undefined || isStoryTime(edge.storyTime))
-    && typeof edge.label === 'string' && edge.label.trim() && edge.label.length <= 400);
+    && typeof edge.label === 'string' && edge.label.trim());
 }
 
 export function graphSuggestions(value) {
@@ -189,7 +174,7 @@ export function graphSuggestions(value) {
   return value.slice(0, 5).flatMap(item => {
     if (!item || typeof item !== 'object') return [];
     if (item.kind === 'character' && typeof item.name === 'string' && typeof item.note === 'string') {
-      const name = clip(item.name, 100);
+      const name = String(item.name || '').trim();
       return name ? [{kind:'character', name, note:clip(item.note, 300)}] : [];
     }
     if (item.kind === 'world' && typeof item.note === 'string') {
@@ -197,15 +182,15 @@ export function graphSuggestions(value) {
       return note ? [{kind:'world', note}] : [];
     }
     if (item.kind === 'profile' && typeof item.name === 'string' && typeof item.note === 'string') {
-      const name = clip(item.name, 100), note = clip(item.note, 300);
+      const name = String(item.name || '').trim(), note = clip(item.note, 300);
       return name && note ? [{kind:'profile',name,note}] : [];
     }
-    if (item.kind === 'fact' && typeof item.note === 'string') {
+    if (['fact','writing'].includes(item.kind) && typeof item.note === 'string') {
       const note = clip(item.note, 300);
-      return note ? [{kind:'fact', note}] : [];
+      return note ? [{kind:item.kind, note}] : [];
     }
     if (item.kind === 'relationship' && ['from','to','label'].every(key => typeof item[key] === 'string')) {
-      const from = clip(item.from, 100), to = clip(item.to, 100), label = clip(item.label, 200);
+      const from = String(item.from || '').trim(), to = String(item.to || '').trim(), label = clip(item.label, 200);
       return from && to && label && from.toLowerCase() !== to.toLowerCase()
         ? [{kind:'relationship',from,to,label,...(isStoryTime(item.storyTime)?{storyTime:item.storyTime}:{})}] : [];
     }
@@ -259,9 +244,10 @@ function activatedLore(rules, scan, expand) {
 }
 
 export function nextTurnNumber(project) {
-  return Math.max(project.nextTurn || 1,
-    ...project.messages.map((message,index) => (message.turnNumber || index + 1) + 1),
-    ...(project.relationships || []).map(edge => (edge.turn || 0) + 1));
+  let next = project.nextTurn || 1;
+  for (const [index,message] of project.messages.entries()) next = Math.max(next,(message.turnNumber || index + 1) + 1);
+  for (const edge of project.relationships || []) next = Math.max(next,(edge.turn || 0) + 1);
+  return next;
 }
 export function appendTurn(project, message) {
   const turnNumber = nextTurnNumber(project);
@@ -270,32 +256,22 @@ export function appendTurn(project, message) {
   return turnNumber;
 }
 
-function relationshipContext(project, scan, tokens, expand) {
-  const heading = 'Relationship map:\n';
-  let remaining = (tokens - 8) * 3 - encoder.encode(heading).length;
-  if (remaining <= 0 || !project.relationships?.length) return '';
-  const cast = getCast(project);
-  const castById = new Map(cast.map(member => [member.id,member.name]));
-  const priorityMembers = new Set();
-  for (const member of cast) {
-    const names = [member.name, ...(member.nickname || '').split(',')];
-    if (names.some(name => name.trim() && containsKeyword(scan, name.trim()))) priorityMembers.add(member.id);
-  }
-  const events = (project.relationships || []).filter(edge => castById.has(edge.from) && castById.has(edge.to));
+function relationshipContext(project, expand) {
+  const castById = new Map(getCast(project).map(member=>[member.id,member.name]));
+  const dated = new Map();
+  project.messages.forEach((turn,index)=>{
+    if (isStoryTime(turn.storyTime)) dated.set(turn.turnNumber || index + 1,turn.storyTime);
+  });
   const start = project.storyStartAt || localStoryTime();
-  const score = edge => Number(priorityMembers.has(edge.from)) + Number(priorityMembers.has(edge.to));
-  events.sort((a,b) => score(b) - score(a) || (b.turn || 0) - (a.turn || 0));
-  const selected = [];
-  for (const edge of events) {
-    const time = relationshipTime(project,edge,start);
-    const line = expand(`${time.replace('T',' ')} · ${clip(castById.get(edge.from),100)} → ${clip(castById.get(edge.to),100)}: ${edge.label}`);
-    const bytes = encoder.encode(line).length + (selected.length ? 1 : 0);
-    if (bytes > remaining) continue;
-    selected.push({time,turn:edge.turn || 0,line});
-    remaining -= bytes;
-  }
-  selected.sort((a,b) => a.time.localeCompare(b.time) || a.turn - b.turn);
-  return selected.length ? heading + selected.map(event => event.line).join('\n') : '';
+  const events = (project.relationships || []).filter(edge=>castById.has(edge.from) && castById.has(edge.to));
+  const rows = events.map(edge=>{
+    const turn = edge.turn || 0;
+    const time = !turn ? start : isStoryTime(edge.storyTime) ? edge.storyTime
+      : dated.get(turn) || advanceStoryTime(start,Math.min(turn,3000));
+    return {time,turn,line:expand(`${time.replace('T',' ')} · ${castById.get(edge.from)} → ${castById.get(edge.to)}: ${edge.label}`)};
+  });
+  rows.sort((a,b)=>a.time.localeCompare(b.time) || a.turn - b.turn);
+  return rows.length ? 'Relationship map:\n' + rows.map(({line})=>line).join('\n') : '';
 }
 export const validSensitivity = value => ['safe','reviewed-safe','explicit','unclassified'].includes(value);
 
@@ -343,7 +319,7 @@ export function queuedTurn(project) {
 // timeline keeps the exchange together.
 export function dateWriterTurn(project) {
   const reply = project.messages.at(-1), writer = project.messages.at(-2);
-  if (reply?.role === 'assistant' && writer?.role === 'user' && !isStoryTime(writer.storyTime) && isStoryTime(reply.storyTime)) {
+  if (reply?.role === 'assistant' && !reply.standalone && writer?.role === 'user' && !isStoryTime(writer.storyTime) && isStoryTime(reply.storyTime)) {
     writer.storyTime = reply.storyTime;
   }
 }
@@ -402,7 +378,7 @@ export function mcpOmissionReason(turn, direction) {
   if (turn.excludeFromContext) return 'allRoutes';
   if (turn.contentSensitivity === 'explicit') return 'explicit';
   if (turn.contentSensitivity === 'unclassified') return 'unverified';
-  if (turn.role === 'assistant' && turn.contentSensitivity !== 'reviewed-safe'
+  if (turn.role === 'assistant' && !turn.standalone && turn.contentSensitivity !== 'reviewed-safe'
     && direction && !isAvailableToMcp(direction)) return 'directionWithheld';
   return '';
 }
@@ -419,6 +395,7 @@ export function contextTurns(turns, {includeSensitive = false} = {}) {
     const sensitivity = omission === 'directionWithheld' ? 'unclassified' : turn.contentSensitivity;
     projected.push({
       role:turn.role,content:turn.content,speakerId:turn.speakerId,speakerName:turn.speakerName,
+      ...(turn.role === 'assistant' && turn.standalone === true ? {standalone:true} : {}),
       ...(turn.storyTime ? {storyTime:turn.storyTime} : {}),
       ...(sensitivity ? {contentSensitivity:sensitivity} : {})
     });
@@ -432,15 +409,15 @@ export const continuityRecentTokenCap = 1_800;
 const estimate = text => Math.ceil(encoder.encode(text).length / 3) + 8;
 export const estimateContextTokens = text => text ? estimate(text) : 0;
 
+export const proseInputLimit = 112_000;
+
 export function writingPromptLimit(model) {
-  if (model === 'gryphe/mythomax-l2-13b') return 1900;
-  if (model === 'anthracite-org/magnum-v4-72b') return 29_500;
-  if (!model || models.some(item=>item.id === model) || model === 'thedrummer/unslopnemo-12b') return 48_000;
-  return 28_000;
+  if (!model || modelContextWindow(model)) return proseInputLimit;
+  return 28_000; // User-added models have an unverified provider window.
 }
 
 export function writingHistoryLimit(model) {
-  return Math.max(0,Math.min(recentTokenCap,writingPromptLimit(model) - 2900));
+  return Math.min(recentTokenCap, writingPromptLimit(model));
 }
 
 export function storyEditContext(project) {
@@ -458,7 +435,7 @@ export function storyEditContext(project) {
     notes:include(project.notes,4000),
     continuity:include(project.continuity,6000),
     cast:getCast(project).map(member => ({
-      name:include(member.name,100),
+      name:member.name,
       nickname:include(member.nickname,300),
       description:include(member.description,1100),
       personality:include(member.personality,500),
@@ -491,9 +468,8 @@ export function storyPromptUsage(messages) {
 }
 
 export function writeInputProblem(text, model = '') {
-  if (countWords(text) > maxWriteWords) return 'Write input can be up to 8,000 words.';
-  if (text.trim() && estimate(text.trim()) + 1100 > writingPromptLimit(model)) {
-    return 'This direction is too large for the selected model’s prompt budget. Shorten it or choose a model with more room.';
+  if (estimateContextTokens(text.trim()) > writingPromptLimit(model)) {
+    return 'This direction exceeds the available model input budget.';
   }
   return '';
 }
@@ -540,17 +516,17 @@ function endsWithin(text, tokens) {
   return clipEnds(text,low);
 }
 
-function limitPrompt(messages, tokens) {
+function limitPrompt(messages, tokens, preserveDirection = true) {
   if (!tokens) return messages;
   const result = [...messages];
   const cost = () => result.reduce((sum,message) => sum + estimate(message.content), 0);
   while (cost() > tokens) {
-    const oldest = result.findIndex((message,index) => index < result.length - 1 && message.role !== 'system');
+    const oldest = result.findIndex((message,index) => index < result.length - Number(preserveDirection) && message.role !== 'system');
     if (oldest === -1) break;
     result.splice(oldest,1);
   }
   while (cost() > tokens) {
-    const longest = result.reduce((index,message,i) => i > 0 && i < result.length - 1
+    const longest = result.reduce((index,message,i) => i > 0 && i < result.length - Number(preserveDirection)
       && message.content.length > (result[index]?.content.length || 0) ? i : index, -1);
     if (longest === -1) break;
     const message = result[longest];
@@ -562,81 +538,97 @@ function limitPrompt(messages, tokens) {
   return result;
 }
 
-export function buildMessages(project, instruction = '', mode = 'continue', {model = '', includeSensitive = false, openRouter = false} = {}) {
-  if (hasLegacyCast(project)) project = migrateLegacyCast({...project});
+// Share the persistent state rendering between prose and the OpenRouter tools.
+export function storyStateParts(project, {scan, expand = value=>value, clock = lastStoryTime(project)} = {}) {
   const cast = getCast(project);
-  const expand = (value, character = 'the cast') => value.replace(/{{(char|user)}}/gi,
-    (_, name) => name.toLowerCase() === 'char' ? character : 'the author');
-  const context = [];
-  const add = (label, value, limit) => {
-    const text = limit ? clip(value, limit) : value?.trim();
-    if (text) context.push({role:'system', content:label + ':\n' + expand(text)});
+  const sections = [];
+  const add = (label, value, category) => {
+    if (value?.trim()) sections.push({label:category,content:label + ':\n' + expand(value.trim())});
   };
-  const modelLimit = writingPromptLimit(model);
-  const history = recentTurns(project.messages,writingHistoryLimit(model),{includeSensitive}).map(turn => ({
-    role:turn.role,
-    content:turn.role === 'assistant' && turn.speakerId !== narrator.id && turn.speakerName
-      ? clip(turn.speakerName, 100) + ': ' + turn.content : turn.content
-  }));
-
-  const direction = instruction.trim();
-  const scan = expand([...history.slice(-4).map(message => message.content), direction].join('\n'));
-  const instructions = [MAIN,continuityInstruction,sceneInstruction];
-  if (mode === 'replace') instructions.push('Write the replacement scene from the revised direction and the earlier story. Use the original reply time if given.');
-  if (openRouter && model) instructions.push(`The output limit for this turn is ${proseOutputLimit(model).toLocaleString('en-US')} tokens.`);
-  context.push({role:'system',content:instructions.join('\n\n')});
-  add('World setting', project.lore);
-  add('Opening premise', project.premise);
+  add('Story title',project.title,'Names and aliases');
+  add('World setting',project.lore,'World and premise');
+  add('Opening premise',project.premise,'World and premise');
   if (cast.length) {
-    const perMember = Math.floor(modelLimit * 0.38 / cast.length);
-    context.push({role:'system',content:'Cast:'});
-    for (const member of cast) {
-      const name = clip(member.name,100);
-      const lines = [
-        ['Aliases',member.nickname],['Description',member.description],['Personality',member.personality],
+    add('Cast',cast.map(member=>[member.name,member.nickname].filter(Boolean).join(' · ')).join('\n'),'Names and aliases');
+    const profiles = cast.map(member=>{
+      const fields = [
+        ['Description',member.description],['Personality',member.personality],
         ['Scenario',member.scenario === project.premise ? '' : member.scenario],
         ['Example dialogue (style only)',member.examples]
-      ].filter(([,value])=>value?.trim()).map(([label,value])=>label + ': ' + expand(value.trim(),name));
-      // Give long profiles the same allowance while retaining the name of every entry.
-      const profile = limitPrompt([{role:'system',content:name},...lines.map(content=>({role:'system',content})),
-        {role:'user',content:''}],perMember).slice(0,-1).map(({content})=>content).join('\n');
-      context.push({role:'system',content:profile});
-    }
+      ].filter(([,value])=>value?.trim()).map(([label,value])=>label + ': ' + expand(value.trim(),member.name));
+      return fields.length ? [member.name,...fields].join('\n') : '';
+    }).filter(Boolean);
+    if (profiles.length) sections.push({label:'Character profiles',content:'Character profiles:\n' + profiles.join('\n\n')});
   }
-  const clock = openRouter && isStoryTime(project.contextTime) ? project.contextTime : lastStoryTime(project);
-  if (clock) add('Story clock', clock + (project.storyStartSource === 'estimate' ? ' (starting estimate; defer to explicit setting or author dates)' : ''), 130);
-  if (isStoryTime(project.replyTime)) {
-    add(mode === 'alternate' || mode === 'replace' ? 'Original reply time' : 'Dated writer turn', project.replyTime, 16);
-  }
-  add('Story memory', project.continuity);
-  add('Writing notes', project.notes);
-  add('Relevant lore', activatedLore(project.loreRules, scan, expand));
+  add('Story clock',clock && clock + (project.storyStartSource === 'estimate' ? ' (estimate; defer to explicit story dates)' : ''),'Story graph');
+  const graph = relationshipContext(project,expand);
+  if (graph) sections.push({label:'Story graph',content:graph});
+  add('Story memory',project.continuity,'Story graph');
+  add('Writing notes',project.notes,'Writing notes');
+  add('Author’s note',project.authorNote,'Writing notes');
+  add('Post-history instructions',project.postHistory,'Writing notes');
+  add(scan === undefined ? 'Keyword lore' : 'Relevant lore',
+    scan === undefined ? project.loreRules : activatedLore(project.loreRules,scan,expand),'World and premise');
+  return sections;
+}
 
-  const note = project.authorNote?.trim();
-  if (openRouter) {
-    add('Author’s note', note);
-    add('Post-history instructions', project.postHistory);
-  } else if (note) {
-    history.splice(Math.max(0, history.length - 4), 0, {role:'system', content:'Author’s note:\n' + expand(note)});
+export function contextParts(sections) {
+  const categories = new Map();
+  for (const {label,content,tokens = estimateContextTokens(content)} of sections) {
+    categories.set(label,(categories.get(label) || 0) + tokens);
   }
-  context.push(...history);
-  if (!openRouter) add('Post-history instructions', project.postHistory);
+  return [...categories].map(([label,tokens])=>({label,tokens}));
+}
 
-  if (mode === 'alternate') {
-    context.push({role:'user', content:'Write a different take for the latest author direction in the history. Keep the original scene time and established continuity.'});
-  } else if (direction) {
-    context.push({role:'user', content:openRouter ? 'Author direction:\n' + direction : direction});
-  } else {
-    context.push({role:'user', content:CONTINUE});
-  }
-  const messages = limitPrompt(context, modelLimit);
-  const graphBudget = modelLimit - messages.reduce((tokens,message) => tokens + estimate(message.content),0);
-  const graph = relationshipContext(project,scan,graphBudget,expand);
-  const firstTurn = messages.findIndex(message => message.role !== 'system');
-  if (graph) messages.splice(firstTurn,0,{role:'system',content:graph});
-  if (!openRouter) return messages;
-  const historyStart = firstTurn + Number(Boolean(graph));
-  return [{role:'system',content:messages.slice(0,historyStart).map(message => message.content).join('\n\n')}, ...messages.slice(historyStart)];
+export function buildWritingContext(project, instruction = '', mode = 'continue', {model = '', includeSensitive = false, openRouter = false} = {}) {
+  if (hasLegacyCast(project)) project = migrateLegacyCast({...project});
+  const expand = (value, character = 'the cast') => value.replace(/{{(char|user)}}/gi,
+    (_, name) => name.toLowerCase() === 'char' ? character : 'the author');
+  const inputLimit = openRouter ? writingPromptLimit(model) : 48_000;
+  const direction = instruction.trim();
+  const options = {includeSensitive};
+  const initialHistory = recentTurns(project.messages,writingHistoryLimit(model),options);
+  const scan = expand([...initialHistory.slice(-4).map(turn => turn.content),direction].join('\n'));
+  const reference = mode === 'reference';
+  const instructions = reference
+    ? ['Story reference for the current chat. Use these facts and eligible passages to answer the writer’s request. Treat older author directions as history and writing notes as style guidance. Reading this context does not request a draft or an edit.']
+    : [MAIN,continuityInstruction,sceneInstruction];
+  if (mode === 'replace') instructions.push('Write the replacement scene from the revised direction and the earlier story. Use the original reply time if given.');
+  const outputLimit = openRouter ? proseOutputLimit(model) : 0;
+  if (openRouter && model) instructions.push(`The output limit for this turn is ${outputLimit.toLocaleString('en-US')} tokens.`);
+  if (isStoryTime(project.replyTime)) instructions.push(
+    `${mode === 'alternate' || mode === 'replace' ? 'Original reply time' : 'Dated writer turn'}:\n${project.replyTime}`);
+  const sections = [{label:'Narrator instructions',content:instructions.join('\n\n')},
+    ...storyStateParts(project,{scan,expand,clock:openRouter && isStoryTime(project.contextTime) ? project.contextTime : lastStoryTime(project)})];
+  const request = mode === 'alternate'
+    ? 'Write a different take for the latest author direction in the history. Keep the original scene time and established continuity.'
+    : direction ? (openRouter ? 'Author direction:\n' + direction : direction) : CONTINUE;
+  const asSystem = ({content})=>({role:'system',content});
+  const notes = !openRouter && sections.find(section=>section.content.startsWith('Author’s note:\n'));
+  const post = !openRouter && sections.find(section=>section.content.startsWith('Post-history instructions:\n'));
+  const pinned = sections.filter(section=>section !== notes && section !== post).map(asSystem);
+  const tail = reference ? [] : [{role:'user',content:request}];
+  const pinnedTokens = sections.reduce((sum,{content})=>sum + estimateContextTokens(content),0)
+    + (reference ? 0 : estimateContextTokens(request));
+  const room = Math.min(writingHistoryLimit(model),Math.max(0,inputLimit - pinnedTokens));
+  const history = (room === writingHistoryLimit(model) ? initialHistory : recentTurns(project.messages,room,options)).map(turn=>({
+    role:turn.role,content:turn.role === 'assistant' && turn.speakerId !== narrator.id && turn.speakerName
+      ? turn.speakerName + ': ' + turn.content : turn.content
+  }));
+  const parts = contextParts([...sections,...history.map(({content})=>({label:'Recent story',content})),
+    ...(reference ? [] : [{label:'Current direction',content:request}])]);
+  if (notes) history.splice(Math.max(0,history.length - 4),0,asSystem(notes));
+  if (post) history.push(asSystem(post));
+  const messages = openRouter
+    ? [{role:'system',content:pinned.map(({content})=>content).join('\n\n')},...history,...tail]
+    : limitPrompt([...pinned,...history,...tail],inputLimit,!reference);
+  return {messages,parts,inputLimit,outputLimit,
+    problem:openRouter && (pinnedTokens > inputLimit || parts.reduce((sum,part)=>sum + part.tokens,0) > inputLimit)
+      ? 'The story state and direction exceed the writing model’s shared input budget. Shorten the direction or consolidate the story notes.' : ''};
+}
+
+export function buildMessages(...args) {
+  return buildWritingContext(...args).messages;
 }
 
 export function formatMessages(messages) {

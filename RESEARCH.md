@@ -4,7 +4,7 @@ The upstream research below records the 15 November 2026 review. Use the [README
 
 ## Current architecture
 
-Story Studio runs on the writer's Mac. The selected artist drafts a scene using the story prompt. OpenRouter runs a separate DeepSeek continuity task after drafting, and local MCP clients use the corresponding prose and continuity tools. Direct edits and setup use the same structured workflow with task-specific scope. The model chooses which scoped information to inspect. Story Studio checks tool arguments and the library revision before saving. Setup stages a proposal for the writer to review before creation.
+Story Studio runs on the writer's Mac. The selected artist drafts a scene using the story prompt. OpenRouter runs a separate, selectable continuity task after drafting, and local MCP clients use the corresponding prose and continuity tools. Direct edits and setup use the same structured workflow with task-specific scope. The model chooses which scoped information to inspect. Story Studio checks tool arguments and the library revision before saving. Setup stages a proposal for the writer to review before creation.
 
 The design combines a short, selected history with on-demand reads of state. This keeps the writing route predictable and lets the editor inspect more context when useful. The app withholds marked transcript passages according to route. Imported excerpts, user-authored state, and the surrounding native chat have their own scope and limits. [Context engineering guidance](https://www.anthropic.com/research/effective-context-engineering-for-ai-agents) · [MCP tools specification](https://modelcontextprotocol.io/specification/latest/server/tools)
 

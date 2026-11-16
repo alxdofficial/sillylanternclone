@@ -1,6 +1,7 @@
-import { castFields, getCast, graphSuggestions, maxCastMembers, maxGraphEvents, migrateLegacyCast, relationshipTime, resolveCastName, validCast } from './prompt.js';
+import { castFields, getCast, graphSuggestions, migrateLegacyCast, relationshipTime, resolveCastName, validCast } from './prompt.js';
 
-const sections = ['cast', 'lore', 'continuity'];
+const requiredSections = ['cast', 'lore', 'continuity'];
+const sections = [...requiredSections,'notes'];
 const castKeys = new Set(['id', ...castFields]);
 const revisionKeys = new Set(['turn', ...sections]);
 const validTurn = turn => Number.isSafeInteger(turn) && turn >= 0;
@@ -30,7 +31,7 @@ export function normalizeGraphHistory(value) {
       throw new TypeError('Graph history turns must be valid and strictly increasing.');
     }
     const present = sections.filter(section => owns(entry, section));
-    if (!present.length || (index === 0 && present.length !== sections.length)) {
+    if (!present.length || (index === 0 && !requiredSections.every(section=>owns(entry,section)))) {
       throw new TypeError('Graph history must start with a complete version and record only nonempty changes.');
     }
     previousTurn = entry.turn;
@@ -86,6 +87,7 @@ export function graphChangesByTurn(project) {
   for (const member of getCast(project)) addDatedNotes(member.description,'profile',member.name);
   addDatedNotes(project.lore,'world');
   addDatedNotes(project.continuity,'fact');
+  addDatedNotes(project.notes,'writing');
   return changes;
 }
 
@@ -96,6 +98,8 @@ export function storyAtTurn(project, index) {
   const story = migrateLegacyCast(structuredClone(project));
   story.messages.length = index + 1;
   story.nextTurn = turn + 1;
+  if (story.agentHistory) story.agentHistory = story.agentHistory.filter(entry=>entry.afterTurn <= turn);
+  delete story.storyFlow;
   delete story.agentRequest;
   delete story.agentNotice;
   delete story.agentEditRequest;
@@ -106,6 +110,7 @@ export function storyAtTurn(project, index) {
     story.cast = version.cast;
     story.lore = version.lore;
     story.continuity = version.continuity;
+    if (version.notes !== undefined) story.notes = version.notes;
   }
   if (story.graphHistory) story.graphHistory = story.graphHistory.filter(entry => entry.turn <= turn);
   const castIds = new Set(getCast(story).map(member => member.id));
@@ -123,7 +128,8 @@ export function captureGraphVersion(project, turn) {
   const snapshot = {
     cast:copyCast(getCast(project)),
     lore:project.lore || '',
-    continuity:project.continuity || ''
+    continuity:project.continuity || '',
+    notes:project.notes || ''
   };
   const current = readGraphVersion(project);
   const equal = (before, after) => JSON.stringify(before) === JSON.stringify(after);
@@ -143,6 +149,16 @@ export function captureGraphVersion(project, turn) {
   return true;
 }
 
+// Capture the state before the first edit. Older histories did not track writing notes.
+export function ensureGraphBaseline(project) {
+  const history = project.graphHistory;
+  if (!history?.length) {
+    captureGraphVersion(project,0);
+  } else if (!history.some(entry=>owns(entry,'notes'))) {
+    project.graphHistory = [{...history[0],notes:project.notes || ''},...history.slice(1)];
+  }
+}
+
 function addDatedFact(previous = '', note, turn) {
   const normalized = note.toLowerCase();
   if (previous.split('\n').some(line => line.replace(/^Turn \d+:\s*/, '').trim().toLowerCase() === normalized)) return previous;
@@ -150,14 +166,13 @@ function addDatedFact(previous = '', note, turn) {
 }
 
 // Return true for a change, false for a duplicate, and null for a proposal
-// that still needs the writer's attention (for example, a full cast).
+// that still needs the writer's attention (for example, an unknown cast name).
 export function applyGraphUpdate(project, update, turn) {
   migrateLegacyCast(project);
   const cast = getCast(project);
   const resolve = name => resolveCastName(cast,name);
   if (update.kind === 'character') {
     if (resolve(update.name)) return null;
-    if (cast.length >= maxCastMembers) return null;
     const member = Object.fromEntries(castFields.map(field=>[field,'']));
     (project.cast ||= []).push({...member,id:globalThis.crypto.randomUUID(),name:update.name,description:update.note});
     return true;
@@ -167,7 +182,6 @@ export function applyGraphUpdate(project, update, turn) {
     if (!from || !to || from === to) return null;
     const events = project.relationships || [];
     if (events.some(edge=>edge.from === from && edge.to === to && edge.label === update.label && edge.turn === turn)) return false;
-    if (events.length >= maxGraphEvents) return null;
     const storyTime = update.storyTime || relationshipTime(project,{turn});
     (project.relationships ||= []).push({from,to,label:update.label,turn,storyTime});
     return true;
@@ -181,7 +195,7 @@ export function applyGraphUpdate(project, update, turn) {
     member.description = text;
     return true;
   }
-  const field = update.kind === 'world' ? 'lore' : 'continuity';
+  const field = update.kind === 'world' ? 'lore' : update.kind === 'writing' ? 'notes' : 'continuity';
   const text = addDatedFact(project[field],update.note,turn);
   if (project[field] === text) return false;
   project[field] = text;
@@ -194,7 +208,7 @@ export function applyTurnGraphUpdates(project, message, proposals, {allowAutomat
     message.graphSuggestions = proposals;
     return {applied:0,pending:proposals.length};
   }
-  if (!project.graphHistory?.length) captureGraphVersion(project,0);
+  ensureGraphBaseline(project);
   const applied = [], pending = [];
   // Add characters first so events can reference a name introduced this turn.
   const ordered = [...proposals.filter(update=>update.kind === 'character'), ...proposals.filter(update=>update.kind !== 'character')];

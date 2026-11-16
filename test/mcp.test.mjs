@@ -67,13 +67,13 @@ test('native MCP handshake, private context, queued replies, alternates and revi
   const client = new Client({name:'story-studio-test',version:'0.1.0'});
   const transport = new StdioClientTransport({
     command:join(source,'bin','story-studio-mcp'),
-    env:{PORT:String(port), STORY_STUDIO_DATA:directory}
+    env:{PORT:String(port), STORY_STUDIO_DATA:directory, STORY_STUDIO_LEGACY_QUEUE:'1'}
   });
   let childPid;
   try {
     await client.connect(transport);
     const {tools} = await client.listTools();
-    assert.deepEqual(tools.map(tool => tool.name).sort(), ['decline_turn','edit_story_state','get_story_context','get_story_state','inspect_continuity','list_stories','open_studio','record_scene','submit_reply',
+    assert.deepEqual(tools.map(tool => tool.name).sort(), ['decline_turn','edit_story_state','get_scene_continuity','get_story_context','get_story_state','inspect_continuity','list_stories','open_studio','record_scene','submit_reply',
       'submit_setup_response','wait_for_queued_turn','wait_for_setup_request']);
     const opened = await client.callTool({name:'open_studio',arguments:{}});
     assert.equal(opened.isError, undefined, JSON.stringify(opened));
@@ -121,7 +121,7 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     const contextNote = 'SETUP NOTES: The bridge is closed in winter.' + ' bridge-reference-note'.repeat(16_000);
     const request = {action:'queue',mode:'chat',messages:[{role:'user',content:'Help me plan an import.'}],
       manuscript,context:contextNote};
-    assert.equal((await setup({...request,context:'note '.repeat(20_001)})).status,400);
+    assert.equal((await setup({...request,manuscript:{turnCount:1,hasChapters:false,turns:[{turn:1,text:'Full text'}]}})).status,400);
     assert.equal(toolData(await client.callTool({name:'wait_for_setup_request',arguments:{sessionId,waitSeconds:1}})).status,'closed');
     assert.equal((await setup(request)).status,200);
     const queuedSetup = await waitForWork();

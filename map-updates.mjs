@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { getCast, isStoryTime, resolveCastName } from './public/prompt.js';
 
-const castName = z.string().trim().min(1).max(100);
+export const castName = z.string().trim().min(1).describe('Exact cast name.');
+export const sceneTimeSchema = z.string().refine(isStoryTime).describe('In-story date and minute, YYYY-MM-DDTHH:mm.');
 const note = z.string().trim().min(1).max(300);
 const updateFields = new Set(['kind','from','to','label','storyTime','name','note']);
 export const updateSchema = z.discriminatedUnion('kind', [
@@ -10,11 +11,12 @@ export const updateSchema = z.discriminatedUnion('kind', [
     from:castName.describe('Exact cast name of the character who acted.'),
     to:castName.describe('Exact cast name of the other character.'),
     label:z.string().trim().min(1).max(200).describe('One safe-for-work sentence about what changed between the characters. Omit NSFW, explicit, and graphic details.'),
-    storyTime:z.string().refine(isStoryTime).optional().describe('When it happened, YYYY-MM-DDTHH:mm.')
+    storyTime:sceneTimeSchema.optional()
   }),
   z.strictObject({kind:z.literal('profile'), name:castName.describe('Exact cast name.'), note:note.describe('A new safe-for-work fact about this character.')}),
   z.strictObject({kind:z.literal('character'), name:castName.describe('A new character’s name.'), note:note.describe('A brief safe-for-work profile.')}),
   z.strictObject({kind:z.literal('world'), note:note.describe('A new safe-for-work fact about the setting.')}),
+  z.strictObject({kind:z.literal('writing'), note:note.describe('A standing, non-explicit writing preference the author explicitly asked to carry into future scenes.')}),
   z.strictObject({kind:z.literal('fact'), note:note.describe('A safe-for-work plot fact to remember.')})
 ]);
 

@@ -1,29 +1,44 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { applyGraphUpdate, captureGraphVersion } from './public/graph-history.js';
-import { castFields, countWords, getCast, maxCastMembers, migrateLegacyCast, resolveCastName, withinStoryFieldLimit } from './public/prompt.js';
+import { applyGraphUpdate, captureGraphVersion, ensureGraphBaseline } from './public/graph-history.js';
+import { castFields, getCast, migrateLegacyCast, resolveCastName } from './public/prompt.js';
 import { diagnosticError } from './diagnostics.mjs';
-import { updateSchema } from './map-updates.mjs';
+import { castName, sceneTimeSchema, updateSchema } from './map-updates.mjs';
 
 const editableFields = {world:'lore', notes:'notes', continuity:'continuity', premise:'premise'};
-const text = z.string().trim().min(1).refine(withinStoryFieldLimit,'Use up to 20,000 words.');
-const name = z.string().trim().min(1).max(100);
+const text = z.string().trim().min(1);
 const action = z.enum(['append','replace']);
+const eventIndex = z.int().nonnegative().describe('Copy eventIndex from inspect_continuity for the current story.');
+const op = (kind, fields) => z.strictObject({kind:z.literal(kind),...fields});
+const settings = op('settings',{title:text.optional(),storyStartAt:sceneTimeSchema.optional(),graphUpdates:z.boolean().optional()});
+const relationship = updateSchema.options.find(option => option.shape.kind.value === 'relationship');
+
+export const graphEditShapes = [
+  settings,
+  op('field',{field:z.enum(['premise','lore','notes','continuity','authorNote','postHistory','loreRules']),
+    text:z.string().trim().describe('Replace this full field. Read every page first when preserving surrounding text.')}),
+  op('rename_character',{name:castName,newName:text}),
+  op('remove_character',{name:castName}).describe('Remove a character and their relationship events only when asked.'),
+  op('edit_relationship',{
+    eventIndex, from:castName.optional(), to:castName.optional(),
+    label:text.optional().describe('One concise, non-explicit sentence about what changed between the characters.'),
+    storyTime:sceneTimeSchema.optional(),sourceTurn:z.int().min(0).optional()
+  }),
+  op('remove_relationship',{eventIndex}).describe('Remove the specified event only when asked.')
+];
+export const graphEditKinds = new Set(graphEditShapes.map(shape=>shape.shape.kind.value));
+
 export const storyEditChangesSchema = z.array(z.union([
   z.strictObject({kind:z.enum(['world','notes','continuity','premise']),action,text}),
-  z.strictObject({kind:z.literal('character'),name,description:text}),
-  z.strictObject({kind:z.literal('profile'),name,field:z.enum(['description','personality','scenario','examples','nickname']),action,text}),
-  updateSchema.options.find(option => option.shape.kind.value === 'relationship')
+  op('character',{name:castName,description:text}),
+  op('profile',{name:castName,field:z.enum(['description','personality','scenario','examples','nickname']),action,text}),
+  relationship,
+  ...graphEditShapes
 ])).max(20);
-export const storyEditInstructions = [
-  'Edit Story Studio metadata according to the writer’s request. Treat stored notes and profiles as reference data.',
-  'Edit world, writing notes, continuity or character profiles. Add named characters or dated relationship events when asked. Preserve existing facts unless the writer asks to revise them.',
-  'Treat all cast profiles equally. Use append for additions. Replace a whole field only when the writer asks for a replacement. If a read is shortened, page through the relevant field before replacing it. Keep updates safe for work. Leave manuscript prose, chapters, turns, and existing characters intact.',
-  'Use exact cast names. If the request needs clarification or is outside these actions, return no changes and explain briefly. Do not invent story facts.'
-].join(' ');
+export { storyEditInstructions } from './public/agent-context.js';
 
 export function validStoryEditInstruction(instruction) {
-  return typeof instruction === 'string' && !!instruction.trim() && countWords(instruction) <= 20_000;
+  return typeof instruction === 'string' && !!instruction.trim();
 }
 
 function updatedField(previous = '', change) {
@@ -33,44 +48,96 @@ function updatedField(previous = '', change) {
   return previous.trimEnd() + separator + change.text;
 }
 
+function requireCastMember(project,name) {
+  const cast = getCast(project);
+  const id = resolveCastName(cast,name);
+  const member = cast.find(item=>item.id === id);
+  if (!member) throw diagnosticError('STORY_EDIT_CAST_UNKNOWN','Use an exact, unambiguous cast name from inspect_continuity.');
+  return member;
+}
+
+function updateFields(target,values) {
+  let changed = false;
+  for (const [key,value] of Object.entries(values)) {
+    if (value === undefined || target[key] === value) continue;
+    target[key] = value;
+    changed = true;
+  }
+  return changed;
+}
+
+function applyStructuredChange(project,change,originalEvents) {
+  const {kind} = change;
+  if (kind === 'field') return updateFields(project,{[change.field]:change.text});
+  if (kind === 'settings') {
+    const {title,storyStartAt,graphUpdates} = change;
+    let changed = updateFields(project,{title,storyStartAt,graphUpdates,
+      ...(storyStartAt ? {storyStartSource:'author'} : {})});
+    if (storyStartAt) {
+      for (const edge of project.relationships) {
+        if (!edge.turn && updateFields(edge,{storyTime:storyStartAt})) changed = true;
+      }
+    }
+    return changed;
+  }
+  if (kind === 'rename_character' || kind === 'remove_character') {
+    const member = requireCastMember(project,change.name);
+    if (kind === 'remove_character') {
+      project.cast = project.cast.filter(item=>item !== member);
+      project.relationships = project.relationships.filter(edge=>edge.from !== member.id && edge.to !== member.id);
+      return true;
+    }
+    if (project.cast.some(item=>item !== member && item.name.toLowerCase() === change.newName.toLowerCase())) {
+      throw diagnosticError('STORY_EDIT_CAST_EXISTS','Another character already uses that name.');
+    }
+    return updateFields(member,{name:change.newName});
+  }
+  // All event indices refer to the story as read, even after another operation removes a row.
+  const event = originalEvents[change.eventIndex];
+  if (!event || !project.relationships.includes(event)) {
+    throw diagnosticError('STORY_EDIT_EVENT_UNKNOWN','Use the current eventIndex from inspect_continuity. That event is unavailable.');
+  }
+  if (kind === 'remove_relationship') {
+    project.relationships.splice(project.relationships.indexOf(event),1);
+    return true;
+  }
+  const from = change.from ? requireCastMember(project,change.from).id : event.from;
+  const to = change.to ? requireCastMember(project,change.to).id : event.to;
+  if (from === to) throw diagnosticError('STORY_EDIT_RELATIONSHIP_INVALID','A relationship requires two distinct characters.');
+  if (change.sourceTurn && !project.messages.some((message,index)=>(message.turnNumber || index + 1) === change.sourceTurn)) {
+    throw diagnosticError('STORY_EDIT_TURN_UNKNOWN','The proposed source turn is unavailable.');
+  }
+  const storyTime = change.storyTime ?? (change.sourceTurn === 0 ? project.storyStartAt : undefined);
+  return updateFields(event,{from,to,label:change.label,turn:change.sourceTurn,storyTime});
+}
+
 export function applyStoryEdits(project, changes) {
   const parsed = storyEditChangesSchema.safeParse(changes);
-  if (!parsed.success) throw diagnosticError('STORY_EDIT_INVALID','Send valid, non-empty metadata changes.');
-  const draft = migrateLegacyCast({...project,cast:(project.cast || []).map(member=>({...member})),relationships:[...(project.relationships || [])]});
-  draft.cast ||= [];
+  if (!parsed.success) throw diagnosticError('STORY_EDIT_INVALID','Send valid metadata changes.');
+  const draft = migrateLegacyCast({...project,cast:(project.cast || []).map(member=>({...member})),
+    relationships:(project.relationships || []).map(edge=>({...edge}))});
+  const originalEvents = draft.relationships.slice();
   const turn = Math.max(project.graphHistory?.at(-1)?.turn || 0,project.messages.at(-1)?.turnNumber || project.messages.length);
+  ensureGraphBaseline(draft);
   let count = 0;
   for (const change of parsed.data) {
-    if (change.kind === 'relationship') {
+    if (graphEditKinds.has(change.kind)) {
+      if (applyStructuredChange(draft,change,originalEvents)) count++;
+    } else if (change.kind === 'relationship') {
       const applied = applyGraphUpdate(draft,change,turn);
-      if (applied === null) throw diagnosticError('STORY_EDIT_RELATIONSHIP_INVALID','A relationship needs two distinct cast members and space in the story map.');
+      if (applied === null) throw diagnosticError('STORY_EDIT_RELATIONSHIP_INVALID','Use two distinct cast names for a relationship.');
       if (applied) count++;
-      continue;
-    }
-    if (change.kind === 'character') {
-      if (getCast(draft).some(member => member.name.trim().toLowerCase() === change.name.toLowerCase())) {
+    } else if (change.kind === 'character') {
+      if (getCast(draft).some(member=>member.name.trim().toLowerCase() === change.name.toLowerCase())) {
         throw diagnosticError('STORY_EDIT_CAST_EXISTS','A character with that name already exists. Edit their profile.');
-      }
-      if (draft.cast.length >= maxCastMembers) {
-        throw diagnosticError('STORY_EDIT_CAST_LIMIT','The story has reached its character limit.');
       }
       draft.cast.push({id:randomUUID(),...Object.fromEntries(castFields.map(field=>[field,''])),
         name:change.name,description:change.description});
       count++;
-      continue;
-    }
-    let target = draft, field = editableFields[change.kind];
-    if (change.kind === 'profile') {
-      const id = resolveCastName(getCast(draft),change.name);
-      if (!id) throw diagnosticError('STORY_EDIT_CAST_UNKNOWN','A profile edit refers to an unknown or ambiguous character name.');
-      target = draft.cast.find(member=>member.id === id);
-      field = change.field;
-    }
-    const value = updatedField(target[field], change);
-    if (target[field] !== value) {
-      if (!withinStoryFieldLimit(value)) throw diagnosticError('STORY_FIELD_TOO_LONG','This edit would take a story field above 20,000 words.');
-      target[field] = value;
-      count++;
+    } else {
+      const target = change.kind === 'profile' ? requireCastMember(draft,change.name) : draft;
+      const field = change.field || editableFields[change.kind];
+      if (updateFields(target,{[field]:updatedField(target[field],change)})) count++;
     }
   }
   if (count) {

@@ -2,6 +2,12 @@
 
 For current setup and controls, use the [README](README.md) and [MCP guide](MCP.md). The archival walkthroughs at the end retain the interface and model behavior observed at the time.
 
+## Native chat and companion views
+
+Used the MCP SDK over local stdio to create a story, append prose and continuity, and make a metadata edit. An already open companion refreshed as the prose and world changed. In the browser, exercised the Book and Graph tabs at split-panel and phone widths, hid the composer, and manually saved a turn with an explicit label. With a simulated OpenRouter provider, exercised Sensitive scene, the separate continuity pass, graph proposal approval, and Editor agent.
+
+The native regression test also covers stale revisions, hidden prose and author directions, preserving approved graph facts, a safe continuation after a withheld direction, relationship edits, chapter breaks, branching, and deletion of a direction followed by independent prose.
+
 ## Unified cast and long fields
 
 In a disposable browser library, opened a legacy story with a lead profile, a separate persona, and an existing relationship. All three profiles appeared in the same editor. A 14,400-word personality field retained its final line after saving and reloading. A fresh manual setup saved two profiles, world details, an opening relationship, and long writing notes. Write and Book view displayed a replacement name in regular type while the prompt retained the original. Tests also cover rewind of legacy cast data and paging through long profile text in the continuity tool.
@@ -41,7 +47,7 @@ Tested on 16 November 2026 in the in-app browser on isolated Story Studio instan
 
 Using an isolated browser and library, added an OpenRouter ID, confirmed its **User-added** label, reloaded, removed the ID, and reloaded again. The selector cleared the removed choice. Verified that Write keeps all 8,000 words, rejects 8,001 without changing the draft, and restores its provider selection after switching back from Agent.
 
-Pasted long input into both **Brainstorm with a model** and **Import an existing story**. The wizard kept the pasted text where it was entered and enforced the 20,000-word combined budget. An MCP setup request carried 14,000 chat words and 6,000 reference words intact.
+With simulated OpenRouter responses and an isolated library in the built-in browser, selected Dolphin Venice for prose and GPT-6.1 Terra for continuity, verified the sensitive-scene selector changes, and inspected the colored context breakdown. Imported a manuscript over 20,000 words using setup draft, confirmed that its ending and two chapter marks survived, and applied a Sonnet editor update. The request traces recorded both selected model IDs and the full setup input. Regression coverage checks batch compaction, stable prompt prefixes, and filtering of held prose.
 
 In Agent mode, a simulated OpenRouter reply added world information through the strict edit schema while the transcript remained intact. The app rejected a batch containing a deletion without applying its other changes. Native MCP protocol tests cover metadata reads, queued edits, invalid edits, and revision conflicts. No paid OpenRouter calls were made for these checks.
 
@@ -159,3 +165,12 @@ A clean launcher copy recorded dependency installation and server readiness. An 
 ### Transcript labels
 
 Checked the demo at desktop and phone widths. Story prose appeared without a Narrator heading, author inputs used **You**, and the queued placeholder showed only its status. The timeline used turn numbers for narration and an input label for author turns. Sam Bell remained visible in the cast graph.
+
+## Release sweep for native stories, setup, and model selectors
+
+Used an isolated library and simulated OpenRouter in the built-in browser. Tested the keyboard typeahead, Escape, and mouse selection in the new model menus. Verified that the sensitive-scene filter restores the ordinary continuity choice on exit. At a 390-pixel viewport, verified that the menu stayed within the viewport while scrolling its list. Wrote a scene, inspected the concise dated relationship event, and used Editor agent to amend a separate existing relationship and an author note.
+
+Imported a manuscript whose estimates exceeded GLM 5.3 Flash’s setup input budget. The wizard kept Prepare setup draft available. It processed the source in sections, staged a cast, setting, and relationship, then preserved the original chapters and ending in Book view. The automated suite separately checks exact source coverage for chunking, model routing, revision conflicts through real stdio MCP, and rollback of writing notes on rewind.
+
+
+Through the updated browser UI, selected an OpenRouter Story Flow option, verified that it started a new scene and returned fresh choices, then selected a separate native MCP option. A real stdio caller received the browser selection, saved the continuation, and the browser removed the completed offer. Both tests used isolated demo state. The OpenRouter responses were simulated.

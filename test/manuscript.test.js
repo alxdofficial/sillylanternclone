@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { bookChapters } from '../public/library.js';
-import { defaultChapterStarts, manuscriptPassages, manuscriptTurns, parseManuscript } from '../public/manuscript.js';
+import { defaultChapterStarts, manuscriptPassages, manuscriptReference, manuscriptTurns, parseManuscript } from '../public/manuscript.js';
 import { isAvailableToMcp } from '../public/prompt.js';
 import { validateSetupDraft, setupMessages } from '../setup-chat.mjs';
 
@@ -14,6 +14,7 @@ test('a marked manuscript becomes ordered native turns and numbered chapters whi
   assert.deepEqual(manuscript.turns.map(turn => turn.turnNumber),[1,2,3]);
   assert.equal(manuscript.turns[2].startsChapter,true);
   assert.equal(original(manuscript.turns),text);
+  assert.equal(manuscriptReference(manuscript).turns.map(turn=>turn.text).join(''),text);
   assert.deepEqual(bookChapters(manuscript.turns).map(items=>items.map(item=>item.trim())),
     [['First passage.','Second passage.'],['Third passage.']]);
   assert.deepEqual(defaultChapterStarts(manuscript),[]);
@@ -22,16 +23,17 @@ test('a marked manuscript becomes ordered native turns and numbered chapters whi
   assert.ok(manuscriptTurns(manuscript,[],true).every(turn => isAvailableToMcp(turn)));
 });
 
-test('100,000 unmarked words round-trip, with bounded model excerpts and fallback chapter breaks', () => {
+test('100,000 unmarked words round-trip, with a full model reference, preview samples and fallback chapter breaks', () => {
   const text = 'harbor '.repeat(99_999) + 'landed';
   const manuscript = parseManuscript(text);
   assert.equal(manuscript.words,100_000);
   assert.equal(original(manuscript.turns),text);
+  assert.equal(manuscriptReference(manuscript).turns.map(turn=>turn.text).join(''),text);
   assert.ok(defaultChapterStarts(manuscript).length > 20);
   assert.equal(manuscriptPassages(manuscript.turns).length,16);
   assert.match(manuscriptPassages(manuscript.turns).at(-1).excerpt,/landed$/);
-  assert.throws(()=>parseManuscript(text+' late'),/100,000 words/);
-  assert.throws(()=>parseManuscript('😀'.repeat(500_001)),/2 MB/);
+  assert.equal(parseManuscript(text+' late').words,100_001);
+  assert.throws(()=>parseManuscript('😀'.repeat(4_000_001)),/16 MB/);
   assert.throws(()=>parseManuscript('Chapter 1\n'),/story prose/);
 });
 

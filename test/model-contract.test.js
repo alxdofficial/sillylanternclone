@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildMessages, clipEnds, dateWriterTurn, formatMessages, narrator, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from '../public/prompt.js';
-import { canWriteSensitive, modelLabel, models } from '../public/models.js';
+import { canWriteSensitive, isContinuityModel, modelLabel, models } from '../public/models.js';
 import { checkMapUpdates } from '../map-updates.mjs';
 import { continuityMessages } from '../continuity.mjs';
 import { isWritingRefusal, stripWritingPreamble } from '../openrouter-format.mjs';
@@ -12,12 +12,20 @@ const story = (messages, agentRequest) => ({
   messages, agentRequest
 });
 
-test('only the tested artist receives sensitive scene context', () => {
-  assert.deepEqual(models.filter(({id})=>canWriteSensitive(id)).map(modelLabel),[
-    'Cydonia 24B v4.1 · Sensitive scenes'
+test('sensitive routing uses separate writer and tool-capable continuity allowlists', () => {
+  assert.deepEqual(models.filter(({id})=>canWriteSensitive(id)).map(model=>modelLabel(model)),[
+    'Cydonia 24B v4.1 · NSFW-friendly','Dolphin Mistral 24B Venice · NSFW-friendly'
   ]);
   assert.equal(canWriteSensitive('deepseek/deepseek-v4.1-flash'),false);
   assert.equal(canWriteSensitive('someone/custom'),false);
+  assert.deepEqual(models.filter(({id})=>isContinuityModel(id,true)).map(({id})=>id),[
+    'deepseek/deepseek-v4.1-flash','mistralai/mistral-large-4-0','x-ai/grok-4.7'
+  ]);
+  assert.equal(isContinuityModel('openai/gpt-6.1-terra',false),true);
+  assert.equal(isContinuityModel('openai/gpt-6.1-terra',true),false);
+  for (const id of ['nousresearch/hermes-4-70b','nousresearch/hermes-4-405b','thedrummer/valkyrie-49b-v1']) {
+    assert.equal(models.some(model=>model.id === id),false);
+  }
   assert.equal(models.some(model => model.id === 'gryphe/mythomax-l2-13b'),false);
 });
 
@@ -101,11 +109,13 @@ test('map updates follow the first take and are set aside for other takes', () =
 test('only the continuity prompt describes map edits and supplies the new draft', () => {
   const prompt = formatMessages(buildMessages(story([{role:'user', content:'Go.', turnNumber:1}])));
   assert.doesNotMatch(prompt,/record_scene|submit_reply’s updates array/);
-  const [analysis,source] = continuityMessages(story([]),'Go.','Mara handed her the log.',{suggest:true,mode:'send'});
+  const messages = continuityMessages(story([]),'Go.','Mara handed her the log.',{suggest:true,mode:'send'});
+  const [analysis] = messages;
+  const source = messages.at(-1);
   assert.match(analysis.content,/Use inspect_continuity/);
   assert.match(analysis.content,/Finish with record_scene/);
   assert.match(analysis.content,/Never include or paraphrase graphic/);
-  assert.deepEqual(JSON.parse(source.content).cast.map(({name})=>name),['Mara','Iona']);
+  assert.ok(messages.some(message=>message.content === 'Cast:\nMara\nIona'));
   assert.equal(JSON.parse(source.content).draft,'Mara handed her the log.');
 });
 

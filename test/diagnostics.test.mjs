@@ -35,12 +35,12 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       if (request.model === 'fixture/prose' || request.model === 'thedrummer/cydonia-24b-v4.1'
         || (request.model === 'deepseek/deepseek-v4.1-flash' && !request.tools)) {
         const endsEarly = request.messages.at(-1).content.endsWith('cutoff fixture');
-        assert.equal(request.max_tokens,request.model === 'thedrummer/cydonia-24b-v4.1' ? 8000 : 2048);
+        assert.equal(request.max_tokens,request.model === 'fixture/prose' ? 2048 : 8000);
         assert.ok(request.messages[0].content.includes(
           'The output limit for this turn is ' + request.max_tokens.toLocaleString('en-US') + ' tokens.'));
         assert.equal(request.response_format,undefined);
         assert.equal(request.tools,undefined);
-        if (request.messages.at(-1).content.endsWith('sensitive fixture')) {
+        if (request.messages.at(-1).content.endsWith('sensitive fixture') || request.messages.at(-1).content.endsWith('sensitive agent routing fixture')) {
           assert.match(JSON.stringify(request.messages),/PRIVATE_HISTORY/);
           assert.doesNotMatch(JSON.stringify(request.messages),/ALL_ROUTE_MARKER/);
         } else assert.doesNotMatch(JSON.stringify(request.messages),/PRIVATE_HISTORY|ALL_ROUTE_MARKER/);
@@ -79,13 +79,18 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
         return Response.json({provider:'Fixture Writing Host',usage:{prompt_tokens:120,completion_tokens:30},
           choices:[{finish_reason:endsEarly ? 'length' : 'stop',message:{content:preamble + text}}]});
       }
-      if (request.model !== 'deepseek/deepseek-v4.1-flash') {
+      const selectedSensitiveAgent = ['mistralai/mistral-large-4-0','x-ai/grok-4.7'].includes(request.model);
+      if (request.model !== 'deepseek/deepseek-v4.1-flash' && !selectedSensitiveAgent) {
         return new Response(${JSON.stringify(fixture)}, {status:401});
       }
-      const source = JSON.parse(request.messages[1].content);
+      const source = request.messages.filter(message=>message.role === 'user').map(message=>{try { return JSON.parse(message.content); } catch { return null; }}).find(message=>message && Object.hasOwn(message,'draft'));
       const observation = request.messages.at(-1);
       assert.equal(source.draft,text);
-      assert.doesNotMatch(JSON.stringify(source.recentTurns),/PRIVATE_HISTORY|ALL_ROUTE_MARKER/);
+      if (selectedSensitiveAgent) {
+        assert.equal(source.authorDirection,'sensitive agent routing fixture');
+        assert.ok(request.messages[0].content.includes('writer marked this direction sensitive'));
+      }
+      assert.doesNotMatch(JSON.stringify(request.messages.slice(0,request.messages.findIndex(message=>message.content.startsWith?.('{"authorDirection":')))),/PRIVATE_HISTORY|ALL_ROUTE_MARKER/);
       if (source.authorDirection.startsWith('turn turn turn ')) {
         assert.ok(source.authorDirection.endsWith('PRIVATE_DIRECTION_SUFFIX'));
       }
@@ -140,16 +145,18 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     ]);
     const origin = `http://127.0.0.1:${port}`;
     const headers = {origin,'content-type':'application/json'};
+    const nullGeneration = await fetch(origin+'/api/generate',{method:'POST',headers,body:'null'});
+    assert.equal(nullGeneration.status,400);
     const invalid = await fetch(origin+'/api/state',{method:'PUT',headers,body:fixture});
     assert.equal(invalid.status,400);
-    const generate = (model, instruction = fixture, mode = 'send', sensitive = false, signal) => fetch(origin+'/api/generate',{
+    const generate = (model, instruction = fixture, mode = 'send', sensitive = false, signal, agentModel) => fetch(origin+'/api/generate',{
       method:'POST',headers,signal,body:JSON.stringify({
         project:{id:fixture,title:fixture,cast:[{id:'keeper',name:'The Keeper',description:'',personality:'',scenario:'',examples:''}],lore:'The ferry is moored.',notes:'',messages:[
           {role:'assistant',content:'PRIVATE_HISTORY',contentSensitivity:'explicit'},
           {role:'assistant',content:'ALL_ROUTE_MARKER',excludeFromContext:true}
         ],
           ...(mode === 'replace' ? {replyTime:'1998-10-25T00:10'} : {})},
-        instruction, key:fixture, provider:'openrouter',model,mode,sensitive
+        instruction, key:fixture, provider:'openrouter',model,mode,sensitive,agentModel
       })
     });
     const controller = new AbortController();
@@ -161,6 +168,17 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     await abandoned;
     assert.match(String((await artistCanceled)[0]),/fixture artist canceled/);
 
+    const blockedAgent = await generate('thedrummer/cydonia-24b-v4.1','blocked route fixture','send',true,undefined,'openai/gpt-6.1-terra');
+    assert.equal(blockedAgent.status,400);
+    assert.match((await blockedAgent.json()).error,/supported sensitive-scene continuity agent/);
+    for (const agentModel of ['mistralai/mistral-large-4-0','x-ai/grok-4.7']) {
+      const routed = await generate('thedrummer/cydonia-24b-v4.1','sensitive agent routing fixture','send',true,undefined,agentModel);
+      assert.equal(routed.status,200);
+      const response = await routed.json();
+      assert.equal(response.input,'explicit');
+      assert.equal(response.metadataFailed,undefined);
+      assert.deepEqual(response.suggestions,scene.updates);
+    }
     const success = await generate('fixture/prose');
     const draft = await success.json();
     const {updates, ...expected} = scene;
@@ -203,9 +221,9 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     const direction = 'turn '.repeat(7999) + 'PRIVATE_DIRECTION_SUFFIX';
     const exact = await generate('fixture/prose',direction);
     assert.deepEqual(await exact.json(),draft);
-    const long = await generate('fixture/prose',direction + ' extra');
+    const long = await generate('fixture/prose',direction.repeat(3));
     assert.equal(long.status,400);
-    assert.match((await long.json()).error,/8,000 words/);
+    assert.match((await long.json()).error,/shared input budget/);
     const replacement = await generate('fixture/prose','replacement direction','replace');
     assert.deepEqual(await replacement.json(),{...draft,storyTime:'1998-10-25T00:10',suggestions:[]});
     const providerError = await generate('fixture/prose','late upstream error');

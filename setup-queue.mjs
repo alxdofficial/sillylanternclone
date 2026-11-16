@@ -47,8 +47,8 @@ export function setupQueue(input) {
     if (session && !session.result) fail('This setup session already has a pending request.',409);
     if (!session && sessions.size >= 12) fail('Too many setup sessions are open. Close one before continuing.',429);
     const {mode,messages,manuscript,context} = request;
-    const prompt = setupMessages(messages,mode,manuscript,context);
-    if (!prompt) fail('Check the setup discussion and manuscript excerpts. Your chat messages and additional context share a 20,000-word limit.');
+    const prompt = manuscript?.turns ? null : setupMessages(messages,mode,manuscript,context);
+    if (!prompt) fail('Check the setup discussion and manuscript reference.');
     sessions.set(sessionId,{requestId:randomUUID(),mode,manuscript,prompt,expires:now + lifetime});
     return {status:'waiting'};
   }
