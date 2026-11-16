@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMessages, buildMetadataMessages, clipEnds, dateWriterTurn, formatMessages, narrator, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from '../public/prompt.js';
-import { agentReasoning, isAgentModel, modelLabel, models } from '../public/models.js';
+import { buildMessages, clipEnds, dateWriterTurn, formatMessages, narrator, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from '../public/prompt.js';
+import { canWriteSensitive, modelLabel, models } from '../public/models.js';
 import { checkMapUpdates } from '../map-updates.mjs';
-import { isWritingRefusal, readStoryMetadata, stripWritingPreamble } from '../openrouter-format.mjs';
+import { continuityMessages } from '../continuity.mjs';
+import { isWritingRefusal, stripWritingPreamble } from '../openrouter-format.mjs';
 
 const story = (messages, agentRequest) => ({
   id:'s', title:'T', characterName:'Mara', character:'An archivist.', persona:'', lore:'', notes:'',
@@ -11,27 +12,13 @@ const story = (messages, agentRequest) => ({
   messages, agentRequest
 });
 
-test('Agent mode allows only its listed structured-edit presets', () => {
-  assert.deepEqual(models.filter(model => isAgentModel(model.id)).map(model => model.id), [
-    'deepseek/deepseek-v4.1-flash', 'anthropic/claude-sonnet-5.5', 'openai/gpt-6.1-terra',
-    'z-ai/glm-5.3', 'moonshotai/kimi-k3.1-pro', 'google/gemini-4-carbon'
+test('only the tested artist receives sensitive scene context', () => {
+  assert.deepEqual(models.filter(({id})=>canWriteSensitive(id)).map(modelLabel),[
+    'Cydonia 24B v4.1 · Sensitive scenes'
   ]);
-  assert.equal(isAgentModel('openrouter/auto'), false);
-  assert.equal(isAgentModel('someone/custom'), false);
-  for (const id of ['anthropic/claude-sonnet-5.5', 'z-ai/glm-5.3', 'google/gemini-4-carbon']) {
-    assert.deepEqual(agentReasoning(id), {effort:'low'});
-  }
-  assert.deepEqual(agentReasoning('deepseek/deepseek-v4.1-flash'), {enabled:false});
-});
-
-test('Write labels identify the recorded 18+ results without labeling the new presets', () => {
-  assert.deepEqual(models.map(modelLabel).filter(label => label.includes('18+')), [
-    'Cydonia 24B v4.1 · 18+ tested',
-    'DeepSeek V4.1 Flash · 18+ tested (mixed)'
-  ]);
-  assert.equal(isAgentModel('thedrummer/cydonia-24b-v4.1'), false);
-  assert.equal(isAgentModel('gryphe/mythomax-l2-13b'), false);
-  assert.equal(models.some(model => model.id === 'gryphe/mythomax-l2-13b'), false);
+  assert.equal(canWriteSensitive('deepseek/deepseek-v4.1-flash'),false);
+  assert.equal(canWriteSensitive('someone/custom'),false);
+  assert.equal(models.some(model => model.id === 'gryphe/mythomax-l2-13b'),false);
 });
 
 test('OpenRouter strips a specific assignment aside and preserves narration and quoted dialogue', () => {
@@ -111,16 +98,14 @@ test('map updates follow the first take and are set aside for other takes', () =
   assert.equal(message.firstTakeSuggestions, undefined);
 });
 
-test('the MCP map-update instruction names the updates array and event-style relationships', () => {
-  const prompt = formatMessages(buildMessages(story([{role:'user', content:'Go.', turnNumber:1}]), '', 'continue', {maintainGraph:true}));
-  assert.match(prompt, /submit_reply’s updates array/);
-  assert.match(prompt, /what happened between them in one sentence/);
-  assert.match(prompt, /Use exact cast names/);
-  assert.doesNotMatch(prompt, /Shapes:/);
-  const [analysis,source] = buildMetadataMessages(story([]),'Go.','Mara handed her the log.','send');
-  assert.match(analysis.content,/what happened between them/);
-  assert.match(analysis.content,/Never continue, rewrite, or quote the draft/);
-  assert.deepEqual(JSON.parse(source.content).cast,['Mara','Iona']);
+test('only the continuity prompt describes map edits and supplies the new draft', () => {
+  const prompt = formatMessages(buildMessages(story([{role:'user', content:'Go.', turnNumber:1}])));
+  assert.doesNotMatch(prompt,/record_scene|submit_reply’s updates array/);
+  const [analysis,source] = continuityMessages(story([]),'Go.','Mara handed her the log.',{suggest:true,mode:'send'});
+  assert.match(analysis.content,/Use inspect_continuity/);
+  assert.match(analysis.content,/Finish with record_scene/);
+  assert.match(analysis.content,/Never include or paraphrase graphic/);
+  assert.deepEqual(JSON.parse(source.content).cast.map(({name})=>name),['Mara','Iona']);
   assert.equal(JSON.parse(source.content).draft,'Mara handed her the log.');
 });
 
@@ -132,14 +117,7 @@ test('structured updates reject alias-based self-events and report invalid OpenR
     {kind:'relationship',from:'Mara',to:'Iona',label:'Mara gives Iona the log.'},
     {kind:'relationship',from:'Unknown',to:'Iona',label:'A name outside the cast.'}
   ];
-  const text = JSON.stringify({input:'bad label',reply:'safe',
-    storyTime:'1998-10-25T00:13',updates});
-  const parsed = readStoryMetadata({text},value=>checkMapUpdates(project,value));
-  assert.equal(parsed.input,'unclassified');
-  assert.equal(parsed.reply,'safe');
-  assert.equal(parsed.storyTime,'1998-10-25T00:13');
-  assert.equal(parsed.updateProblems,2);
-  assert.deepEqual(parsed.suggestions,[updates[1]]);
-  assert.throws(() => readStoryMetadata({text:'Raw prose and a footer'}),/unreadable story metadata/);
-  assert.throws(() => readStoryMetadata({text:text.slice(0,-1),truncated:true}),/cut off the metadata response/);
+  const parsed = checkMapUpdates(project,updates);
+  assert.equal(parsed.rejections.length,2);
+  assert.deepEqual(parsed.updates,[updates[1]]);
 });

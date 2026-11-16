@@ -90,9 +90,27 @@ function conflictsWithQueuedReply(base, revised, completed) {
     && !sameValue(request,completed.agentRequest);
 }
 
+function conflictsWithRecordedContinuity(base, revised, completed) {
+  return base.messages.some((scene,index) => {
+    if (!scene.continuityPending) return false;
+    const saved = completed.messages.find(turn=>turn.turnNumber === scene.turnNumber);
+    if (!saved?.storyTime || saved.continuityPending || saved.content !== scene.content) return false;
+    const edited = revised.messages.find(turn=>turn.turnNumber === scene.turnNumber);
+    const changesSource = (original,next) => !next || original.content !== next.content ||
+      original.contentSensitivity !== next.contentSensitivity || Boolean(original.excludeFromContext) !== Boolean(next.excludeFromContext) ||
+      original.selectedAlternative !== next.selectedAlternative;
+    if (changesSource(scene,edited)) return true;
+    const direction = base.messages[index-1];
+    return direction?.role === 'user' && changesSource(direction,revised.messages.find(turn=>turn.turnNumber === direction.turnNumber));
+  });
+}
+
 function mergeProject(base = {}, local, server) {
   if (conflictsWithQueuedReply(base,local,server) || conflictsWithQueuedReply(base,server,local)) {
     return {conflicts:[`turn ${base.agentRequest.turnNumber} was changed while its reply was being written`]};
+  }
+  if (base.messages && (conflictsWithRecordedContinuity(base,local,server) || conflictsWithRecordedContinuity(base,server,local))) {
+    return {conflicts:['the scene changed while continuity was being recorded']};
   }
   const messages = mergeMessages(base.messages || [], local.messages || [], server.messages || []);
   const {value, conflicts} = mergeFields(base, local, server, {

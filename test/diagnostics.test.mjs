@@ -32,23 +32,18 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       assert.ok(url.endsWith('/chat/completions'));
       const request = JSON.parse(options.body);
       assert.equal(request.provider.data_collection,'deny');
-      if (request.response_format?.json_schema?.name === 'story_studio_edits') {
-        assert.equal(request.model,'anthropic/claude-sonnet-5.5');
-        assert.deepEqual(request.reasoning,{effort:'low'});
-        assert.equal(request.provider.require_parameters,true);
-        assert.doesNotMatch(request.messages.at(-1).content,/PRIVATE_MANUSCRIPT_FIXTURE/);
-        const change = {kind:'world',action:'append',text:'An observation deck overlooks the docks.'};
-        const changes = request.messages.at(-1).content.endsWith('reject fixture')
-          ? [change,{kind:'delete',turn:1}] : [change];
-        return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({changes,message:'Edited the world.'})}}]});
-      }
       if (request.model === 'fixture/prose' || request.model === 'thedrummer/cydonia-24b-v4.1'
-        || (request.model === 'deepseek/deepseek-v4.1-flash' && !request.response_format)) {
+        || (request.model === 'deepseek/deepseek-v4.1-flash' && !request.tools)) {
         const endsEarly = request.messages.at(-1).content.endsWith('cutoff fixture');
         assert.equal(request.max_tokens,request.model === 'thedrummer/cydonia-24b-v4.1' ? 8000 : 2048);
         assert.ok(request.messages[0].content.includes(
           'The output limit for this turn is ' + request.max_tokens.toLocaleString('en-US') + ' tokens.'));
         assert.equal(request.response_format,undefined);
+        assert.equal(request.tools,undefined);
+        if (request.messages.at(-1).content.endsWith('sensitive fixture')) {
+          assert.match(JSON.stringify(request.messages),/PRIVATE_HISTORY/);
+          assert.doesNotMatch(JSON.stringify(request.messages),/ALL_ROUTE_MARKER/);
+        } else assert.doesNotMatch(JSON.stringify(request.messages),/PRIVATE_HISTORY|ALL_ROUTE_MARKER/);
         assert.equal(request.provider.require_parameters,undefined);
         assert.match(request.messages[0].content,/For a scene, begin directly in the story/);
         assert.doesNotMatch(request.messages[0].content,/JSON Schema|Classify authorDirection/);
@@ -80,40 +75,50 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       if (request.model !== 'deepseek/deepseek-v4.1-flash') {
         return new Response(${JSON.stringify(fixture)}, {status:401});
       }
-      const source = JSON.parse(request.messages.at(-1).content);
+      const source = JSON.parse(request.messages[1].content);
+      const observation = request.messages.at(-1);
       assert.equal(source.draft,text);
+      assert.doesNotMatch(JSON.stringify(source.recentTurns),/PRIVATE_HISTORY|ALL_ROUTE_MARKER/);
       if (source.authorDirection.startsWith('turn turn turn ')) {
         assert.ok(source.authorDirection.endsWith('PRIVATE_DIRECTION_SUFFIX'));
       }
-      if (source.authorDirection === 'metadata outage') return new Response(null,{status:503});
-      const updates = source.authorDirection === 'invalid proposals' ? [...metadata.updates,
-        {kind:'relationship',from:'PRIVATE_INVALID_NAME',to:'OTHER_INVALID_NAME',label:'They talk.',storyTime:'1998-10-25T00:13'},
-        {kind:'relationship',from:'Co-writer',to:'Co-writer',label:'They talk.',storyTime:'bad time'}
-      ] : metadata.updates;
       assert.equal(request.provider.require_parameters,true);
-      assert.equal(request.response_format.type,'json_schema');
-      assert.equal(request.response_format.json_schema.strict,true);
-      assert.deepEqual(request.response_format.json_schema.schema.required,Object.keys(metadata));
-      assert.equal(request.response_format.json_schema.schema.additionalProperties,false);
-      assert.match(request.messages[0].content,/Classify authorDirection as input and draft as reply/);
-      const graphSchema = request.response_format.json_schema.schema.properties.updates;
-      assert.match(graphSchema.description,/Omit NSFW, explicit, and graphic details from every field/);
-      if (source.authorDirection !== 'replacement direction' && source.authorDirection !== 'cutoff fixture') {
-        assert.match(request.messages[0].content,/Every field must stay safe for work regardless of the labels/);
-        assert.match(request.messages[0].content,/Never include NSFW, sexually explicit, or graphic details/);
-        assert.match(request.messages[0].content,/When unsure, omit the fact/);
+      assert.equal(request.response_format,undefined);
+      assert.equal(request.tool_choice,'auto');
+      assert.deepEqual(request.tools.map(tool=>tool.function.name),['inspect_continuity','record_scene']);
+      assert.match(request.messages[0].content,/Classify the latest author direction and draft independently/);
+      assert.match(request.messages[0].content,/Keep every field safe for work/);
+      if (source.authorDirection === 'metadata outage') return new Response(null,{status:503});
+      const finish = (name,args,id) => Response.json({provider:'Fixture Metadata Host',usage:{prompt_tokens:160,completion_tokens:45},
+        choices:[{finish_reason:'tool_calls',message:{content:null,
+          tool_calls:[{id,type:'function',function:{name,arguments:JSON.stringify(args)}}]}}]});
+      if (source.authorDirection === 'invalid proposals' && observation.role !== 'tool') {
+        return finish('record_scene',{...metadata,updates:[...metadata.updates,
+          {kind:'relationship',from:'PRIVATE_INVALID_NAME',to:'OTHER_INVALID_NAME',label:'They talk.'},
+          {kind:'relationship',from:'Co-writer',to:'Co-writer',label:'They talk.'}
+        ]},'bad-proposal');
       }
-      if (source.authorDirection === 'replacement direction') {
-        assert.match(request.messages[0].content,/empty updates array/);
-        assert.equal(source.knownTime,'1998-10-25T00:10');
+      if (source.authorDirection === 'invalid proposals') {
+        assert.equal(observation.tool_call_id,'bad-proposal');
+        assert.doesNotMatch(observation.content,/PRIVATE_INVALID_NAME|OTHER_INVALID_NAME/);
+        assert.equal(JSON.parse(observation.content).rejections.length,2);
       }
-      if (source.authorDirection === 'cutoff fixture') {
-        assert.match(request.messages[0].content,/draft ends early.*Classify the text that is present/);
-        assert.match(request.messages[0].content,/empty updates array/);
+      if (source.authorDirection === 'lookup fixture' && observation.role !== 'tool') {
+        return finish('inspect_continuity',{section:'world'},'world');
       }
-      const input = source.authorDirection === 'incomplete metadata' ? 'invalid fixture label' : metadata.input;
-      return Response.json({provider:'Fixture Metadata Host',usage:{prompt_tokens:160,completion_tokens:45},
-        choices:[{finish_reason:'stop',message:{content:JSON.stringify({...metadata,input,updates})}}]});
+      if (source.authorDirection === 'lookup fixture') {
+        assert.equal(observation.tool_call_id,'world');
+        assert.deepEqual(JSON.parse(observation.content),{world:'The ferry is moored.'});
+      }
+      if (source.authorDirection === 'incomplete metadata') {
+        return Response.json({choices:[{finish_reason:'stop',message:{content:'No tool used.'}}]});
+      }
+      const replacing = source.authorDirection === 'replacement direction';
+      const cutoff = source.authorDirection === 'cutoff fixture';
+      if (replacing || cutoff) assert.match(request.messages[0].content,/empty updates array/);
+      if (replacing) assert.equal(source.knownTime,'1998-10-25T00:10');
+      if (cutoff) assert.match(request.messages[0].content,/draft ends early/);
+      return finish('record_scene',{...metadata,updates:replacing || cutoff ? [] : metadata.updates},'record');
     };
   `);
   const child = spawn(process.execPath,['--import',mock,app],{
@@ -130,11 +135,14 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     const headers = {origin,'content-type':'application/json'};
     const invalid = await fetch(origin+'/api/state',{method:'PUT',headers,body:fixture});
     assert.equal(invalid.status,400);
-    const generate = (model, instruction = fixture, mode = 'send') => fetch(origin+'/api/generate',{
+    const generate = (model, instruction = fixture, mode = 'send', sensitive = false) => fetch(origin+'/api/generate',{
       method:'POST',headers,body:JSON.stringify({
-        project:{id:fixture,title:fixture,character:'',persona:'',lore:'',notes:'',messages:[],
+        project:{id:fixture,title:fixture,character:'',persona:'',lore:'The ferry is moored.',notes:'',messages:[
+          {role:'assistant',content:'PRIVATE_HISTORY',contentSensitivity:'explicit'},
+          {role:'assistant',content:'ALL_ROUTE_MARKER',excludeFromContext:true}
+        ],
           ...(mode === 'replace' ? {replyTime:'1998-10-25T00:10'} : {})},
-        instruction, key:fixture, provider:'openrouter',model,mode
+        instruction, key:fixture, provider:'openrouter',model,mode,sensitive
       })
     });
     const success = await generate('fixture/prose');
@@ -159,12 +167,13 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     const withInvalid = await generate('fixture/prose','invalid proposals');
     assert.equal(withInvalid.status,200);
     const rejected = await withInvalid.json();
-    assert.equal(rejected.updateProblems,2);
-    assert.deepEqual(rejected.suggestions,updates);
-    assert.deepEqual(rejected.updateRejections,[
-      {index:1,code:'CAST_NAME_UNRESOLVED',fields:['from','to']},
-      {index:2,code:'INVALID_FIELDS',fields:[{field:'storyTime',issue:'custom'}]}
-    ]);
+    assert.deepEqual(rejected,draft);
+    const lookedUp = await generate('fixture/prose','lookup fixture');
+    assert.deepEqual(await lookedUp.json(),draft);
+    const unsupported = await generate('fixture/prose','sensitive fixture','send',true);
+    assert.equal(unsupported.status,400);
+    const sensitive = await generate('thedrummer/cydonia-24b-v4.1','sensitive fixture','send',true);
+    assert.deepEqual(await sensitive.json(),{...draft,input:'explicit'});
     const cutoff = await generate('thedrummer/cydonia-24b-v4.1','cutoff fixture');
     assert.equal(cutoff.status,200);
     assert.deepEqual(await cutoff.json(),{...expected,suggestions:[],truncated:true});
@@ -174,7 +183,7 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       text:scene.text,input:'unclassified',reply:'unclassified',storyTime:'',suggestions:[],metadataFailed:true
     });
     const incomplete = await generate('fixture/prose','incomplete metadata');
-    assert.deepEqual(await incomplete.json(),{...draft,input:'unclassified',metadataFailed:true});
+    assert.deepEqual(await incomplete.json(),{text:scene.text,input:'unclassified',reply:'unclassified',storyTime:'',suggestions:[],metadataFailed:true});
     const direction = 'turn '.repeat(7999) + 'PRIVATE_DIRECTION_SUFFIX';
     const exact = await generate('fixture/prose',direction);
     assert.deepEqual(await exact.json(),draft);
@@ -182,34 +191,13 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     assert.equal(long.status,400);
     assert.match((await long.json()).error,/8,000 words/);
     const replacement = await generate('fixture/prose','replacement direction','replace');
-    assert.deepEqual(await replacement.json(),{...draft,suggestions:[]});
+    assert.deepEqual(await replacement.json(),{...draft,storyTime:'1998-10-25T00:10',suggestions:[]});
     const providerError = await generate('fixture/prose','late upstream error');
     assert.equal(providerError.status,500);
     assert.match((await providerError.json()).error,/OpenRouter reported a provider error.*rate limited/);
     const response = await generate('custom/'+fixture);
     assert.equal(response.status,500);
     assert.match((await response.json()).error,/OpenRouter returned 401/);
-
-    const snapshot = await fetch(origin+'/api/state');
-    const library = await snapshot.json();
-    const demo = library.projects.find(project=>project.id === library.activeId);
-    demo.messages.push({role:'assistant',content:'PRIVATE_MANUSCRIPT_FIXTURE'});
-    const saved = await fetch(origin+'/api/starter',{method:'PUT',
-      headers:{...headers,'If-Match':snapshot.headers.get('etag')},body:JSON.stringify(demo)});
-    assert.equal(saved.status,200);
-    const editRevision = (await saved.json()).revision;
-    const edit = (instruction,revision = editRevision,model = 'anthropic/claude-sonnet-5.5') => fetch(origin+'/api/story-edits',{
-      method:'POST', headers, body:JSON.stringify({storyId:demo.id,revision,model,key:fixture,instruction})
-    });
-    assert.equal((await edit('edit fixture',editRevision,'fixture/prose')).status,400);
-    assert.equal((await edit('reject fixture')).status,502);
-    const result = await edit('edit fixture');
-    assert.equal(result.status,200);
-    assert.deepEqual(await result.json(),{count:1,message:'Edited the world.'});
-    assert.equal((await edit('edit fixture')).status,409);
-    const updated = (await (await fetch(origin+'/api/state')).json()).projects.find(project=>project.id === demo.id);
-    assert.match(updated.lore,/An observation deck overlooks the docks\.$/);
-    assert.deepEqual(updated.messages,demo.messages);
 
     const path = join(directory,'logs','server.log');
     let contents;
@@ -230,8 +218,7 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     assert.equal(metadataFailure?.metadataUpstreamStatus,503);
     assert.equal(metadataFailure?.metadataCode,'OPENROUTER_HTTP_ERROR');
     const incompleteLog = events.find(event=>event.requestId===incomplete.headers.get('x-story-studio-request-id') && event.event==='request_completed');
-    assert.equal(incompleteLog?.metadataCode,'OPENROUTER_METADATA_INCOMPLETE');
-    assert.deepEqual(incompleteLog?.metadataInvalidFields,['input']);
+    assert.equal(incompleteLog?.metadataCode,'CONTINUITY_NOT_RECORDED');
     const longLog = events.find(event=>event.requestId===long.headers.get('x-story-studio-request-id'));
     assert.equal(longLog?.status,400);
     assert.equal(longLog?.prose,undefined);
@@ -254,7 +241,9 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     assert.equal(metadataFailure?.metadata?.status,503);
     const rejectedLog = events.find(event=>event.requestId===withInvalid.headers.get('x-story-studio-request-id') && event.event==='request_completed');
     assert.equal(rejectedLog?.invalidMapUpdates,2);
-    assert.deepEqual(rejectedLog?.mapUpdateRejections,rejected.updateRejections);
+    assert.equal(rejectedLog?.toolRounds,2);
+    assert.deepEqual(rejectedLog?.toolCalls.map(round=>round.tools),[['record_scene'],['record_scene']]);
+    assert.deepEqual(rejectedLog?.mapUpdateRejections.map(({code})=>code),['CAST_NAME_UNRESOLVED','SELF_RELATIONSHIP']);
     assert.doesNotMatch(contents,/PRIVATE_INVALID_NAME|OTHER_INVALID_NAME|bad time/);
     assert.ok(events.some(event=>event.requestId===withPreamble.headers.get('x-story-studio-request-id') && event.prosePreambleRemoved));
     assert.ok(events.some(event=>event.requestId===removed.headers.get('x-story-studio-request-id')
@@ -262,7 +251,7 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     assert.equal(events.filter(event=>event.event==='request_failed'
       && event.code==='OPENROUTER_WRITING_DECLINED' && event.finishReason==='stop' && !event.metadata).length,2);
     assert.doesNotMatch(contents,new RegExp(fixture));
-    assert.doesNotMatch(contents,/PRIVATE_MANUSCRIPT_FIXTURE|observation deck/);
+    assert.doesNotMatch(contents,/PRIVATE_HISTORY|ALL_ROUTE_MARKER/);
     assert.ok(!contents.includes(scene.text));
   } finally {
     child.kill();

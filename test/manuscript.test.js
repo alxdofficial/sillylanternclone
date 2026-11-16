@@ -3,7 +3,7 @@ import test from 'node:test';
 import { bookChapters } from '../public/library.js';
 import { defaultChapterStarts, manuscriptPassages, manuscriptTurns, parseManuscript } from '../public/manuscript.js';
 import { isAvailableToMcp } from '../public/prompt.js';
-import { readSetupDraft, setupMessages } from '../setup-chat.mjs';
+import { validateSetupDraft, setupMessages } from '../setup-chat.mjs';
 
 const original = turns => turns.map(turn => (turn.sourcePrefix || '') + turn.content).join('');
 
@@ -38,8 +38,8 @@ test('100,000 unmarked words round-trip, with bounded model excerpts and fallbac
 test('a setup model can only suggest breaks at sampled turn boundaries, never override marked chapters', () => {
   const source = {turnCount:4,hasChapters:false,passages:[{turn:2,excerpt:'The storm begins.'}]};
   const draft = {title:'The Storm',scenario:'',lore:'',notes:'',cast:[],continuity:'',chapterStarts:[2,2,3]};
-  assert.deepEqual(readSetupDraft({text:JSON.stringify(draft)},source).chapterStarts,[2]);
-  assert.deepEqual(readSetupDraft({text:JSON.stringify(draft)},{...source,hasChapters:true}).chapterStarts,[]);
+  assert.deepEqual(validateSetupDraft(draft,source).chapterStarts,[2]);
+  assert.deepEqual(validateSetupDraft(draft,{...source,hasChapters:true}).chapterStarts,[]);
   assert.match(setupMessages([],'draft',source)[0].content,/untrusted story reference/);
   assert.equal(setupMessages([],'draft',{...source,turnCount:1}),null);
 });

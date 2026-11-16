@@ -61,16 +61,18 @@
           <div class="route-bar">
             <div class="route-control">
               <label for="authorMode">Mode</label>
-              <select id="authorMode"><option value="write">Write</option><option value="agent">Agent</option></select>
+              <select id="authorMode"><option value="story">Story</option><option value="agent">Agent</option></select>
             </div>
             <div class="route-control">
               <label for="sceneProvider" id="sceneProviderLabel">Write with</label>
               <select id="sceneProvider"><option value="mcp">MCP</option><option value="openrouter">OpenRouter</option><option id="manualWriteOption" value="manual">Manual</option></select>
             </div>
+            <label class="context-toggle" id="sensitiveSceneLabel"><input id="sensitiveScene" type="checkbox"> Sensitive scene</label>
             <div class="route-control" id="sceneModelControl" hidden>
               <label for="sceneModel">Model</label>
               <select id="sceneModel" aria-describedby="routeSummary"><option value="" disabled>Pick a model</option></select>
             </div>
+            <button id="contextIndicator" type="button" class="text-button context-indicator" aria-haspopup="dialog">Context</button>
             <p id="routeSummary" class="route-hint" role="status"></p>
           </div>
           <p id="composerEditStatus" class="route-hint" role="status" hidden></p>
@@ -242,7 +244,20 @@
 <div class="model-price" id="modelPrice" aria-live="polite" hidden><p id="modelEstimate"></p><p id="modelRates"></p><p class="form-note"><span id="modelChapterAssumption">A chapter assumes 2,000 input and 5,000 output tokens total. </span><a id="modelSource" rel="noopener noreferrer" target="_blank">OpenRouter listing</a> · rates checked Nov 16, 2026.</p></div>
 <label id="customModel" hidden>Custom model ID<input id="modelInput" placeholder="author/model" autocomplete="off"></label><p id="modelError" class="form-note validation-message" role="alert"></p><label>OpenRouter API key<input id="keyInput" type="password" placeholder="sk-or-…" autocomplete="off"></label><p class="form-note">The key stays in this page’s memory and is forgotten when the page closes or reloads. <span id="modelBilling"></span></p></div><footer class="dialog-actions"><button type="button" class="button subtle" id="cancelProvider">Cancel</button><button class="button primary" type="submit">Save connection</button></footer></form></dialog>
 <dialog id="pasteDialog" class="form-dialog" aria-labelledby="pasteHeading"><form id="pasteForm"><header class="dialog-top"><div><h2 id="pasteHeading">Add a co-writer reply</h2><p>Add text without calling a model.</p></div><button type="button" id="closePaste" class="icon" aria-label="Close">×</button></header><div class="dialog-body"><textarea id="pasteText" aria-label="Co-writer reply" rows="10" required placeholder="Paste the response here…"></textarea></div><footer class="dialog-actions"><button type="button" class="button subtle" id="cancelPaste">Cancel</button><button class="button primary" type="submit">Add to scene</button></footer></form></dialog>
-<dialog id="promptDialog" class="form-dialog" aria-labelledby="promptHeading"><header class="dialog-top"><h2 id="promptHeading">Prompt preview</h2><button type="button" id="closePrompt" class="icon" aria-label="Close">×</button></header><pre id="promptContents" class="dialog-body" tabindex="0"></pre></dialog>
+<dialog id="promptDialog" class="form-dialog" aria-labelledby="promptHeading">
+  <header class="dialog-top"><h2 id="promptHeading">Prompt preview</h2><button type="button" id="closePrompt" class="icon" aria-label="Close">×</button></header>
+  <div class="dialog-body">
+    <section class="context-summary" aria-label="Context usage">
+      <p id="contextTotal"></p>
+      <dl id="contextParts"></dl>
+      <p class="form-note" id="contextLimits"></p>
+    </section>
+    <details id="promptTextDetails" open>
+      <summary>Prompt text</summary>
+      <pre id="promptContents" tabindex="0"></pre>
+    </details>
+  </div>
+</dialog>
 <dialog id="setupDialog" class="form-dialog" aria-labelledby="setupHeading">
   <header class="dialog-top">
     <h2 id="setupHeading" tabindex="-1">New story</h2>
@@ -302,6 +317,11 @@
       <label for="setupMessage" id="setupMessageLabel">What kind of story are you imagining?</label>
       <textarea id="setupMessage" rows="2" aria-describedby="setupWordCount setupFeedback" placeholder="A premise, a character, or even just a mood…"></textarea>
       <p id="setupWordCount" class="form-note"></p>
+      <details class="setup-context-meter">
+        <summary id="setupContextUsage">Context</summary>
+        <p class="form-note" id="setupContextBreakdown"></p>
+        <p class="form-note" id="setupContextLimits"></p>
+      </details>
       <p id="setupFeedback" class="form-note" role="status"></p>
       <p id="setupChatError" class="form-note validation-message" role="alert"></p>
     </div>

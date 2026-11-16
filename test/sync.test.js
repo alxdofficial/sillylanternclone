@@ -42,6 +42,22 @@ test('deep equality ignores key order and undefined properties', () => {
   assert.ok(!sameValue({a:[1, 2]}, {a:[2, 1]}));
 });
 
+test('continuity conflicts with a concurrent change to its prose or author direction', () => {
+  const base = agentReply(library());
+  const pending = base.projects[0].messages.at(-1);
+  pending.continuityPending = true;
+  delete pending.storyTime;
+  const server = clone(base);
+  const recorded = server.projects[0].messages.at(-1);
+  recorded.storyTime = '2026-01-01T09:05';
+  delete recorded.continuityPending;
+  for (const index of [2,3]) {
+    const local = clone(base);
+    local.projects[0].messages[index].content = 'They remained outside.';
+    assert.match(mergeLibrary(base,local,server).conflicts[0],/continuity was being recorded/);
+  }
+});
+
 test('agent reply merges with cast edits', () => {
   const base = library(), local = clone(base), server = agentReply(clone(base));
   local.projects[0].cast[0].description = 'A mechanic who hates fog.';

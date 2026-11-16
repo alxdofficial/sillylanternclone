@@ -1,0 +1,40 @@
+import { z } from 'zod';
+import { diagnosticError } from './diagnostics.mjs';
+
+export function agentTool(name,description,schema,handle) {
+  const {$schema, ...parameters} = z.toJSONSchema(schema,{target:'draft-7'});
+  return {schema,handle,definition:{type:'function',function:{name,description,parameters}}};
+}
+
+export async function runAgentTask({messages,completions,action,reads = [],text,code,failure}) {
+  const tools = [...reads,...(action ? [action] : [])].map(entry=>entry.definition);
+  for (let round=0; round<4; round++) {
+    const response = await completions(messages,tools);
+    if (text && typeof response?.text === 'string') return text(response);
+    const calls = response?.tool_calls;
+    if (!Array.isArray(calls) || !calls.length || calls.length > 4) break;
+    if (calls.some(call=>typeof call?.id !== 'string' || !call.id || call.type !== 'function') ||
+      new Set(calls.map(call=>call.id)).size !== calls.length) break;
+    messages.push(response);
+    const results = [];
+    for (const call of calls) {
+      let args;
+      try { args = JSON.parse(call.function.arguments); } catch { /* Return an argument error below. */ }
+      let result = {error:'Use an available tool and match its argument schema.'};
+      const selected = [action,...reads].find(entry=>entry?.definition.function.name === call.function?.name);
+      if (selected) {
+        const parsed = selected.schema.safeParse(args);
+        if (parsed.success) {
+          const outcome = selected.handle(parsed.data);
+          if (selected === action && Object.hasOwn(outcome,'value')) return outcome.value;
+          result = selected === action ? outcome.feedback : outcome;
+        } else if (selected === action) {
+          result = {error:'Match the tool argument schema.',fields:parsed.error.issues.map(issue=>issue.path.join('.'))};
+        }
+      }
+      results.push({role:'tool',tool_call_id:call.id,content:JSON.stringify(result)});
+    }
+    messages.push(...results);
+  }
+  throw diagnosticError(code,failure);
+}

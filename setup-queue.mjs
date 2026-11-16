@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { diagnosticError } from './diagnostics.mjs';
-import { readSetupDraft, setupMessages } from './setup-chat.mjs';
+import { validateSetupDraft, setupMessages } from './setup-chat.mjs';
 import { maxSetupReplyCharacters } from './public/prompt.js';
 
 const sessions = new Map();
@@ -68,7 +68,7 @@ export function setupQueue(input) {
   if (reason) session.result = {error:reason};
   else if (session.mode === 'chat' && text) session.result = {text};
   else if (session.mode === 'draft' && draft) {
-    session.result = {draft:readSetupDraft({text:JSON.stringify(draft)},session.manuscript)};
+    session.result = {draft:validateSetupDraft(draft,session.manuscript)};
   } else fail('A chat request needs text. A draft request needs structured setup fields.');
   delete session.prompt;
   delete session.manuscript;

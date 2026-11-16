@@ -62,7 +62,7 @@ test('agents watch for writing and metadata edits, decline requests, and get che
     assert.match(instructions, /decline_turn/);
     const {tools} = await client.listTools();
     assert.deepEqual(tools.map(item => item.name).sort(),
-      ['decline_turn', 'edit_story_state', 'get_story_context', 'get_story_state', 'list_stories', 'open_studio', 'submit_reply',
+      ['decline_turn', 'edit_story_state', 'get_story_context', 'get_story_state', 'inspect_continuity', 'list_stories', 'open_studio', 'record_scene', 'submit_reply',
         'submit_setup_response', 'wait_for_queued_turn', 'wait_for_setup_request']);
     const opened = toolData(await client.callTool({name:'open_studio', arguments:{}}));
     childPid = opened.pid;
@@ -92,7 +92,7 @@ test('agents watch for writing and metadata edits, decline requests, and get che
     assert.equal(queued.status, 'queued');
     assert.equal(queued.storyId, 'stale');
     assert.match(queued.prompt, /stale request is replaced/);
-    assert.match(queued.prompt, /submit_reply’s updates array/);
+    assert.doesNotMatch(queued.prompt, /submit_reply’s updates array/);
     assert.match(queued.save, /submit_reply/);
 
     // Updates that cannot be kept are refused before anything is saved.
@@ -239,7 +239,8 @@ test('agents watch for writing and metadata edits, decline requests, and get che
     assert.match(editing.instruction,/world information/);
     assert.match(editing.save,/edit_story_state/);
     assert.match(editing.state.world,/hidden tunnel/);
-    assert.doesNotMatch(JSON.stringify(editing),/Mara unlocks the archive|Later writer direction|Other take/);
+    assert.doesNotMatch(JSON.stringify(editing.state),/Mara unlocks the archive|Later writer direction|Other take/);
+    assert.deepEqual(editing.overview.recentTurns.map(({content}) => content),['Mara unlocks the archive.','Later writer direction.']);
     const read = toolData(await client.callTool({name:'get_story_state',arguments:{storyId:'first'}}));
     assert.deepEqual(read.state,editing.state);
     assert.deepEqual(read.pendingRequest,editing.pendingRequest);

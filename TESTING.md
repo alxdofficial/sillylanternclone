@@ -1,5 +1,16 @@
 # Browser walkthrough, 15 November 2026
 
+## Story, Agent, and setup through the shared tools
+
+Tested on 16 November 2026 in the in-app browser on isolated Story Studio instances. The personal library and its credentials were outside the test data.
+
+- With simulated provider replies, sent two turns marked **Sensitive scene**. The second Cydonia request got the first held passage. The continuity editor received the new draft and filtered recent history. Reviewed and kept a non-explicit continuity fact. The next Sonnet request and the MCP handoff received that fact and omitted both original passages.
+- Queued an MCP story turn in the browser and picked it up over stdio. Disconnected after the prose saved. A fresh MCP connection found the pending continuity job, looked up the cast, recorded the scene at 06:21, and saved one graph fact. The browser showed the prose and then its graph changes. A separate MCP Agent request changed writing notes without adding a transcript turn.
+- Wrote a live, non-explicit scene with Cydonia on Parasail. DeepSeek used four scoped lookups across two rounds on StreamLake and River, followed by one `record_scene` call. The log recorded two non-explicit labels and three graph proposals. The artist output had a garbled phrase and an ambiguous ending. This run verifies the tool handoff and ordinary scene data, while the marked-turn privacy checks used synthetic text.
+- Asked DeepSeek in Agent to add a detail to the world. The live call inspected the world on Cohere and committed one `edit_story_state` change on Wafer. The existing world notes and the transcript remained intact. In a separate live new-story wizard, DeepSeek brainstormed conversationally and then called `prepare_story_setup`, staging an editable draft. The story saved after clicking **Create story**.
+- Opened the **Context** breakdown for Story on MCP, Agent on GPT-6.1 Terra, and the setup wizard on Cydonia. Verified that the indicators distinguished the MCP host window, Terra's published 1,050,000-token window, the DeepSeek draft model, and the extra context from a pasted manuscript's previewed excerpts.
+- Confirmed that failure to complete a valid tool sequence leaves generated prose unverified. Regression tests cover invalid-argument recovery, stale or duplicate writes, conflicts between author edits and pending continuity, and withheld history after browser prompt projection. Logs capture tool names and provider telemetry without recording prompts, tool arguments, or prose.
+
 ## Write, Agent, and model setup
 
 Using an isolated browser and library, added an OpenRouter ID, confirmed its **User-added** label, reloaded, removed the ID, and reloaded again. The selector cleared the removed choice. Verified that Write keeps all 8,000 words, rejects 8,001 without changing the draft, and restores its provider selection after switching back from Agent.

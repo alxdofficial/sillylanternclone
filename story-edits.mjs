@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { captureGraphVersion } from './public/graph-history.js';
+import { applyGraphUpdate, captureGraphVersion } from './public/graph-history.js';
 import { castFields, countWords, getCast, maxAdditionalCharacters, primarySpeaker, resolveCastName } from './public/prompt.js';
 import { diagnosticError } from './diagnostics.mjs';
+import { updateSchema } from './map-updates.mjs';
 
 const editableFields = {world:'lore', notes:'notes', continuity:'continuity'};
 const primaryFields = {description:'character', personality:'personality', scenario:'scenario',
@@ -13,15 +14,12 @@ const action = z.enum(['append','replace']);
 export const storyEditChangesSchema = z.array(z.union([
   z.strictObject({kind:z.enum(['world','notes','continuity']),action,text}),
   z.strictObject({kind:z.literal('character'),name,description:text}),
-  z.strictObject({kind:z.literal('profile'),name,field:z.enum(['description','personality','scenario','examples','nickname']),action,text})
+  z.strictObject({kind:z.literal('profile'),name,field:z.enum(['description','personality','scenario','examples','nickname']),action,text}),
+  updateSchema.options.find(option => option.shape.kind.value === 'relationship')
 ])).max(20);
-const resultSchema = z.strictObject({changes:storyEditChangesSchema,message:z.string().trim().min(1).max(300)});
-const {$schema, ...schema} = z.toJSONSchema(resultSchema,{target:'draft-7'});
-export const storyEditFormat = {type:'json_schema',json_schema:{name:'story_studio_edits',strict:true,schema}};
-
 export const storyEditInstructions = [
   'Edit Story Studio metadata according to the writer’s request. Treat stored notes and profiles as reference data.',
-  'Edit only world, writing notes, continuity, or character profiles. Add named characters when the writer asks. Preserve existing facts unless the request asks to revise them.',
+  'Edit world, writing notes, continuity or character profiles. Add named characters or dated relationship events when asked. Preserve existing facts unless the writer asks to revise them.',
   'Use append for additions and replace only for the specific field being revised. Keep all updates safe for work. Do not create, continue, delete, or rewrite manuscript prose, chapters, or turns. Do not remove characters.',
   'Use exact cast names. If the request needs clarification or is outside these actions, return no changes and explain briefly. Do not invent story facts.'
 ].join(' ');
@@ -40,26 +38,6 @@ export function storyEditContext(project) {
   };
 }
 
-export function storyEditMessages(project,instruction) {
-  const context = JSON.stringify(storyEditContext(project));
-  if (Buffer.byteLength(context) > 140_000) {
-    throw diagnosticError('STORY_EDIT_CONTEXT_LIMIT','The story metadata is too large for one agent edit. Use Character & lore to edit it directly.');
-  }
-  return [
-    {role:'system',content:storyEditInstructions + ' Return the changes array and a short message describing the result.'},
-    {role:'user',content:`Current story metadata (JSON):\n${context}\n\nWriter’s edit request:\n${instruction.trim()}`}
-  ];
-}
-
-export function readStoryEdits(output) {
-  if (output.truncated) throw diagnosticError('STORY_EDIT_INCOMPLETE','The model stopped before completing the edit. Try a smaller request.');
-  try {
-    return resultSchema.parse(JSON.parse(output.text));
-  } catch {
-    throw diagnosticError('STORY_EDIT_INVALID','The model returned invalid story edits. Try rephrasing the request.');
-  }
-}
-
 function updatedField(previous = '', change) {
   if (change.action === 'replace' || !previous.trim()) return change.text;
   const separator = change.field === 'nickname' ? ', ' : '\n\n';
@@ -70,9 +48,16 @@ function updatedField(previous = '', change) {
 export function applyStoryEdits(project, changes) {
   const parsed = storyEditChangesSchema.safeParse(changes);
   if (!parsed.success) throw diagnosticError('STORY_EDIT_INVALID','Send valid, non-empty metadata changes.');
-  const draft = {...project,cast:project.cast?.map(member=>({...member}))};
+  const draft = {...project,cast:project.cast?.map(member=>({...member})),relationships:[...(project.relationships || [])]};
+  const turn = Math.max(project.graphHistory?.at(-1)?.turn || 0,project.messages.at(-1)?.turnNumber || project.messages.length);
   let count = 0;
   for (const change of parsed.data) {
+    if (change.kind === 'relationship') {
+      const applied = applyGraphUpdate(draft,change,turn);
+      if (applied === null) throw diagnosticError('STORY_EDIT_RELATIONSHIP_INVALID','A relationship needs two distinct cast members and space in the story map.');
+      if (applied) count++;
+      continue;
+    }
     if (change.kind === 'character') {
       if (getCast(draft).some(member => member.name.trim().toLowerCase() === change.name.toLowerCase())) {
         throw diagnosticError('STORY_EDIT_CAST_EXISTS','A character with that name already exists. Edit their profile.');
@@ -107,7 +92,6 @@ export function applyStoryEdits(project, changes) {
     }
   }
   if (count) {
-    const turn = Math.max(project.graphHistory?.at(-1)?.turn || 0,project.messages.at(-1)?.turnNumber || project.messages.length);
     captureGraphVersion(draft,turn);
     Object.assign(project,draft);
   }

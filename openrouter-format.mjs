@@ -1,22 +1,3 @@
-import { z } from 'zod';
-import { updateSchema } from './map-updates.mjs';
-import { diagnosticError } from './diagnostics.mjs';
-import { isStoryTime } from './public/prompt.js';
-
-export const metadataModel = 'deepseek/deepseek-v4.1-flash';
-const label = z.enum(['safe','explicit']);
-const metadataSchema = z.strictObject({
-  input:label.describe('Classification of the writer direction.'),
-  reply:label.describe('Classification of the narrative prose.'),
-  storyTime:z.string().describe('In-story date and time to the minute, YYYY-MM-DDTHH:mm.'),
-  updates:z.array(z.union(updateSchema.options.map(option => option.required()))).max(5)
-    .describe('Only safe-for-work continuity facts. Omit NSFW, explicit, and graphic details from every field. Return an empty array if disabled or no safe fact remains.')
-});
-const {$schema, ...schema} = z.toJSONSchema(metadataSchema,{target:'draft-7'});
-export const storyMetadataFormat = {
-  type:'json_schema', json_schema:{name:'story_studio_metadata',strict:true,schema}
-};
-
 export function isWritingRefusal(text) {
   // Some hosts report a conversational refusal as an ordinary completion.
   // Match explicit assistant phrasing at the start so dialogue can use it.
@@ -36,36 +17,4 @@ export function stripWritingPreamble(prose) {
   const after = opening.slice(aside.index + aside[0].length);
   const cleanOpening = [before.trim(),after.trim()].filter(Boolean).join(' ');
   return (cleanOpening + prose.slice(end)).trim();
-}
-
-export function readStoryMetadata(output, checkUpdates) {
-  if (output.truncated) {
-    throw diagnosticError('OPENROUTER_METADATA_TRUNCATED','OpenRouter cut off the metadata response.');
-  }
-  let value;
-  try { value = JSON.parse(output.text); } catch {
-    throw diagnosticError('OPENROUTER_INVALID_METADATA','OpenRouter returned unreadable story metadata.');
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw diagnosticError('OPENROUTER_INVALID_METADATA','OpenRouter returned an invalid story metadata object.');
-  }
-
-  const input = label.safeParse(value.input).data;
-  const reply = label.safeParse(value.reply).data;
-  const storyTime = isStoryTime(value.storyTime) ? value.storyTime : '';
-  const invalidFields = [
-    ...(!input ? ['input'] : []),
-    ...(!reply ? ['reply'] : []),
-    ...(!storyTime ? ['storyTime'] : []),
-    ...(!Array.isArray(value.updates) ? ['updates'] : [])
-  ];
-  const checked = checkUpdates(value.updates);
-  return {
-    input:input || 'unclassified',
-    reply:reply || 'unclassified',
-    storyTime,
-    suggestions:checked.updates,
-    invalidFields,
-    ...(checked.rejections.length ? {updateProblems:checked.rejections.length,updateRejections:checked.rejections} : {})
-  };
 }

@@ -159,7 +159,7 @@ function addDatedFact(previous = '', note, turn) {
 
 // Return true for a change, false for a duplicate, and null for a proposal
 // that still needs the writer's attention (for example, a full cast).
-function applyGraphUpdate(project, update, turn) {
+export function applyGraphUpdate(project, update, turn) {
   const cast = getCast(project);
   const resolve = name => resolveCastName(cast,name);
   if (update.kind === 'character') {

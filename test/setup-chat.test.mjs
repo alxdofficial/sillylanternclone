@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { readSetupDraft, setupMessages } from '../setup-chat.mjs';
+import { validateSetupDraft, setupMessages } from '../setup-chat.mjs';
 
 const app = fileURLToPath(new URL('../server.mjs',import.meta.url));
 const key = 'PRIVATE_SETUP_TEST_KEY';
@@ -42,13 +42,13 @@ test('setup input and output are bounded and reject invalid roles, fields and du
   const roles = Array.from({length:43},(_,i) => i % 2 ? assistant(question) : writer(seed));
   assert.ok(setupMessages(roles,'chat'));
   assert.ok(setupMessages(roles.slice(0,-1),'draft'));
-  assert.throws(() => readSetupDraft({text:JSON.stringify({...draft,postHistory:'Extra'})}),{diagnosticCode:'SETUP_DRAFT_INVALID'});
-  assert.throws(() => readSetupDraft({text:JSON.stringify({...draft,cast:[draft.cast[0],{name:'sam',description:''}]})}),
+  assert.throws(() => validateSetupDraft({...draft,postHistory:'Extra'}),{diagnosticCode:'SETUP_DRAFT_INVALID'});
+  assert.throws(() => validateSetupDraft({...draft,cast:[draft.cast[0],{name:'sam',description:''}]}),
     {diagnosticCode:'SETUP_DRAFT_DUPLICATE_CAST'});
-  assert.throws(() => readSetupDraft({text:JSON.stringify(draft),truncated:true}),{diagnosticCode:'SETUP_DRAFT_TRUNCATED'});
+
 });
 
-test('setup chat uses the chosen model and extracts an unsaved draft with the strict schema', async () => {
+test('setup chat uses the chosen model and stages a validated draft through the shared tools', async () => {
   const directory = await mkdtemp(join(tmpdir(),'story-studio-setup-'));
   const listener = createServer();
   listener.listen(0,'127.0.0.1');
@@ -64,39 +64,42 @@ test('setup chat uses the chosen model and extracts an unsaved draft with the st
       assert.equal(options.headers.authorization,'Bearer ' + key);
       const request = JSON.parse(options.body);
       assert.equal(request.provider.data_collection,'deny');
-      if (request.messages[1].content.includes(contextNote)) {
+      const setupTool = request.tools?.[0]?.function;
+      const importDraft = request.messages[1].content.includes(contextNote);
+      assert.equal(request.response_format,undefined);
+      if (importDraft) {
         assert.ok(request.messages[1].content.includes('Additional setup context'));
         assert.ok(request.messages[1].content.includes(JSON.stringify(manuscript)));
         assert.ok(request.messages[1].content.includes(contextNote + ' map-reference-note'.repeat(16_000)));
         assert.equal(request.model,'deepseek/deepseek-v4.1-flash');
-        assert.ok(request.response_format.json_schema.schema.required.includes('continuity'));
-        const content = JSON.stringify({...draft,continuity:'The map changed.',chapterStarts:[]});
-        return Response.json({choices:[{finish_reason:'stop',message:{content}}]});
-      }
-      assert.equal(request.messages[1].content,seed);
-      if (request.messages.length > 2) {
-        assert.deepEqual(request.messages[2],{role:'assistant',content:question});
-        assert.ok(request.messages[3].content.startsWith(clarification));
-      }
-      let content = question;
-      if (request.response_format) {
-        assert.equal(request.model,'deepseek/deepseek-v4.1-flash');
-        assert.equal(request.provider.require_parameters,true);
-        assert.equal(request.response_format.json_schema.name,'story_studio_setup');
-        assert.equal(request.response_format.json_schema.strict,true);
-        assert.equal(request.response_format.json_schema.schema.additionalProperties,false);
-        assert.deepEqual(request.response_format.json_schema.schema.required,Object.keys(draft));
-        assert.equal(request.response_format.json_schema.schema.properties.cast.maxItems,8);
-        assert.match(request.messages[0].content,/latest choices/);
-        assert.match(request.messages.at(-1).content,/Prepare the story setup/);
-        content = JSON.stringify(draft);
+        assert.ok(setupTool.parameters.required.includes('continuity'));
       } else {
+        assert.equal(request.messages[1].content,seed);
+        if (request.messages.length > 2) {
+          assert.deepEqual(request.messages[2],{role:'assistant',content:question});
+          assert.ok(request.messages[3].content.startsWith(clarification));
+        }
+      }
+      if (!setupTool) {
         assert.equal(request.model,'fixture/brainstorm');
         assert.equal(request.max_tokens,768);
         assert.match(request.messages[0].content,/fiction brainstorming partner/);
         assert.equal(request.provider.require_parameters,undefined);
+        return Response.json({choices:[{finish_reason:'stop',message:{content:question}}]});
       }
-      return Response.json({choices:[{finish_reason:'stop',message:{content}}]});
+      const selected = request.messages[3]?.content.includes('selected-tool-model') ? 'openai/gpt-6.1-terra' : 'deepseek/deepseek-v4.1-flash';
+      assert.equal(request.model,selected);
+      assert.equal(request.provider.require_parameters,true);
+      assert.equal(setupTool.name,'prepare_story_setup');
+      assert.equal(setupTool.parameters.additionalProperties,false);
+      assert.equal(setupTool.parameters.properties.cast.maxItems,8);
+      assert.match(request.messages[0].content,/latest choices/);
+      assert.match(request.messages[0].content,/prepare_story_setup/);
+      assert.match(request.messages.at(-1).content,/Prepare the story setup/);
+      const args = importDraft ? {...draft,continuity:'The map changed.',chapterStarts:[]} : draft;
+      return Response.json({choices:[{finish_reason:'tool_calls',message:{content:null,tool_calls:[
+        {type:'function',id:'fixture-draft',function:{name:'prepare_story_setup',arguments:JSON.stringify(args)}}
+      ]}}]});
     };
   `);
   const child = spawn(process.execPath,['--import',mock,app],{
@@ -124,6 +127,10 @@ test('setup chat uses the chosen model and extracts an unsaved draft with the st
     const prepared = await send('draft',[...conversation,assistant(question)]);
     assert.equal(prepared.status,200);
     assert.deepEqual(await prepared.json(),{draft});
+    const explicitlySelected = await send('draft',[writer(seed),assistant(question),writer(clarification + ' selected-tool-model')],
+      origin,{model:'openai/gpt-6.1-terra'});
+    assert.equal(explicitlySelected.status,200);
+    assert.deepEqual(await explicitlySelected.json(),{draft});
     const imported = await send('draft',[],origin,{manuscript,context:longContextNote});
     assert.equal(imported.status,200);
     assert.deepEqual(await imported.json(),{draft:{...draft,continuity:'The map changed.',chapterStarts:[]}});

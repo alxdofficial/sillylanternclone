@@ -4,9 +4,10 @@ import { defaultChapterStarts, manuscriptByteLimit, manuscriptPassages, manuscri
 import { mergeLibrary } from './sync.js';
 import { buildMessages, formatMessages, extraFields, getCast, narrator, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
-import { models, chapterCost, isAgentModel, isModelId, modelLabel } from './models.js';
+import { models, chapterCost, canWriteSensitive, isAgentModel, isModelId, modelLabel, modelContextWindow, proseOutputLimit, setupDraftModel, agentOutputLimit, setupChatOutputLimit, setupDraftOutputLimit } from './models.js';
 import { countWords, writeInputProblem } from './prompt.js';
 import { dateWriterTurn, maxSetupWords, mcpOmissionReason, queuedTurn, replyInput, setupInputWords, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
+import { continuityRecentTokenCap, estimateContextTokens, storyOverview, storyPromptUsage, writingHistoryLimit, writingPromptLimit } from './prompt.js';
 
 const settingsFields = ['title', 'character', 'lore', 'notes', ...extraFields.filter(key => key !== 'personaName')];
 const castLabels = {name:'Name', nickname:'Aliases', description:'Description', personality:'Personality', scenario:'Scenario', examples:'Example dialogue'};
@@ -40,19 +41,21 @@ function setSession(key, value) {
   }
 }
 const modeKey = id => 'story-author-mode:' + id;
-const authorMode = project => getSession(modeKey(project.id)) === 'agent' ? 'agent' : 'write';
-const routeKey = (id, mode = 'write') => (mode === 'agent' ? 'story-agent-route:' : 'story-route:') + id;
-const modelKey = (id, mode = 'write') => (mode === 'agent' ? 'story-agent-model:' : 'story-model:') + id;
+const authorMode = project => getSession(modeKey(project.id)) === 'agent' ? 'agent' : 'story';
+const routeKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-route:' : 'story-route:') + id;
+const modelKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-model:' : 'story-model:') + id;
 const retiredPresets = new Set(['anthracite-org/magnum-v4-72b','thedrummer/unslopnemo-12b','sao10k/l3.1-euryale-70b','gryphe/mythomax-l2-13b']);
-function writingModel(project, mode = 'write') {
+function writingModel(project, mode = 'story') {
   const model = getSession(modelKey(project.id,mode));
   return model && (mode === 'agent' ? isAgentModel(model) : isPreset(model) || userModels.includes(model)) ? model : '';
 }
-function writingRoute(project, mode = 'write') {
+function writingRoute(project, mode = 'story') {
   const route = getSession(routeKey(project.id,mode));
-  return route === 'openrouter' || route === 'manual' && mode === 'write' ? route : 'mcp';
+  return route === 'openrouter' || route === 'manual' && mode === 'story' ? route : 'mcp';
 }
-const draftKey = (id, mode = 'write') => (mode === 'agent' ? 'story-agent-draft:' : 'story-draft:') + id;
+const draftKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-draft:' : 'story-draft:') + id;
+const sensitiveKey = id => 'story-sensitive-draft:' + id;
+const sensitiveDraft = project => getSession(sensitiveKey(project.id)) === 'true';
 const pendingComposerEdits = new Map();
 let composerEdit;
 const id = () => globalThis.crypto?.randomUUID?.() || `story-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -62,14 +65,6 @@ function status(text) {
     ? 'Demo · resets on reload' : text;
 }
 function error(text=''){const box=$('#error');box.hidden=!text;box.textContent=text}
-const graphRejectionLabels = {
-  CAST_NAME_UNRESOLVED:'unknown or ambiguous cast name',
-  DUPLICATE_CHARACTER:'character already exists',
-  SELF_RELATIONSHIP:'relationship refers to the same character twice',
-  INVALID_FIELDS:'missing or invalid fields',
-  TOO_MANY_UPDATES:'more than five proposals',
-  EXPECTED_UPDATES_ARRAY:'invalid proposal list'
-};
 async function api(url, options={}) {
   const response = await fetch(url,options);
   let result;
@@ -808,9 +803,9 @@ function syncEditedTake(message) {
 
 function editInComposer(index) {
   const project = current();
-  setSession(modeKey(project.id),'write');
   const message = project.messages[index];
   const draft = message.content;
+  setSession(modeKey(project.id),'story');
   const canRegenerate = message.role === 'user' && Boolean(pairedReply(project,index) || index === project.messages.length - 1);
   pendingComposerEdits.set(project.id,{storyId:project.id,turnNumber:message.turnNumber,original:draft,draft,canRegenerate});
   render();
@@ -842,6 +837,7 @@ function saveComposerEdit() {
   }
   if (input.value !== original) {
     message.content = input.value;
+    delete message.continuityPending;
     if (['safe','reviewed-safe'].includes(message.contentSensitivity)) setSensitivity(message,'unclassified');
     syncEditedTake(message);
     const cancelsRequest = project.agentRequest?.turnNumber === turnNumber || project.agentRequest?.replyTurnNumber === turnNumber;
@@ -926,6 +922,9 @@ function syncRoute() {
   const route = writingRoute(project,mode);
   const model = writingModel(project,mode);
   $('#authorMode').value = mode;
+  $('#sensitiveSceneLabel').hidden = editingStory;
+  $('#sensitiveScene').checked = sensitiveDraft(project);
+  $('#sensitiveScene').disabled = busy;
   $('#authorMode').disabled = busy || Boolean(composerEdit);
   $('#sceneProviderLabel').textContent = editingStory ? 'Edit with' : 'Write with';
   $('#manualWriteOption').hidden = editingStory;
@@ -935,13 +934,15 @@ function syncRoute() {
   $('#sceneModelControl').hidden = !usesOpenRouter;
   sceneModelChoice.disabled = busy || Boolean(composerEdit);
   syncSceneModel(model,mode);
-  $('#routeSummary').textContent = composerEdit ? '' : usesOpenRouter
+  $('#routeSummary').textContent = !editingStory && project.agentEditRequest ? 'A metadata edit is queued. Open Agent to manage it.'
+    : !editingStory && sensitiveDraft(project) && route !== 'manual' && (!usesOpenRouter || !canWriteSensitive(model))
+      ? 'Choose Cydonia to generate a sensitive scene.'
+    : composerEdit ? '' : usesOpenRouter
     ? !openRouterKey ? 'Add an API key in Connection' : !model ? 'Pick a model' : editingStory ? agentEditStatus(project) : ''
     : editingStory ? agentEditStatus(project)
     : route === 'manual' ? 'No model calls' : mcpStatus(project).line;
   $('#sceneProvider').disabled = busy || Boolean(composerEdit);
   $('#providerButton').disabled = busy || Boolean(composerEdit);
-  $('#promptPreview').disabled = Boolean(composerEdit) || editingStory;
   $('#composerEditStatus').hidden = !composerEdit;
   $('#composerEditStatus').textContent = composerEdit ? `Editing turn ${composerEdit.turnNumber}` : '';
   $('#instructionLabel').textContent = composerEdit ? 'Edit turn text' : editingStory ? 'What story information should change?' : 'What happens next?';
@@ -952,18 +953,19 @@ function syncRoute() {
   const rewriting = composerEdit?.canRegenerate && route !== 'manual';
   $('#composeShortcut').textContent = rewriting ? '⌘/Ctrl + Enter to rewrite'
     : composerEdit ? '⌘/Ctrl + Enter to save' : '⌘/Ctrl + Enter to send';
-  $('#sendButton').disabled = busy || editingStory && Boolean(project.agentEditRequest);
+  $('#sendButton').disabled = busy || Boolean(project.agentEditRequest);
   $('#sendButton').textContent = editingStory ? busy ? 'Editing…' : route === 'mcp' ? 'Queue edit' : 'Apply edits'
     : busy ? 'Writing…'
     : composerEdit && !rewriting ? 'Save edit'
     : composerEdit ? (route === 'mcp' ? 'Save & queue rewrite' : 'Save & rewrite ↗')
     : route === 'manual' ? 'Save turn' : route === 'mcp' ? 'Queue turn' : 'Send & write ↗';
+  updateContextIndicator();
 }
 function speakerMetadata(speaker) {
   return {speakerId:speaker.id, speakerName:speaker.name};
 }
 
-function openRouterSnapshot(project, messages, replyTime) {
+function openRouterSnapshot(project, messages, replyTime, sensitive) {
   return {
     id:project.id,
     ...Object.fromEntries(settingsFields.map(key => [key,project[key] || ''])),
@@ -971,7 +973,7 @@ function openRouterSnapshot(project, messages, replyTime) {
     storyStartAt:project.storyStartAt, storyStartSource:project.storyStartSource, graphUpdates:project.graphUpdates,
     cast:project.cast, relationships:project.relationships, replyTime,
     contextTime:lastStoryTime({...project,messages}),
-    messages:recentTurns(messages,recentTokenCap,{includeSensitive:true})
+    messages:recentTurns(messages,recentTokenCap,{includeSensitive:sensitive})
   };
 }
 
@@ -1023,14 +1025,25 @@ async function generate() {
   if (busy || !state) return;
   const project = current();
   if (authorMode(project) === 'agent') return generateAgentEdit(project);
+  if (project.agentEditRequest) return;
   const provider = writingRoute(project);
   const model = writingModel(project);
   const key = openRouterKey;
+  const sensitive = sensitiveDraft(project);
+  if (sensitive && provider !== 'manual' && (provider !== 'openrouter' || !canWriteSensitive(model))) {
+    return error('Choose Cydonia to generate a sensitive scene.');
+  }
   const field = $('#instruction');
+  const changedDirection = composerEdit?.canRegenerate && field.value.trim() !== composerEdit.original.trim();
   const inputProblem = writeInputProblem(field.value,provider === 'openrouter' ? model : '');
   if (inputProblem) {
     error(inputProblem);
     return field.focus();
+  }
+  const originalDirection = composerEdit?.canRegenerate && project.messages.find(turn=>turn.turnNumber === composerEdit.turnNumber);
+  if (originalDirection && provider !== 'manual' && (originalDirection.excludeFromContext ||
+    (!sensitive && !isAvailableToMcp(originalDirection)))) {
+    return error('This direction is outside the selected model’s context. Check its label in ⋯ → Time and context.');
   }
   if (composerEdit?.canRegenerate && provider === 'openrouter' && (!model || !key)) return openConnection();
   let editedTurn;
@@ -1051,7 +1064,8 @@ async function generate() {
   error();
   const resumedProblem = authorTurn && writeInputProblem(authorTurn.content,provider === 'openrouter' ? model : '');
   if (resumedProblem) return error(resumedProblem);
-  if (authorTurn?.excludeFromContext || (provider === 'mcp' && authorTurn && !isAvailableToMcp(authorTurn))) {
+  if (authorTurn?.excludeFromContext || (provider !== 'manual' && !sensitive && authorTurn
+    && (authorTurn.contentSensitivity === 'explicit' || (!changedDirection && !isAvailableToMcp(authorTurn))))) {
     error('This direction is outside the selected model’s context. Check its label in ⋯ → Time and context.');
     return;
   }
@@ -1061,32 +1075,33 @@ async function generate() {
     return;
   }
 
-  const history = project.messages.slice(0,directionIndex);
-  const contextProject = replacement ? storyAtTurn(project,directionIndex) : project;
   // Any new request replaces an earlier queue and notice; MCP sets a new queue below.
   delete project.agentNotice;
   delete project.agentRequest;
   if (answering && provider === 'mcp') {
+    if (changedDirection && authorTurn.contentSensitivity === 'unclassified') delete authorTurn.contentSensitivity;
     project.agentRequest = {mode:replacement ? 'replace' : 'send',speakerId:narrator.id,turnNumber:authorTurn.turnNumber,
       ...(replacement ? {replyTurnNumber:replacement.turnNumber} : {})};
     markDirty();
     return render();
   }
   if (!answering) {
-    const turnNumber = appendTurn(project, {role:'user', content:direction, ...(provider === 'openrouter' ? {contentSensitivity:'unclassified'} : {})});
+    const turnNumber = appendTurn(project, {role:'user', content:direction, ...(sensitive ? {contentSensitivity:'explicit'} : provider === 'openrouter' ? {contentSensitivity:'unclassified'} : {})});
     input.value = '';
     showLatestStoryTurn();
     setSession(draftKey(project.id), '');
     if (provider === 'mcp') project.agentRequest = {mode:'send',speakerId:narrator.id,turnNumber};
     markDirty();
-    if (provider !== 'openrouter') return render();
+    if (provider !== 'openrouter') {
+      setSession(sensitiveKey(project.id),'');
+      return render();
+    }
   }
   if (answering && authorTurn.contentSensitivity !== 'explicit') {
-    setSensitivity(authorTurn,'unclassified');
+    setSensitivity(authorTurn,sensitive ? 'explicit' : 'unclassified');
   }
   if (answering) markDirty(project);
 
-  const snapshot = openRouterSnapshot(contextProject,history,replacement?.storyTime ?? authorTurn?.storyTime);
   const originalHistory = JSON.stringify(project.messages);
   generatingFor = {projectId:project.id};
   setBusy(true);
@@ -1095,15 +1110,19 @@ async function generate() {
     if (dirty || !state.projects.includes(project) || JSON.stringify(project.messages) !== originalHistory) {
       throw Error('The direction could not be saved against the latest transcript. Check the story and try again.');
     }
+    const contextProject = replacement ? storyAtTurn(project,directionIndex) : project;
+    const history = project.messages.slice(0,directionIndex);
+    const snapshot = openRouterSnapshot(contextProject,history,replacement?.storyTime ?? authorTurn?.storyTime,sensitive);
     const response = await api('/api/generate', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        project:snapshot, instruction:authorTurn?.content ?? direction, provider, model, key,
+        project:snapshot, instruction:authorTurn?.content ?? direction, provider, model, key, sensitive,
         mode:replacement ? 'replace' : 'send'
       })
     });
     const {text} = response;
+    setSession(sensitiveKey(project.id),'');
     if (!text?.trim()) throw Error('The co-writer returned an empty response.');
     const target = state.projects.find(item => item.id === project.id);
     if (!target || JSON.stringify(target.messages) !== originalHistory) {
@@ -1121,36 +1140,32 @@ async function generate() {
       setSensitivity(reply,validSensitivity(response.reply) ? response.reply : 'unclassified');
       syncEditedTake(reply);
       delete reply.graphSuggestions;
+      delete reply.continuityPending;
       if (!reply.selectedAlternative) delete reply.firstTakeSuggestions;
     }
     const suggestions = target.graphUpdates === false ? [] : graphSuggestions(response.suggestions);
+    const contextChanged = JSON.stringify(openRouterSnapshot(target,history,snapshot.replyTime,sensitive)) !== JSON.stringify(snapshot);
     if (!replacement) appendTurn(target, {role:'assistant', content:prose, ...speakerMetadata(narrator),
       contentSensitivity:validSensitivity(response.reply) ? response.reply : 'unclassified',
       storyTime:recordStoryTime(target,response.storyTime)});
     if (!replacement) dateWriterTurn(target);
-    const {applied,pending} = replacement ? {applied:0,pending:0} : applyTurnGraphUpdates(target,target.messages.at(-1),suggestions,{
-      allowAutomatic:isAvailableToMcp(savedDirection) && response.input === 'safe' && response.reply === 'safe'
+    if (!replacement) applyTurnGraphUpdates(target,target.messages.at(-1),suggestions,{
+      allowAutomatic:!contextChanged && isAvailableToMcp(savedDirection) && response.input === 'safe' && response.reply === 'safe'
         && !(target.id === current().id && $('#settingsDialog').open)
     });
-    const hasGraphChanges = applied > 0 || pending > 0;
     markDirty(target);
     if (current().id !== project.id) return;
     if (response.truncated) {
       const unverified = response.input === 'unclassified' || response.reply === 'unclassified';
       error('This reply reached Story Studio’s output limit and may end mid-scene.' +
-        (unverified ? ' Any unverified text stays outside MCP until you check its label in ⋯ → Time and context.' : ''));
+        (unverified ? ' Any unverified text stays outside general AI context until you check its label in ⋯ → Time and context.' : ''));
     } else if (response.metadataFailed) {
-      error('Your draft is in the story. DeepSeek could not verify its labels or suggest map updates. Check the labels in ⋯ → Time and context before using this turn in MCP.');
-    } else if (response.updateProblems) {
-      const reasons = [...new Set(response.updateRejections?.map(({code}) => graphRejectionLabels[code]).filter(Boolean))];
-      const reason = reasons.length ? ` (${reasons.join(', ')})` : '';
-      error(`Story Studio skipped graph proposals${reason}. The prose was saved.` +
-        (hasGraphChanges ? ' See View graph changes for the valid proposals.' : ''));
+      error('Your draft is in the story. DeepSeek could not verify its labels or suggest map updates. Check the labels in ⋯ → Time and context before using this turn with a general model.');
     }
   } catch (e) {
     if (current().id === project.id) {
       const retry = replacement ? 'To retry the rewrite, click Edit on the author direction.'
-        : 'To retry an unanswered direction, click Send & write with an empty box.';
+        : 'To retry an unanswered direction, edit it or check its context label in ⋯ → Time and context.';
       error(`Couldn't write the turn: ${e.message} ${retry}`);
     }
   } finally {
@@ -1890,7 +1905,7 @@ function openTurnDetails(index) {
   showEditSensitivity(sensitivity,heldForReview);
   $('#editDialog').showModal();
 }
-function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return migratePersona({id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(typeof p.storyWriterId==='string'?{storyWriterId:p.storyWriterId}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() && countWords(p.agentEditRequest.instruction)<=20_000 ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentEditNotice && typeof p.agentEditNotice.message==='string' ? {agentEditNotice:{message:p.agentEditNotice.message.slice(0,300)}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
+function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return migratePersona({id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(typeof p.storyWriterId==='string'?{storyWriterId:p.storyWriterId}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() && countWords(p.agentEditRequest.instruction)<=20_000 ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentEditNotice && typeof p.agentEditNotice.message==='string' ? {agentEditNotice:{message:p.agentEditNotice.message.slice(0,300)}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.continuityPending===true)result.continuityPending=true;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
 if(m.role==='assistant'&&m.startsChapter===true)result.startsChapter=true;if(m.role==='assistant'&&typeof m.sourcePrefix==='string')result.sourcePrefix=m.sourcePrefix;if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})});});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 
 const modelChoice = $('#modelPreset');
@@ -1932,7 +1947,7 @@ function modelOptions(mode, {priced = false, addModel = false} = {}) {
   placeholder.disabled = true;
   const list = models.filter(model => mode !== 'agent' || isAgentModel(model.id)).map(model => {
     const name = mode === 'agent' ? model.name : modelLabel(model);
-    const label = priced && mode === 'write' ? `${name} · ~$${chapterCost(model).toFixed(5)} / chapter` : name;
+    const label = priced && mode === 'story' ? `${name} · ~$${chapterCost(model).toFixed(5)} / chapter` : name;
     return new Option(label,model.id);
   });
   if (mode !== 'agent') {
@@ -1953,7 +1968,7 @@ sceneModelChoice.onchange = () => {
   if (busy || !state) return;
   const mode = authorMode(current());
   const model = sceneModelChoice.value;
-  if (model === 'custom' && mode === 'write') {
+  if (model === 'custom' && mode === 'story') {
     syncRoute();
     return openConnection(true);
   }
@@ -1983,13 +1998,13 @@ function openConnection(addModel = false) {
   const model = writingModel(current(),mode);
   modelChoice.replaceChildren(...modelOptions(mode,{priced:true,addModel:true}));
   modelChoice.value = addModel === true ? 'custom' : model;
-  $('#modelPolicy').textContent = mode === 'agent' ? 'These models can edit story metadata.'
-    : '18+ labels reflect prior writing tests. Results can vary by provider.';
+  $('#modelPolicy').textContent = mode === 'agent' ? 'These models can use the story-state editing tools.'
+    : 'Choose Cydonia for sensitive scenes. Other artists use general story context.';
   $('#modelEstimate').hidden = mode === 'agent';
   $('#modelChapterAssumption').hidden = mode === 'agent';
   $('#modelBilling').textContent = mode === 'agent'
     ? 'The selected model receives your request and the story metadata. OpenRouter bills that edit.'
-    : 'The selected model writes the prose. A separate DeepSeek V4.1 Flash call reads the draft for labels, story time, and map updates. Both calls are billed through OpenRouter.';
+    : 'OpenRouter bills the artist and the DeepSeek continuity pass.';
   $('#modelInput').value = '';
   showModelPrice();
   $('#modelError').textContent = '';
@@ -2030,7 +2045,7 @@ $('#removeUserModel').onclick = () => {
   if (!userModels.includes(model)) return;
   saveUserModels(userModels.filter(id=>id !== model));
   clearRemovedModelSelections();
-  modelChoice.replaceChildren(...modelOptions('write',{priced:true,addModel:true}));
+  modelChoice.replaceChildren(...modelOptions('story',{priced:true,addModel:true}));
   modelChoice.value = '';
   showModelPrice();
   syncRoute();
@@ -2042,7 +2057,22 @@ $('#sceneProvider').onchange = event => {
   if (event.target.value === 'openrouter' && !openRouterKey) openConnection();
   renderMessages();
 };
-$('#pasteReply').onclick=()=>{$('#pasteText').value='';$('#pasteDialog').showModal()};$('#closePaste').onclick=$('#cancelPaste').onclick=()=>$('#pasteDialog').close();$('#pasteForm').onsubmit=e=>{e.preventDefault();const text=$('#pasteText').value.trim();if(!text)return;const project=current();delete project.agentRequest;delete project.agentNotice;appendTurn(project,{role:'assistant',content:text,...speakerMetadata(narrator)});markDirty();$('#pasteDialog').close();renderMessages()};
+$('#pasteReply').onclick=()=>{$('#pasteText').value='';$('#pasteDialog').showModal()};
+$('#closePaste').onclick=$('#cancelPaste').onclick=()=>$('#pasteDialog').close();
+$('#pasteForm').onsubmit=event=>{
+  event.preventDefault();
+  const text = $('#pasteText').value.trim();
+  if (!text) return;
+  const project = current();
+  delete project.agentRequest;
+  delete project.agentNotice;
+  appendTurn(project,{role:'assistant',content:text,...speakerMetadata(narrator),
+    ...(sensitiveDraft(project) ? {contentSensitivity:'explicit'} : {})});
+  setSession(sensitiveKey(project.id),'');
+  markDirty();
+  $('#pasteDialog').close();
+  render();
+};
 // Import fills only the selected profile draft. Saving is still explicit.
 const cardButton = el('button', 'button subtle', 'Import JSON card');
 cardButton.type = 'button';
@@ -2282,13 +2312,15 @@ function syncSetupChat() {
   const tooLong = words > maxSetupWords;
   const canTransferDraft = tooLong && Boolean(content);
   const mcp = setupProvider.value === 'mcp';
+  const draftModel = setupDraftModel(setupModel.value);
+  const draftName = models.find(({id})=>id === draftModel).name;
   const manuscriptAction = setupManuscript ? 'Replace manuscript' : 'Use as manuscript';
   setupProvider.disabled = pending;
   $('#setupModelField').hidden = mcp;
   $('#setupKeyField').hidden = mcp || Boolean(openRouterKey);
   $('#setupProviderNote').textContent = mcp
     ? 'Queue a request, then use the copied instructions in a connected MCP agent session. The agent receives this chat, any additional context, and the previewed manuscript excerpts.'
-    : 'OpenRouter receives this chat, any additional context, and the previewed manuscript excerpts. DeepSeek V4.1 Flash prepares the draft. Both use your OpenRouter credits.';
+    : `OpenRouter receives this chat, any additional context, and the previewed manuscript excerpts. ${draftName} prepares the draft. Both use your OpenRouter credits.`;
   $('#setupAgentInstructions').hidden = !mcp || !setupMcpQueued;
   setupModel.disabled = pending;
   setupKey.disabled = pending;
@@ -2303,6 +2335,7 @@ function syncSetupChat() {
   $('#backSetupChat').disabled = pending;
   $('#setupSend').textContent = mcp ? 'Queue message' : 'Send';
   $('#setupWordCount').textContent = `${words.toLocaleString()} / ${maxSetupWords.toLocaleString()} words across your chat and additional context`;
+  updateSetupContextUsage(content,context,mcp,draftModel);
   if (!pending) setupFeedback.textContent = tooLong
     ? 'Shorten your current message or additional context to fit the 20,000-word setup limit.' : '';
 }
@@ -2477,6 +2510,7 @@ $('#backSetupImport').onclick = () => {
 $('#backSetupChat').onclick = () => setupStep(setupManuscript ? 'import' : 'choice');
 $('#backSetupReview').onclick = () => setupStep(setupReviewBack);
 setupProvider.onchange = () => { closeMcpSetup(); syncSetupChat(); };
+setupModel.onchange = syncSetupChat;
 $('#setupUseSuggestions').onchange = updateManuscriptReview;
 
 setupImport.onsubmit = async event => {
@@ -2579,6 +2613,11 @@ $('#authorMode').onchange = event => {
   error();
   render();
 };
+$('#sensitiveScene').onchange = event => {
+  if (!state || busy) return;
+  setSession(sensitiveKey(current().id),event.target.checked ? 'true' : '');
+  syncRoute();
+};
 $('#cancelAgentEdit').onclick = () => {
   const project = current();
   const request = project.agentEditRequest;
@@ -2594,6 +2633,8 @@ $('#instruction').oninput = event => {
   input.setCustomValidity('');
   if (composerEdit) composerEdit.draft = input.value;
   else if (state) setSession(draftKey(current().id,authorMode(current())),input.value);
+  clearTimeout(contextEstimateTimer);
+  contextEstimateTimer = setTimeout(updateContextIndicator,160);
 };
 $('#instruction').onkeydown = event => {
   if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
@@ -2606,10 +2647,22 @@ function promptForDraft() {
   const project = current();
   const provider = writingRoute(project);
   const options = {
-    maintainGraph: provider === 'mcp' && project.graphUpdates !== false,
     model: provider === 'openrouter' ? writingModel(project) : '',
-    includeSensitive:provider === 'openrouter',openRouter:provider === 'openrouter'
+    includeSensitive:provider === 'openrouter' && canWriteSensitive(writingModel(project)) && sensitiveDraft(project),
+    openRouter:provider === 'openrouter'
   };
+  if (composerEdit?.canRegenerate) {
+    const index = project.messages.findIndex(turn=>turn.turnNumber === composerEdit.turnNumber);
+    if (index >= 0) {
+      const reply = pairedReply(project,index);
+      const history = project.messages.slice(0,index);
+      const source = reply ? storyAtTurn(project,index) : project;
+      const replyTime = reply?.storyTime || project.messages[index].storyTime;
+      const context = options.openRouter ? openRouterSnapshot(source,history,replyTime,options.includeSensitive)
+        : {...source,messages:history,replyTime};
+      return buildMessages(context,direction,reply ? 'replace' : 'send',options);
+    }
+  }
   // Without a new direction, show what a queued turn or a reply to the last
   // writer turn sends, laid out exactly as the MCP server lays it out.
   const queued = provider === 'mcp' && !direction ? queuedTurn(project).request : null;
@@ -2619,12 +2672,104 @@ function promptForDraft() {
     : project;
   const input = direction ? {project:source,direction,mode:'send'}
     : replyInput(source,queued?.mode || 'send',options);
-  const context = options.openRouter ? openRouterSnapshot(input.project,input.project.messages,input.project.replyTime) : input.project;
-  return buildMessages(context,input.direction,input.mode,{...options,maintainGraph:options.maintainGraph && queued?.mode !== 'replace'});
+  const context = options.openRouter ? openRouterSnapshot(input.project,input.project.messages,input.project.replyTime,options.includeSensitive) : input.project;
+  return buildMessages(context,input.direction,input.mode,options);
 }
-$('#promptPreview').onclick = () => {
+
+const contextNumber = new Intl.NumberFormat();
+const contextEstimate = tokens => `≈${contextNumber.format(tokens)} input tokens`;
+function windowLabel(route,model) {
+  if (route === 'mcp') return 'MCP window unknown';
+  if (!model) return 'model unselected';
+  const limit = modelContextWindow(model);
+  return limit ? `${contextNumber.format(limit)} window` : 'model window unknown';
+}
+
+function updateSetupContextUsage(content,context,mcp,draftModel) {
+  const chatTokens = setupMessages.reduce((sum,{content})=>sum + estimateContextTokens(content),estimateContextTokens(content));
+  const contextTokens = estimateContextTokens(context);
+  const excerpts = setupManuscript?.passages || [];
+  const excerptTokens = excerpts.length ? estimateContextTokens(JSON.stringify(excerpts)) : 0;
+  const route = mcp ? 'mcp' : 'openrouter';
+  const selectedModel = setupModel.value;
+  $('#setupContextUsage').textContent = `Context · ${contextEstimate(chatTokens + contextTokens + excerptTokens)} · ${windowLabel(route,selectedModel)}`;
+  $('#setupContextBreakdown').textContent = `Chat and current message ${contextNumber.format(chatTokens)} · Additional context ${contextNumber.format(contextTokens)} · Previewed manuscript excerpts ${contextNumber.format(excerptTokens)} tokens`;
+  const draftWindow = modelContextWindow(draftModel);
+  const draftName = models.find(({id})=>id === draftModel).name;
+  $('#setupContextLimits').textContent = mcp
+    ? 'The MCP client controls the model window. The estimate covers what Studio sends to the client.'
+    : `Drafts use ${draftName} with a published window of at least ${contextNumber.format(draftWindow)} tokens. Studio allows up to ${contextNumber.format(setupChatOutputLimit)} output tokens for chat and ${contextNumber.format(setupDraftOutputLimit)} per draft call. The estimate covers the supplied text before instructions and tool definitions.`;
+}
+
+let contextEstimateTimer;
+function updateContextIndicator() {
   if (!state) return;
-  $('#promptContents').textContent = formatMessages(promptForDraft());
+  clearTimeout(contextEstimateTimer);
+  const details = composerContext();
+  $('#contextIndicator').textContent = details.summary;
+  return details;
+}
+
+function composerContext() {
+  const project = current();
+  const mode = authorMode(project);
+  const route = writingRoute(project,mode);
+  const model = route === 'openrouter' ? writingModel(project,mode) : '';
+  if (route === 'manual' || (composerEdit && !composerEdit.canRegenerate)) {
+    return {heading:'Context',summary:'Context · no model call',parts:[],
+      limits:'This action saves the text locally. No model sees it.'};
+  }
+  if (mode === 'story' && sensitiveDraft(project) && (route !== 'openrouter' || !canWriteSensitive(model))) {
+    return {heading:'Context',summary:'Context · sensitive route required',parts:[],
+      limits:'Choose Cydonia before sending this marked scene to a model.'};
+  }
+  const edited = composerEdit && project.messages.find(turn=>turn.turnNumber === composerEdit.turnNumber);
+  if (edited && (edited.excludeFromContext || (!sensitiveDraft(project) && !isAvailableToMcp(edited)))) {
+    return {heading:'Context',summary:'Context · direction withheld',parts:[],
+      limits:'This direction stays local until you choose an eligible route or review its context label.'};
+  }
+  const modelWindow = modelContextWindow(model);
+  const windowNote = route === 'mcp' ? 'The MCP client controls the model window and may add its own history.'
+    : modelWindow ? `The lowest published provider window is ${contextNumber.format(modelWindow)} tokens, including output.`
+      : 'Studio does not have a verified window for this model.';
+  let parts, messages, limits;
+  if (mode === 'agent') {
+    const {recentTurns,...overview} = storyOverview(project);
+    const request = project.agentEditRequest?.instruction || $('#instruction').value.trim();
+    const story = route === 'mcp' ? {overview,title:project.title,world:project.lore,notes:project.notes,
+      continuity:project.continuity,cast:getCast(project).map(({id,...member})=>member)} : overview;
+    parts = [
+      {label:route === 'mcp' ? 'Story state and cast' : 'Cast names and story time',tokens:estimateContextTokens(JSON.stringify(story))},
+      {label:'Recent eligible story turns',tokens:recentTurns.length ? estimateContextTokens(JSON.stringify(recentTurns)) : 0},
+      {label:'Current edit request',tokens:estimateContextTokens(request)}
+    ];
+    const output = route === 'openrouter' ? ` Studio allows ${contextNumber.format(agentOutputLimit)} output tokens per call.` : '';
+    limits = `${windowNote}${output} Studio includes up to ${contextNumber.format(continuityRecentTokenCap)} tokens of recent eligible story text. The initial estimate excludes instructions, tool definitions, and any additional story state the agent looks up.`;
+  } else {
+    messages = promptForDraft();
+    parts = storyPromptUsage(messages);
+    const output = route === 'openrouter' && model ? ` The writer can generate up to ${contextNumber.format(proseOutputLimit(model))} tokens.` : '';
+    const continuity = route === 'mcp' ? 'Afterward, the MCP continuity handoff includes the new scene and allows scoped lookups.'
+      : `Afterward, DeepSeek gets the new text and up to ${contextNumber.format(continuityRecentTokenCap)} eligible history tokens and can look up story state.`;
+    limits = `${windowNote} Studio budgets ${contextNumber.format(writingPromptLimit(model))} input tokens, including up to ${contextNumber.format(writingHistoryLimit(model))} for recent turns.${output} Story state includes world, characters, notes, and graph. ${continuity}`;
+  }
+  const tokens = parts.reduce((sum,part)=>sum + part.tokens,0);
+  return {heading:messages ? 'Prompt preview' : 'Agent context',summary:`Context · ${contextEstimate(tokens)} · ${windowLabel(route,model)}`,
+    parts,messages,limits};
+}
+
+$('#promptPreview').onclick = $('#contextIndicator').onclick = () => {
+  if (!state) return;
+  const {heading,summary,parts,messages,limits} = updateContextIndicator();
+  $('#promptHeading').textContent = heading;
+  $('#contextTotal').textContent = summary;
+  $('#contextParts').replaceChildren(...parts.flatMap(({label,tokens})=>[
+    el('dt','',label),el('dd','',contextNumber.format(tokens) + ' tokens')
+  ]));
+  $('#contextLimits').textContent = limits;
+  $('#promptTextDetails').hidden = !messages;
+  $('#promptTextDetails').open = true;
+  $('#promptContents').textContent = messages ? formatMessages(messages) : '';
   $('#promptDialog').showModal();
 };
 $('#closePrompt').onclick = () => $('#promptDialog').close();
@@ -2750,7 +2895,7 @@ setInterval(async () => {
 }, 2000);
 
 setInterval(async () => {
-  if (!state || !state.projects.some(p => p.agentRequest || p.agentEditRequest) || checkingAgent || dirty || pendingWrites || busy || document.querySelector('dialog[open]')) return;
+  if (!state || !state.projects.some(p => p.agentRequest || p.agentEditRequest || p.messages.some((turn,index)=>turn.continuityPending && isAvailableToMcp(turn,precedingDirection(p.messages,index)))) || checkingAgent || dirty || pendingWrites || busy || document.querySelector('dialog[open]')) return;
   checkingAgent = true;
   const polledRevision = revision;
   try {

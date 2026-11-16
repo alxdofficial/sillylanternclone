@@ -5,10 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { appendTurn, buildMessages, dateWriterTurn, stripSpeakerName, formatMessages, getCast, narrator, isAvailableToMcp, isStoryTime, mcpOmissionReason, precedingDirection, queuedTurn, recordStoryTime, replyInput, syncTakeSuggestions, writeInputProblem } from './public/prompt.js';
+import { appendTurn, buildMessages, dateWriterTurn, stripSpeakerName, formatMessages, getCast, narrator, isAvailableToMcp, isStoryTime, lastStoryTime, mcpOmissionReason, storyOverview, precedingDirection, queuedTurn, recordStoryTime, replyInput, syncTakeSuggestions, writeInputProblem } from './public/prompt.js';
 import { applyTurnGraphUpdates, storyAtTurn } from './public/graph-history.js';
 
 import { checkMapUpdates, updateSchema } from './map-updates.mjs';
+import { inspectContinuity, inspectDescription, inspectShape, recordDescription, sceneTimeSchema, sceneUpdatesSchema, structuredInstructions } from './continuity.mjs';
 import { setupResultShape } from './setup-chat.mjs';
 import { applyStoryEdits, storyEditChangesSchema, storyEditContext, storyEditInstructions, validStoryEditInstruction } from './story-edits.mjs';
 import { createLogger, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
@@ -24,13 +25,15 @@ const origin = `http://127.0.0.1:${port}`;
 const appDirectory = fileURLToPath(new URL('.', import.meta.url));
 // Sent once when a client connects. Claude Code truncates server
 // instructions at 4,096 characters, so keep this short and complete.
-const instructions = `Story Studio is a local fiction-writing app with Write and Agent modes.
+const instructions = `Story Studio is a local fiction-writing app. Each generated turn has a prose step and a continuity step.
 
 When asked to watch, loop on wait_for_queued_turn. Handle each queued result and call again after idle. Report skipped stories once. Stop when asked or when the app is unreachable.
 
-A queued Write turn authorizes writing and saving its narration. Follow the prompt, then call submit_reply. If you decline, call decline_turn with a short reason so the queue clears.
+A queued writing turn authorizes its narration. Follow the artist prompt and call submit_reply with prose only. If you decline, call decline_turn with a short reason. For continuityPending or pendingRequest.mode continuity, record the inferred in-story minute and new facts with record_scene using the exact storyId, revision and turnNumber. Call it even if there are no updates. Resume watching when done.
 
-Agent mode edits story metadata. For pendingRequest.mode edit, use the supplied state and instruction. Call edit_story_state with storyId, revision, requestId (from pendingRequest.id), and changes, or pass reason to decline. For a direct chat request to update metadata, call get_story_state first and use edit_story_state to apply only the requested edits. Use the Agent tools for cast, world, writing notes and continuity updates. Leave prose and chapters alone.
+${structuredInstructions.join(' ')}
+
+For a direct chat request to update metadata, call get_story_state and edit_story_state. Only apply the requested changes to cast, world, writing notes or continuity. For a previously queued metadata edit (pendingRequest.mode edit), pass its requestId and changes, or a reason to decline.
 
 For a browser setup session, use wait_for_setup_request with the writer's session ID. Follow its brainstorming or draft prompt and call submit_setup_response, then wait again until closed. A setup draft is reviewed in the browser. Use the supplied conversation, additional context, and previewed excerpts. Never open the full manuscript or library.
 
@@ -167,7 +170,7 @@ function storyState(revision,project) {
     pendingRequest:request ? {mode:'edit',id:request.id} : null,
     state:storyEditContext(project),
     instructions:storyEditInstructions,
-    ...(request ? {instruction:request.instruction} : {}),
+    ...(request ? {instruction:request.instruction,overview:storyOverview(project)} : {}),
     save:request
       ? 'Call edit_story_state with storyId, revision, and the queued requestId. Pass changes to apply the edit or reason to decline.'
       : 'Call edit_story_state with storyId, revision, and changes when the writer asks to apply an edit.'
@@ -178,8 +181,66 @@ function reportEditing(context) {
   if (context.pendingRequest) reportAgent('writing',{storyId:context.storyId,speaker:'Editor'});
 }
 
+tool('inspect_continuity', {
+  description:inspectDescription,
+  inputSchema:{storyId:identifier.optional(),...inspectShape},
+  annotations:{readOnlyHint:true,openWorldHint:false}
+},async ({storyId,...scope}) => {
+  const {library,revision} = await readLibrary();
+  const project = findStory(library,storyId);
+  return {storyId:project.id,revision,...inspectContinuity(project,scope)};
+});
+
+function pendingContinuity(project,turnNumber) {
+  let direction;
+  for (const [index,scene] of project.messages.entries()) {
+    if (scene.role === 'user') direction = scene;
+    else if (scene.continuityPending === true && (turnNumber === undefined || scene.turnNumber === turnNumber)
+      && isAvailableToMcp(scene,direction)) return {scene,direction,index};
+  }
+  return null;
+}
+
+function continuityContext(project,revision,{scene,direction,index}) {
+  return {storyId:project.id,revision,turnNumber:scene.turnNumber,draft:scene.content,
+    authorDirection:direction && isAvailableToMcp(direction) ? direction.content : '',
+    knownTime:lastStoryTime({...project,messages:project.messages.slice(0,index)}),cast:getCast(project).map(({name}) => name),
+    allowUpdates:project.graphUpdates !== false,
+    next:'Use inspect_continuity if useful. Infer scene time and call record_scene with safe-for-work updates, or an empty array.'};
+}
+
+tool('record_scene', {
+  description:recordDescription + ' Use the exact turn and revision returned for pending MCP continuity.',
+  inputSchema:{storyId:identifier,revision:libraryRevision,turnNumber:z.number().int().positive(),
+    storyTime:sceneTimeSchema.optional(),updates:sceneUpdatesSchema},
+  annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false}
+},async ({storyId,revision,turnNumber,storyTime,updates}) => {
+  const {library,revision:currentRevision} = await readLibrary();
+  if (currentRevision !== revision) throw diagnosticError('REVISION_CONFLICT','The library changed. Get the latest queued continuity request before recording.');
+  const project = findStory(library,storyId);
+  const pendingScene = pendingContinuity(project,turnNumber);
+  if (!pendingScene) throw diagnosticError('SCENE_CHANGED','This turn is no longer awaiting continuity updates.');
+  const checked = checkMapUpdates(project,project.graphUpdates === false ? [] : updates);
+  if (checked.problems.length) throw diagnosticError('MAP_UPDATES_INVALID','Fix these map updates or leave them out:\n' + checked.problems.join('\n'));
+  const {scene,index} = pendingScene;
+  const clock = index === project.messages.length - 1 ? project : {...project,messages:project.messages.slice(0,index)};
+  scene.storyTime = recordStoryTime(clock,storyTime);
+  const writer = project.messages[index - 1];
+  if (writer?.role === 'user' && !isStoryTime(writer.storyTime)) writer.storyTime = scene.storyTime;
+  const {applied,pending} = applyTurnGraphUpdates(project,scene,checked.updates,{allowAutomatic:true});
+  delete scene.continuityPending;
+  const response = await fetch(origin + '/api/state',{
+    method:'PUT',headers:{'content-type':'application/json',origin,'if-match':revision},
+    body:JSON.stringify(library),signal:AbortSignal.timeout(12000),redirect:'error'
+  });
+  if (response.status === 409) throw diagnosticError('REVISION_CONFLICT','The library changed while recording continuity.');
+  if (!response.ok) throw diagnosticError('APP_WRITE_FAILED',`Could not save continuity (HTTP ${response.status}).`);
+  reportFinished();
+  return {storyId,turnNumber,appliedUpdates:applied,pendingUpdates:pending,guidance:'Scene continuity saved. If watching, call wait_for_queued_turn again.'};
+});
+
 tool('get_story_state', {
-  description:'Read a story’s editable metadata and any queued Agent instruction. Use for cast, world, writing notes and continuity edits. Results omit the transcript.',
+  description:'Read a story’s editable metadata. A queued Agent edit also includes its instruction and a short extract of eligible story history.',
   inputSchema:{storyId:identifier.optional().describe('Use the active story when omitted.')},
   annotations:{readOnlyHint:true,openWorldHint:false},
   _meta:{'anthropic/maxResultSizeChars':200000}
@@ -283,7 +344,7 @@ function storyContext(revision, project, direction = '') {
   const input = request ? replyInput(promptProject, request.mode)
     : {project, direction, mode:direction.trim() ? 'send' : 'continue'};
   const maintainGraph = !rewritesReply && project.graphUpdates !== false;
-  const messages = buildMessages(input.project, input.direction, input.mode, {maintainGraph});
+  const messages = buildMessages(input.project, input.direction, input.mode);
   const omitted = {allRoutes:0,explicit:0,unverified:0,directionWithheld:0};
   const recentPolicyOmissions = [];
   let priorDirection;
@@ -309,7 +370,7 @@ function storyContext(revision, project, direction = '') {
     pendingRequest:request,
     speaker:narrator,
     storyClock:rewritesReply ? 'Omit storyTime. The original scene time is kept.' : 'Infer storyTime from the scene as YYYY-MM-DDTHH:mm.',
-    mapUpdates:maintainGraph ? 'Optional. Follow Map updates in the prompt.' : 'Omit updates.',
+    continuity:maintainGraph ? 'Submit prose first. Use the continuity tools when submit_reply returns continuityPending.' : 'Submit prose. Use any continuity handoff only to record the scene time.',
     cast:getCast(input.project).map(({id,name}) => ({id,name})),
     save:request ? saveHint : 'Draft in chat. Save only when the writer asks. ' + saveHint,
     prompt:formatMessages(messages)
@@ -323,11 +384,12 @@ function findQueuedTurn(library) {
   const skipped = [];
   for (const id of order) {
     const project = library.projects.find(story => story.id === id);
-    if (!project?.agentRequest && !project?.agentEditRequest) continue;
+    if (!project) continue;
     try {
       if (pendingEditRequest(project)) return {project,edit:true,skipped};
-      pendingRequest(project);
-      return {project, skipped};
+      const continuity = pendingContinuity(project);
+      if (continuity) return {project,continuity,skipped};
+      if (pendingRequest(project)) return {project, skipped};
     } catch (error) {
       skipped.push({storyId:project.id, title:project.title, reason:error.message});
     }
@@ -367,7 +429,7 @@ tool('get_story_context', {
 
 const pollMilliseconds = 1000;
 tool('wait_for_queued_turn', {
-  description:'Wait for writing or metadata edits. When pendingRequest.mode is edit, use edit_story_state. For a writing request use submit_reply or decline_turn. The result is idle when the wait expires.',
+  description:'Wait for work. For prose use submit_reply or decline_turn. For pendingRequest.mode continuity use record_scene. For a legacy edit use edit_story_state. The result is idle when the wait expires.',
   inputSchema:{
     waitSeconds:z.number().int().min(1).max(600).optional().describe('How long to wait before returning idle. Defaults to 300 in Claude Code, which has no short tool timeout, and 50 elsewhere, which fits Codex’s default 60-second tool timeout. Longer waits mean fewer idle checks.')
   },
@@ -386,6 +448,10 @@ tool('wait_for_queued_turn', {
     const found = findQueuedTurn(library);
     skipped = found.skipped;
     if (found.project) {
+      if (found.continuity) {
+        return {status:'queued',pendingRequest:{mode:'continuity',turnNumber:found.continuity.scene.turnNumber},
+          ...continuityContext(found.project,revision,found.continuity)};
+      }
       if (found.edit) {
         const context = storyState(revision,found.project);
         reportEditing(context);
@@ -467,6 +533,7 @@ tool('submit_reply', {
   let turnNumber;
   let proposedUpdates = 0;
   let graphResult;
+  let continuityPending = false;
   if (request?.mode === 'alternate') {
     const previous = project.messages.at(-1);
     const alternatives = previous.alternatives?.length ? previous.alternatives : [previous.content];
@@ -482,6 +549,7 @@ tool('submit_reply', {
     Object.assign(message,{content:draft.text,speakerId:narrator.id,speakerName:narrator.name});
     delete message.contentSensitivity;
     delete message.graphSuggestions;
+    delete message.continuityPending;
     if (!message.selectedAlternative) delete message.firstTakeSuggestions;
     if (message.alternatives?.length) {
       const selected = message.selectedAlternative ?? 0;
@@ -494,14 +562,15 @@ tool('submit_reply', {
     if (writerTurn?.trim()) appendTurn(project, {role:'user',content:writerTurn.trim()});
     const suggestions = checked.updates;
     proposedUpdates = suggestions.length;
+    continuityPending = !storyTime && !proposals.length;
     turnNumber = appendTurn(project, {
       role:'assistant',
       content:draft.text.trim(),
       speakerId:narrator.id,
       speakerName:narrator.name,
-      storyTime:recordStoryTime(project,storyTime)
+      ...(continuityPending ? {continuityPending:true} : {storyTime:recordStoryTime(project,storyTime)})
     });
-    dateWriterTurn(project);
+    if (!continuityPending) dateWriterTurn(project);
     const message = project.messages.at(-1);
     graphResult = applyTurnGraphUpdates(project,message,suggestions,{
       allowAutomatic:isAvailableToMcp(message,precedingDirection(project.messages))
@@ -518,12 +587,15 @@ tool('submit_reply', {
   });
   if (response.status === 409) throw diagnosticError('REVISION_CONFLICT','The library changed while saving. Read the story context again and rewrite the reply against it before saving.');
   if (!response.ok) throw diagnosticError('APP_WRITE_FAILED',`Could not save the reply (HTTP ${response.status}).`);
-  reportFinished();
+  if (!continuityPending) reportFinished();
+  const saved = continuityPending ? await response.json() : null;
   return {
     storyId, turnNumber, speaker:narrator.name, proposedUpdates,
+    ...(continuityPending ? {continuityPending:true,revision:saved.revision,
+      next:'Use inspect_continuity if useful, then call record_scene with this storyId, turnNumber, and revision.'} : {}),
     ...(graphResult ? {appliedUpdates:graphResult.applied,pendingUpdates:graphResult.pending} : {}),
     ...(mapOff && proposals.length ? {ignoredUpdates:'Map updates are off for this reply, so they were not saved.'} : {}),
-    guidance:'Saved. The open Story Studio page shows the reply within a few seconds, after the writer saves any unsaved browser edits. View graph changes shows updates for this turn. If you are watching for turns, call wait_for_queued_turn again.'
+    guidance:continuityPending ? 'Prose saved. Record continuity before resuming the watch.' : 'Prose and any updates saved. If watching, call wait_for_queued_turn again.'
   };
 });
 

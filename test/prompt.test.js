@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMessages, buildMetadataMessages, formatMessages, splitAgentReply, migratePersona, isStoryTime, recordStoryTime } from '../public/prompt.js';
+import { buildMessages, formatMessages, splitAgentReply, migratePersona, isStoryTime, recordStoryTime } from '../public/prompt.js';
 
 const story = {
   characterName: 'Iona', personaName: 'Ren',
@@ -138,9 +138,8 @@ test('auto-flagged turns stop at the MCP boundary while OpenRouter keeps scene c
   assert.match(router,/UNVERIFIED_REPLY/);
   assert.doesNotMatch(router,/HIDDEN_EVERYWHERE/);
   assert.doesNotMatch(router,/JSON Schema|Classify authorDirection/);
-  const metadata = formatMessages(buildMetadataMessages(project,'NEXT_SCENE','The ferry left.','send'));
-  assert.match(metadata,/PRIVATE_WRITER/);
-  assert.doesNotMatch(metadata,/HIDDEN_EVERYWHERE/);
+  const generalArtist = formatMessages(buildMessages(project,'','send',{openRouter:true}));
+  assert.doesNotMatch(generalArtist,/PRIVATE_WRITER|UNVERIFIED_REPLY|HIDDEN_EVERYWHERE/);
 });
 
 test('OpenRouter grounds a short follow-up in the latest narration', () => {

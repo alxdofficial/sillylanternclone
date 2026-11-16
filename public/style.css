@@ -271,6 +271,16 @@ textarea { caret-color: #f0c6de; }
 .route-hint { margin: 0 0 7px; overflow-wrap: anywhere; }
 #routeSummary { margin: 0; }
 #routeSummary:empty { display: none; }
+.context-indicator {
+  margin-inline-start: auto;
+  max-width: 100%;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: start;
+  font-variant-numeric: tabular-nums;
+}
+.context-indicator:hover { color: #eee; }
 .composer textarea {
   display: block;
   width: 100%;
@@ -585,6 +595,14 @@ form textarea { resize: vertical; }
 .dialog-body > :last-child { margin-bottom: 0; }
 #editText, #pasteText { min-height: 96px; max-height: 46dvh; }
 #promptContents { white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.55 ui-monospace, monospace; color: #e4dce0; }
+.context-summary { margin-bottom: 12px; }
+#contextTotal { margin: 0 0 6px; font-weight: 650; }
+#contextParts { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 0 0 8px; font-size: 13px; }
+#contextParts dd { margin: 0; font-variant-numeric: tabular-nums; }
+#promptTextDetails { border-top: 1px solid var(--border); padding-top: 10px; }
+#promptTextDetails summary, .setup-context-meter summary { cursor: pointer; }
+.setup-context-meter { margin-top: 5px; color: var(--muted); font-size: 12px; }
+.setup-context-meter p { margin: 4px 0; }
 .model-price {
   background: #19171c;
   border: 1px solid #52464f;
@@ -650,6 +668,7 @@ form textarea { resize: vertical; }
   .route-control { flex-direction: column; align-items: stretch; max-width: 200px; gap: 3px; }
   .route-control select { width: 100%; padding-inline: 4px; }
   #routeSummary { grid-column: 1 / -1; }
+  .context-indicator { grid-column: 1 / -1; margin-inline-start: 0; justify-self: start; }
   .shortcut { display: none; }
   .shortcut + #sendButton { margin-inline-start: auto; }
 }
@@ -736,6 +755,8 @@ form textarea { resize: vertical; }
 .relationship-row button, .graph-suggestion button { margin: 5px 6px 0 0; }
 #settingsForm .context-toggle { display: flex; align-items: center; gap: 8px; }
 #settingsForm .context-toggle input { width: auto; margin: 0; }
+.route-bar .context-toggle { display: inline-flex; align-items: center; gap: 6px; }
+.route-bar .context-toggle input { width: auto; margin: 0; }
 #graphStatus:empty { display: none; }
 
 /* The graph uses the available window; inspection only reserves width once pinned. */

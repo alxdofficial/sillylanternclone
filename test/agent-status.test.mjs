@@ -24,7 +24,7 @@ test('the page can see whether an agent is watching, writing or gone', async () 
   const origin = `http://127.0.0.1:${port}`;
   await writeFile(join(directory, 'library.json'), JSON.stringify({activeId:'story', projects:[{
     id:'story', title:'Status', characterName:'Mara', character:'An archivist.', persona:'', lore:'', notes:'',
-    messages:[{role:'assistant', content:'Mara waits.', turnNumber:1}], nextTurn:2
+    messages:[{role:'assistant', content:'WITHHELD EARLIER DRAFT', turnNumber:1,contentSensitivity:'explicit'}], nextTurn:2
   }]}));
   const source = join(dirname(fileURLToPath(import.meta.url)), '..');
   const client = new Client({name:'claude-code', title:'Claude Code', version:'0.0.0'});
@@ -59,7 +59,37 @@ test('the page can see whether an agent is watching, writing or gone', async () 
     [agent] = await agents();
     assert.deepEqual([agent.state, agent.storyId, agent.turnNumber, agent.speaker], ['writing', 'story', 2, 'Narrator']);
 
-    await client.callTool({name:'submit_reply', arguments:{storyId:'story', revision:queued.revision, reply:'Mara opens it.'}});
+    const saved = toolData(await client.callTool({name:'submit_reply', arguments:{storyId:'story',
+      revision:queued.revision,reply:'Mara opens it.'}}));
+    assert.equal(saved.continuityPending,true);
+    const continuity = toolData(await client.callTool({name:'wait_for_queued_turn',arguments:{waitSeconds:1}}));
+    assert.deepEqual(continuity.pendingRequest,{mode:'continuity',turnNumber:saved.turnNumber});
+    assert.equal(continuity.authorDirection,'Open the archive.');
+    assert.equal(continuity.draft,'Mara opens it.');
+    assert.doesNotMatch(JSON.stringify(continuity),/WITHHELD EARLIER DRAFT/);
+    const world = toolData(await client.callTool({name:'inspect_continuity',arguments:{storyId:'story',section:'world'}}));
+    assert.equal(typeof world.world,'string');
+    const record = edits => client.callTool({name:'record_scene',arguments:{storyId:'story',
+      revision:continuity.revision,turnNumber:continuity.turnNumber,storyTime:'1998-10-25T00:13',
+      updates:[{kind:'fact',note:'Mara opened the archive.'}],...edits}});
+    const stale = await record({revision:queued.revision});
+    assert.equal(stale.isError,true);
+    assert.match(stale.content[0].text,/library changed/i);
+    const wrongTurn = await record({turnNumber:continuity.turnNumber + 1});
+    assert.equal(wrongTurn.isError,true);
+    assert.match(wrongTurn.content[0].text,/no longer awaiting continuity/i);
+    const badMap = await record({updates:[{kind:'profile',name:'Unknown',note:'An old map.'}]});
+    assert.equal(badMap.isError,true);
+    assert.match(badMap.content[0].text,/Fix these map updates/i);
+    const recorded = toolData(await record());
+    assert.equal(recorded.appliedUpdates,1);
+    const final = await fetch(origin + '/api/state');
+    const finished = (await final.json()).projects[0];
+    assert.equal(finished.messages[1].storyTime,'1998-10-25T00:13');
+    assert.equal(finished.messages[2].content,'Mara opens it.');
+    assert.equal(finished.messages[2].continuityPending,undefined);
+    assert.equal(finished.messages[2].appliedGraphUpdates.length,1);
+    assert.equal((await record({revision:final.headers.get('etag')})).isError,true);
     await pause(300);
     [agent] = await agents();
     assert.equal(agent.state, 'watching', 'a watching agent goes back to watching after saving');
