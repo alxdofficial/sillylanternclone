@@ -37,6 +37,8 @@ The demo began as a blank story in the browser. The cast and setting were entere
    - **OpenRouter** sends the current scene to the selected model. Open **Connection**, enter your API key, select a model, and save. You can change the model beside **Write with** in the composer. The model list shows USD rates per million input and output tokens and estimated chapter cost at 2,000 input plus 5,000 output tokens. See [model notes and prices](MODELS.md).
    - **Manual** saves what you write without a model call. Use **Add reply** to enter the co-writer’s side yourself.
 
+Select a turn in **Turns** to jump directly to it. On a narrow screen, open **Turns** beside the story title. **Latest** jumps back to the end. The list uses one short preview per direction and reply pair, with standalone and unanswered turns listed separately.
+
 Use **Edit** on an author direction to bring it back into the composer. **Save & rewrite** in OpenRouter or **Save & queue rewrite** in MCP uses the revised direction and the earlier story to replace the paired reply in place. Later turns and accepted graph changes stay where they are. **Edit** on narration saves your revised text directly. Manual mode saves edits without a model call. Deleting an author direction also deletes its paired reply. If a reply already has multiple takes, use **Previous** and **Next** to choose which one appears in the story and future prompts.
 
 **Write with** and the OpenRouter model are remembered per story in the current tab, including through rewind and turn deletion. The OpenRouter key stays in memory and must be entered again after a reload.

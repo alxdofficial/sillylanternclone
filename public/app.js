@@ -318,6 +318,28 @@ function pairedReply(project, directionIndex) {
   return project.messages[directionIndex]?.role === 'user' && reply?.role === 'assistant' ? reply : undefined;
 }
 
+function turnPreview(text) {
+  const characters = Array.from(text.trimStart().slice(0,256).replace(/\s+/gu,' ').trim());
+  return characters.length > 64 ? characters.slice(0,63).join('').trimEnd() + '…' : characters.join('');
+}
+
+function* storyTurns(project) {
+  let previousDirection;
+  for (let index = 0; index < project.messages.length; index++) {
+    const message = project.messages[index];
+    if (message.role === 'user') previousDirection = message;
+    const reply = pairedReply(project,index);
+    const messageReason = mcpOmissionReason(message,previousDirection);
+    const replyReason = reply && mcpOmissionReason(reply,message);
+    const preview = reply && !replyReason ? reply.content : !messageReason ? message.content : '';
+    yield {
+      selection:{kind:'turn',turn:message.turnNumber || index + 1,...(reply ? {replyTurn:reply.turnNumber || index + 2} : {})},
+      time:timelineTime(message,reply), detail:turnPreview(preview), reason:messageReason || replyReason
+    };
+    if (reply) index++;
+  }
+}
+
 function appendTurnContextBadge(container, badgeGroup, reason) {
   if (!reason) return;
   const status = reason === 'directionWithheld' ? 'unverified' : reason;
@@ -330,15 +352,92 @@ function appendTurnContextBadge(container, badgeGroup, reason) {
   badgeGroup.append(el('span','context-badge',labels[status]));
 }
 
+let renderedStoryId, activeStoryTurn;
+function setStoryTurnsOpen(open) {
+  $('#storyTurnSidebar').toggleAttribute('data-open',open);
+  $('#toggleStoryTurns').setAttribute('aria-expanded',String(open));
+}
+$('#toggleStoryTurns').onclick = event => setStoryTurnsOpen(event.currentTarget.getAttribute('aria-expanded') !== 'true');
+$('#storyTurnSidebar').onkeydown = event => {
+  const toggle = $('#toggleStoryTurns');
+  if (event.key !== 'Escape' || toggle.getAttribute('aria-expanded') !== 'true' || !toggle.getClientRects().length) return;
+  event.preventDefault();
+  setStoryTurnsOpen(false);
+  toggle.focus();
+};
+
+function selectStoryTurn(turn) {
+  activeStoryTurn = turn;
+  const nav = $('#storyTurns');
+  nav.querySelector('[aria-current]')?.removeAttribute('aria-current');
+  $('#messages .story-turn-target')?.classList.remove('story-turn-target');
+  const target = turn && $('#messages').querySelector(`[data-story-turn="${turn}"]`);
+  if (!target) {
+    activeStoryTurn = undefined;
+    return;
+  }
+  nav.querySelector(`[data-turn-link="${turn}"]`)?.setAttribute('aria-current','location');
+  target.classList.add('story-turn-target');
+  return target;
+}
+
+function showLatestStoryTurn() {
+  const box = $('#messages');
+  selectStoryTurn();
+  box.scrollTop = box.scrollHeight;
+  $('#storyTurns').scrollTop = $('#storyTurns').scrollHeight;
+}
+$('#latestStoryTurn').onclick = () => {
+  setStoryTurnsOpen(false);
+  showLatestStoryTurn();
+  $('#instruction').focus({preventScroll:true});
+};
+
+function renderStoryTurns(project, followLatest) {
+  const nav = $('#storyTurns'), scrollTop = nav.scrollTop;
+  const fragment = document.createDocumentFragment();
+  for (const {selection:{turn},detail,reason} of storyTurns(project)) {
+    const button = el('button','graph-turn');
+    button.type = 'button';
+    button.dataset.turnLink = turn;
+    button.append(el('strong','',eventTime(turn)));
+    if (detail) button.append(el('span','timeline-detail',detail));
+    appendTurnContextBadge(button,button,reason);
+    button.onclick = () => {
+      const target = selectStoryTurn(turn);
+      if (!target) return;
+      setStoryTurnsOpen(false);
+      const box = $('#messages');
+      box.scrollTop += target.getBoundingClientRect().top - box.getBoundingClientRect().top;
+      target.focus({preventScroll:true});
+    };
+    fragment.append(button);
+  }
+  if (!fragment.childElementCount) fragment.append(el('p','form-note','No turns yet.'));
+  nav.replaceChildren(fragment);
+  $('#latestStoryTurn').disabled = !project.messages.length;
+  selectStoryTurn(activeStoryTurn);
+  nav.scrollTop = followLatest ? nav.scrollHeight : scrollTop;
+}
+
 function renderMessages() {
   closeTurnMenu();
   const project = current(), box = $('#messages');
+  const sameStory = renderedStoryId === project.id;
+  const scrollTop = box.scrollTop;
+  const followLatest = !sameStory || box.scrollHeight - scrollTop - box.clientHeight < 40;
+  if (!sameStory) {
+    renderedStoryId = project.id;
+    activeStoryTurn = undefined;
+    setStoryTurnsOpen(false);
+  }
   box.replaceChildren();
   if (!project.messages.length) {
     const empty = el('div','empty');
     empty.append(el('div','empty-mark','✳'),el('strong','','Every story starts somewhere.'),
       el('p','','Set the scene below, or ask your co-writer to begin.'));
     box.append(empty);
+    renderStoryTurns(project,followLatest);
     return;
   }
   const graphChanges = graphChangesByTurn(project);
@@ -349,6 +448,8 @@ function renderMessages() {
     const omittedFromMcp = mcpOmissionReason(message,previousDirection);
     const turn = message.turnNumber || index + 1;
     const row = el('article','message ' + (fromAuthor ? 'user' : 'assistant'));
+    row.tabIndex = -1;
+    row.dataset.storyTurn = turn;
     row.setAttribute('aria-label',`${fromAuthor ? 'Your input' : 'Story'} · Turn ${turn}`);
     const name = fromAuthor ? 'You' : attributedSpeaker(message);
     const body = el('div','message-body'), head = el('div',name ? 'message-header' : 'message-footer');
@@ -411,7 +512,8 @@ function renderMessages() {
     box.append(row);
   });
   renderPending();
-  box.scrollTop = box.scrollHeight;
+  box.scrollTop = followLatest ? box.scrollHeight : scrollTop;
+  renderStoryTurns(project,followLatest);
 }
 function setSensitivity(message, value) {
   if (validSensitivity(value)) message.contentSensitivity = value;
@@ -632,6 +734,7 @@ async function generate() {
   if (!answering) {
     const turnNumber = appendTurn(project, {role:'user', content:direction, ...(provider === 'openrouter' ? {contentSensitivity:'unclassified'} : {})});
     input.value = '';
+    showLatestStoryTurn();
     setSession(draftKey(project.id), '');
     if (provider === 'mcp') project.agentRequest = {mode:'send',speakerId:narrator.id,turnNumber};
     markDirty();
@@ -895,22 +998,9 @@ function renderGraphTurns() {
   for (const [time,edges] of moments) {
     const [first] = edges;
     entries.push({time, label:edges.length === 1 ? `${nameOf(first.from)} → ${nameOf(first.to)}` : 'Relationship events',
-      detail:edges.length === 1 ? first.label : countEvents(edges.length), selection:{kind:'moment',time}});
+      detail:edges.length === 1 ? turnPreview(first.label) : countEvents(edges.length), selection:{kind:'moment',time}});
   }
-  const project = current();
-  let previousDirection;
-  for (let index = 0; index < project.messages.length; index++) {
-    const message = project.messages[index];
-    if (message.role === 'user') previousDirection = message;
-    const turn = message.turnNumber || index + 1;
-    const reply = pairedReply(project,index);
-    const selection = {kind:'turn',turn};
-    const kind = reply ? 'Direction and prose' : message.role === 'user' ? 'Direction' : attributedSpeaker(message) || 'Prose';
-    const reason = mcpOmissionReason(message,previousDirection) || (reply && mcpOmissionReason(reply,message));
-    if (reply) selection.replyTurn = reply.turnNumber || index + 2;
-    entries.push({time:timelineTime(message,reply), label:`${eventTime(turn)} · ${kind}`, reason, selection});
-    if (reply) index++;
-  }
+  for (const turn of storyTurns(current())) entries.push({...turn,label:eventTime(turn.selection.turn)});
   entries.sort((a,b) => Number(!a.time) - Number(!b.time) || a.time.localeCompare(b.time)
     || (a.selection.turn ?? Infinity) - (b.selection.turn ?? Infinity));
   const rail = $('#graphTurns');

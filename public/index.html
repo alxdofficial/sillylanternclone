@@ -33,8 +33,17 @@
           <h1 id="storyTitle">Your story</h1>
           <div id="saveStatus" class="save-status" role="status">Loading…</div>
         </div>
+        <button type="button" class="button subtle" id="toggleStoryTurns" aria-controls="storyTurnSidebar" aria-expanded="false">Turns</button>
         <button class="button subtle danger" id="deleteProject">Delete story</button>
       </div>
+      <div class="story-layout">
+        <aside class="story-turn-sidebar" id="storyTurnSidebar" aria-labelledby="storyTurnsHeading">
+          <div class="story-turn-heading">
+            <h2 id="storyTurnsHeading">Turns</h2>
+            <button type="button" class="text-button" id="latestStoryTurn" aria-controls="messages">Latest</button>
+          </div>
+          <nav id="storyTurns" aria-label="Jump to a turn"></nav>
+        </aside>
       <section class="story-panel" aria-label="Story conversation">
         <div id="messages" class="messages" aria-live="polite"></div>
         <div id="error" class="error" role="alert" hidden></div>
@@ -61,6 +70,7 @@
           </div>
         </div>
       </section>
+      </div>
     </div>
   </main>
 </div>
