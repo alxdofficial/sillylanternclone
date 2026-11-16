@@ -7,7 +7,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { appendTurn, buildMessages, stripSpeakerName, formatMessages, getCast, narrator, isAvailableToMcp, isStoryTime, lastStoryTime, mcpOmissionReason, storyEditContext, precedingDirection, recordStoryTime, writeInputProblem } from './public/prompt.js';
 import { applyTurnGraphUpdates } from './public/graph-history.js';
-import { activeStoryFlow, storyFlowDirectionLimit, storyFlowOptionCount, storyFlowTitleLimit, storyFlowTurn, validStoryFlowOptions } from './public/story-flow.js';
+import { activeStoryFlow, storyFlowConsequenceLimit, storyFlowDirectionLimit, storyFlowOptionCount, storyFlowTitleLimit, storyFlowTurn, validStoryFlowOptions } from './public/story-flow.js';
 
 import { checkMapUpdates, updateSchema } from './map-updates.mjs';
 import { inspectContinuity, inspectDescription, nativeInspectShape, recordDescription, sceneTimeSchema, sceneUpdatesSchema } from './continuity.mjs';
@@ -271,7 +271,8 @@ tool('offer_story_directions', {
   inputSchema:{storyId:identifier,revision:libraryRevision,
     options:z.array(z.strictObject({
       title:z.string().trim().min(1).max(storyFlowTitleLimit).describe('Short label for the choice.'),
-      direction:z.string().trim().min(1).max(storyFlowDirectionLimit).describe('An actionable next-scene direction grounded in the current story.')
+      direction:z.string().trim().min(1).max(storyFlowDirectionLimit).describe('An actionable next-scene direction grounded in the current story.'),
+      consequence:z.string().trim().min(1).max(storyFlowConsequenceLimit).optional().describe('A brief preview of the thread this advances or the decision this opens.')
     })).length(storyFlowOptionCount).refine(validStoryFlowOptions,'Provide three distinct story directions.'),
     waitSeconds:z.int().min(0).max(35).optional().describe('Seconds to wait for a browser selection. Defaults to 0, which publishes and returns immediately.')},
   annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false}
@@ -291,7 +292,8 @@ tool('offer_story_directions', {
     const project = current.library.projects.find(candidate=>candidate.id === storyId);
     const flow = project && activeStoryFlow(project);
     if (flow?.source !== 'mcp' || flow.afterTurn !== saved.afterTurn || flow.options.length !== options.length ||
-        !flow.options.every((option,index)=>option.title === options[index].title && option.direction === options[index].direction)) {
+        !flow.options.every((option,index)=>option.title === options[index].title && option.direction === options[index].direction &&
+          option.consequence === options[index].consequence)) {
       return {...saved,revision:currentRevision,status:'superseded',guidance:'This offer is no longer current. Reread the story before proposing directions again.'};
     }
     const option = flow.options[flow.selected];
@@ -421,13 +423,14 @@ async function startStudio() {
 }
 
 tool('open_studio', {
-  description:'Open the local Book and Graph companion links, starting Story Studio if needed. Use when requested. Pass a story ID to open it directly.',
+  description:'Open the local Book, Graph, and Settings companion links, starting Studio if needed. Pass a story ID to open it directly. If asked to set up an API provider, give the writer the Settings link to enter the key.',
   inputSchema:{storyId:identifier.optional()},
   annotations:{readOnlyHint:false, destructiveHint:false, idempotentHint:true, openWorldHint:false}
 }, async ({storyId}) => {
   startup ??= startStudio().finally(() => { startup = undefined; });
   const opened = await startup;
-  return {...opened,url:companionUrl('book',storyId),graphUrl:companionUrl('graph',storyId)};
+  return {...opened,url:companionUrl('book',storyId),graphUrl:companionUrl('graph',storyId),
+    settingsUrl:companionUrl('write',storyId) + '&settings=1'};
 });
 
 let leaving = false;

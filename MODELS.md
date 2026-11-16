@@ -1,6 +1,6 @@
 # API providers and models
 
-In **Progress the story**, choose the **Prose artist** and **Continuity agent** separately. Economy and Preferred labels appear beside applicable models in both pickers and in **Editor agent**. Marking a **Sensitive scene** switches continuity to the sensitive model list and limits the writing route to the labeled writers. The settings remember the normal and sensitive continuity choices separately.
+In **Progress the story**, choose the **Prose artist** and **Continuity agent** separately. Economy and Preferred labels appear beside applicable models in both pickers and in **Editor agent**. Selecting an **NSFW-friendly** writer defaults **Sensitive scene** to on and limits continuity to DeepSeek V4.1 Flash, Mistral Large 4, and Grok 4.7. Clearing the checkbox leaves the continuity list restricted. The settings remember general and restricted continuity choices separately.
 
 ## Direct APIs
 
@@ -51,7 +51,7 @@ For local inference, a [quantized Cydonia GGUF](https://huggingface.co/bartowski
 
 The writer receives narrator instructions, full cast and world information, writing notes, the current graph, eligible recent story, and your current direction. It returns plain prose. Built-in writers share 112,000 estimated input tokens. Recent prose uses up to 16,000 within that budget, and the writer has a separate 8,000-token output reserve. User-added models use a conservative 28,000 input and 2,048 output until Studio has a verified window. Click the context ring at the lower left of the composer to see the assembled writing messages.
 
-An NSFW-friendly writer can receive sensitive history for turns marked **Sensitive scene**. The marked direction stays explicit even if the later classification suggests otherwise. **Exclude this turn’s text from all AI prompts** also withholds that turn from the sensitive writer. Automatic classification occurs after the artist receives the direction, so use **Sensitive scene** whenever you intend to request sensitive content.
+An NSFW-friendly writer can receive sensitive history for turns marked **Sensitive scene**. The checked direction stays explicit even if the later classification suggests otherwise. Clearing the checkbox keeps sensitive history out of the writing request and lets the restricted continuity agent classify the new direction from its text. **Exclude this turn’s text from all AI prompts** also withholds that turn from the sensitive writer.
 
 The selected continuity agent gets the new direction and draft, full current story state, and eligible prior exchanges. It can inspect state and calls `record_scene` to classify the new material, infer a time, and review the scene for lasting non-explicit changes. It records meaningful changes between characters as relationship events, setting changes under World, lasting plot developments as dated plot events in the graph, and standing author guidance in Writing notes. The call can take multiple tool rounds. [OpenRouter client tools](https://openrouter.ai/docs/guides/features/tool-calling)
 

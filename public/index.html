@@ -44,6 +44,7 @@
         <div class="story-tabs" role="tablist" aria-label="Story views">
           <button type="button" id="writeTab" role="tab" aria-selected="true" aria-controls="writeView" aria-label="Write" title="Write and continue the manuscript"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5 5 5M4 20l5-1 11-11a2 2 0 0 0 0-3l-1-1a2 2 0 0 0-3 0L5 15Z"/></svg></button>
           <button type="button" id="bookTab" role="tab" aria-selected="false" aria-controls="bookView" aria-label="Book view" title="Read the story as a book" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1zm0 0v14"/></svg></button>
+          <button type="button" id="revisionTab" role="tab" aria-selected="false" aria-controls="revisionView" aria-label="Revision" title="Review pacing, themes, and setups" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V4m0 16h16M8 16l4-5 3 2 5-7"/></svg></button>
           <button type="button" id="graphTab" role="tab" aria-selected="false" aria-controls="graphView" aria-label="Graph" title="Explore the cast and relationships" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="m10.8 7.2-4.6 8.6m7-8.6 4.6 8.6M7.5 18h9"/></svg></button>
           <button type="button" id="displayNamesTab" role="tab" aria-selected="false" aria-controls="displayNamesView" aria-label="Display names" title="Set alternate names for this story" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v14H3z"/><circle cx="8" cy="10" r="1.5"/><path d="M5.5 15c0-2.5 5-2.5 5 0m3.5-5h4m-4 4h4"/></svg></button>
         </div>
@@ -140,7 +141,7 @@
                 <circle id="contextProgress" cx="12" cy="12" r="8.5" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 12 12)"/>
               </svg>
             </button>
-            <label class="context-toggle" id="sensitiveSceneLabel" title="Allow a compatible writer to use sensitive story context for this scene."><input id="sensitiveScene" type="checkbox"> Sensitive scene</label>
+            <label class="context-toggle" id="sensitiveSceneLabel" title="Allow sensitive story history for this scene. NSFW-friendly prose artists always use the restricted continuity model list."><input id="sensitiveScene" type="checkbox"> Sensitive scene</label>
             <p id="connectionWarning" class="connection-warning" role="status" hidden>Add an API key in <button type="button" class="text-button" id="openComposerSettings">Settings</button>.</p>
             <button class="button subtle" id="saveComposerOnly" hidden>Save without rewriting</button>
             <button class="button subtle" id="cancelComposerEdit" hidden>Cancel edit</button>
@@ -185,6 +186,81 @@
           <span id="bookSpreadNumber" role="status"></span>
           <button type="button" class="button" id="bookNext" aria-label="Next spread">Next</button>
         </div>
+        </div>
+      </section>
+      <section class="revision-view" id="revisionView" role="tabpanel" aria-labelledby="revisionTab" hidden>
+        <header class="revision-heading">
+          <h2>Revision</h2>
+          <div class="revision-switch" role="group" aria-label="Revision tools">
+            <button type="button" class="text-button" data-revision-mode="pacing" aria-pressed="true" title="Compare scene length, estimated dialogue, cast mentions, and graph events.">Pacing</button>
+            <button type="button" class="text-button" data-revision-mode="themes" aria-pressed="false" title="Discover themes or find and pin passages that develop a motif.">Themes</button>
+            <button type="button" class="text-button" data-revision-mode="threads" aria-pressed="false" title="Track details you’ve planted and link the scenes where they pay off.">Setups &amp; payoffs</button>
+          </div>
+        </header>
+        <details class="revision-help">
+          <summary title="Explain the revision tools and controls">How to use Revision</summary>
+          <p data-revision-help="pacing">Longer bars mean more words. The highlighted part estimates quoted dialogue. Select a scene to see its excerpt and recorded graph events.</p>
+          <p data-revision-help="themes" hidden>Leave the field empty and use <strong>Suggest themes with AI</strong> to discover possible themes. Enter a phrase to find exact mentions or ask AI for related passages. Pin a quote to revisit it later.</p>
+          <p data-revision-help="threads" hidden>A setup plants a detail the story may return to. A payoff is the scene where it matters again. Add a thread yourself or move an AI suggestion into your tracked list.</p>
+          <p class="form-note">Scope applies to charts, searches, and AI reviews. Saved pins and tracked threads belong to the whole story. To add a chapter, use <strong>⋯ → Start new chapter here</strong> on a later prose turn in Write.</p>
+        </details>
+        <div class="revision-work">
+          <aside class="revision-rail">
+            <label title="Choose the scene, chapter, or book to review.">Scope<select id="revisionScope"></select></label>
+            <div id="revisionScenes" aria-label="Scenes in scope"></div>
+          </aside>
+          <div class="revision-content">
+            <section id="revisionPacing">
+              <p class="form-note">Bar length shows word count. The highlighted share estimates quoted dialogue. Cast appearances use name and alias mentions.</p>
+              <h3 id="pacingSummary"></h3>
+              <div class="revision-charts" id="pacingRows"></div>
+            </section>
+            <section id="revisionThemes" hidden>
+              <form id="themeSearch" class="revision-tools revision-theme-tools">
+                <label for="themeQuery">Theme or motif</label>
+                <div class="revision-theme-controls">
+                  <input id="themeQuery" type="search" maxlength="160" placeholder="For example, the east beacon" required>
+                  <div class="revision-form-actions">
+                    <button class="button subtle" type="submit" title="Find the exact words you entered in the selected scope. Searches locally.">Find mentions</button>
+                    <button class="text-button" type="button" id="reviewThemes" title="Ask AI to identify possible themes and motifs in the selected scope.">Suggest themes with AI</button>
+                  </div>
+                </div>
+              </form>
+              <div id="themeResults"></div>
+              <section class="revision-list-section" id="themeAISection" hidden>
+                <h3 id="themeAIHeading">Suggested themes</h3>
+                <div id="themeAIResults"></div>
+              </section>
+              <section id="themePinsSection" hidden>
+                <h3>Pinned passages</h3>
+                <div id="themePins"></div>
+              </section>
+            </section>
+            <section id="revisionThreads" hidden>
+              <form id="threadForm" class="revision-tools revision-thread-tools">
+                <div class="revision-thread-fields">
+                  <label>Thread<input id="threadTitle" maxlength="140" placeholder="A detail or promise to track" required></label>
+                  <label title="The scene where this detail or promise first appears.">Setup<select id="threadSetup" required></select></label>
+                  <label title="The scene that resolves or returns to the setup. Leave it open if you haven’t written it yet.">Payoff<select id="threadPayoff"></select></label>
+                </div>
+                <div class="revision-form-actions">
+                  <button class="button subtle" type="submit" id="saveThread" title="Save the setup and any payoff you linked.">Add thread</button>
+                  <button class="text-button" type="button" id="cancelThread" hidden>Cancel edit</button>
+                  <button class="text-button" type="button" id="reviewThreads" title="Look for planted details, promises, and unresolved questions in the selected scope.">Suggest threads with AI</button>
+                </div>
+              </form>
+              <section class="revision-list-section" id="trackedThreadsSection" hidden>
+                <h3>Tracked threads</h3>
+                <div id="threadList"></div>
+              </section>
+              <section class="revision-list-section revision-suggestions" id="threadSuggestionsSection" hidden>
+                <h3>AI suggestions</h3>
+                <div id="threadSuggestions"></div>
+              </section>
+            </section>
+            <p class="form-note" role="status" id="revisionStatus" hidden></p>
+          </div>
+          <aside class="revision-inspector" id="revisionInspector" aria-label="Scene details" hidden></aside>
         </div>
       </section>
       <section class="display-names-view" id="displayNamesView" role="tabpanel" aria-labelledby="displayNamesTab" hidden>
@@ -242,6 +318,7 @@
             <button type="button" class="button subtle" id="addCharacter">+ Character</button>
             <button type="button" class="button subtle" id="connectCharacters" aria-pressed="false">+ Relationship</button>
             <button type="button" class="button subtle" id="reviewGraphButton">Agent updates</button>
+            <button type="button" class="button subtle" id="checkContinuity" title="Check saved graph facts and compare scenes for possible inconsistencies.">Check continuity</button>
           </div>
           <p class="form-note" id="graphStatus" role="status"></p>
         </div>
@@ -353,10 +430,14 @@
       <section class="connection-row">
         <h3>API providers</h3>
         <div>
-          <label>Claude API key<input id="claudeKeyInput" aria-describedby="keyStorage" type="password" autocomplete="off"></label>
-          <label>OpenAI API key<input id="openAiKeyInput" aria-describedby="keyStorage" type="password" autocomplete="off"></label>
-          <label>OpenRouter API key<input id="keyInput" aria-describedby="keyStorage" type="password" autocomplete="off"></label>
-          <p class="form-note" id="keyStorage">Add a key to show that provider’s models. Keys stay in this tab until you reload or close it. Clear a key to disable its provider.</p>
+          <label>Claude API key<input id="claudeKeyInput" aria-describedby="keyStorage" type="password" autocomplete="off" maxlength="512"></label>
+          <label class="context-toggle" hidden><input type="checkbox" id="removeClaudeKey"> Remove saved Claude key</label>
+          <label>OpenAI API key<input id="openAiKeyInput" aria-describedby="keyStorage" type="password" autocomplete="off" maxlength="512"></label>
+          <label class="context-toggle" hidden><input type="checkbox" id="removeOpenAiKey"> Remove saved OpenAI key</label>
+          <label>OpenRouter API key<input id="keyInput" aria-describedby="keyStorage" type="password" autocomplete="off" maxlength="512"></label>
+          <label class="context-toggle" hidden><input type="checkbox" id="removeOpenRouterKey"> Remove saved OpenRouter key</label>
+          <p class="form-note" id="keyStorage">Keys are saved on this machine and shared by every story. Enter a new key to replace a saved one.</p>
+          <p id="providerError" class="form-note" role="alert" hidden></p>
         </div>
       </section>
       <section class="connection-row">
@@ -370,7 +451,33 @@
     </div>
     <footer class="dialog-actions">
       <button type="button" class="button subtle" id="cancelProvider">Cancel</button>
-      <button class="button primary" type="submit">Save settings</button>
+      <button id="saveProviderSettings" class="button primary" type="submit">Save settings</button>
+    </footer>
+  </form>
+</dialog>
+<dialog id="continuityReview" class="form-dialog revision-dialog" aria-labelledby="continuityHeading">
+  <header class="dialog-top">
+    <h2 id="continuityHeading">Check continuity</h2>
+    <button class="icon" type="button" id="closeContinuity" aria-label="Close continuity review"><svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg></button>
+  </header>
+  <div class="dialog-body">
+    <div class="revision-tools">
+      <label title="Choose a scene, chapter, or the whole book for the check.">Scope<select id="continuityScope"></select></label>
+      <label title="Optionally compare the selected passages against another story in your library.">Comparison story<select id="continuityComparison"></select></label>
+      <button type="button" class="button subtle" id="reviewContinuity" title="Ask AI to find possible inconsistencies and cite passages you can check.">Review with AI</button>
+    </div>
+    <label class="revision-reference">Canon reference notes (optional)<textarea id="continuityReference" rows="2" maxlength="4000" placeholder="Add any canon the selected stories do not contain."></textarea></label>
+    <p class="form-note" id="continuityStatus" role="status"></p>
+    <div id="continuityFindings"></div>
+  </div>
+</dialog>
+<dialog id="storyFlowPreview" class="form-dialog" aria-labelledby="flowPreviewTitle">
+  <form method="dialog">
+    <header class="dialog-top"><h2 id="flowPreviewTitle"></h2><button class="icon" value="cancel" aria-label="Close preview"><svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg></button></header>
+    <div class="dialog-body"><p id="flowPreviewDirection"></p><p class="form-note" id="flowPreviewConsequence" hidden></p></div>
+    <footer class="dialog-actions">
+      <button class="button subtle" value="cancel">Cancel</button>
+      <button class="button primary" id="useFlowDirection" type="button">Use direction</button>
     </footer>
   </form>
 </dialog>

@@ -15,8 +15,9 @@ export function normalizeAgentHistory(value) {
     Number.isSafeInteger(entry?.afterTurn) && entry.afterTurn >= 0 &&
     typeof entry.request === 'string' && typeof entry.message === 'string' &&
     Number.isSafeInteger(entry.count) && entry.count >= 0
-  ).map(({afterTurn,request,message,count,changes})=>({
-    afterTurn,request,message,count,...(typeof changes === 'string' ? {changes} : {})
+  ).map(({afterTurn,request,message,count,changes,historySafe})=>({
+    afterTurn,request,message,count,...(typeof changes === 'string' ? {changes} : {}),
+    ...(historySafe === undefined || historySafe === true ? {} : {historySafe:false})
   }));
 }
 
@@ -42,7 +43,8 @@ function historyGroups(project) {
     }
   }
 
-  const edits = normalizeAgentHistory(project.agentHistory).sort((a,b)=>a.afterTurn - b.afterTurn);
+  const edits = normalizeAgentHistory(project.agentHistory).filter(entry=>entry.historySafe !== false)
+    .sort((a,b)=>a.afterTurn - b.afterTurn);
   let editIndex = 0;
   function appendEdits(through) {
     while (editIndex < edits.length && edits[editIndex].afterTurn <= through) {

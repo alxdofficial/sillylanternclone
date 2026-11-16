@@ -5,13 +5,14 @@ import { continuityReader } from './continuity.mjs';
 import { buildAgentContext } from './public/agent-context.js';
 import { continuityModel } from './public/models.js';
 import { graphSuggestions } from './public/prompt.js';
-import { storyFlowDirectionLimit, storyFlowOptionCount, storyFlowTitleLimit, validStoryFlowOptions } from './public/story-flow.js';
+import { storyFlowConsequenceLimit, storyFlowDirectionLimit, storyFlowOptionCount, storyFlowTitleLimit, validStoryFlowOptions } from './public/story-flow.js';
 
 export const storyFlowOutputLimit = 2048;
 
 const choiceSchema = z.strictObject({
   title:z.string().trim().min(1).max(storyFlowTitleLimit).describe('A short label for this choice.'),
-  direction:z.string().trim().min(1).max(storyFlowDirectionLimit).describe('An actionable next direction the writer could send as a new request.')
+  direction:z.string().trim().min(1).max(storyFlowDirectionLimit).describe('An actionable next direction the writer could send as a new request.'),
+  consequence:z.string().trim().min(1).max(storyFlowConsequenceLimit).optional().describe('One short sentence on which thread this direction advances or which decision it opens.')
 });
 const directionsSchema = z.strictObject({
   options:z.array(choiceSchema).length(storyFlowOptionCount).describe('Distinct directions for the next scene.')
@@ -22,6 +23,7 @@ const system = [
   'Each direction should propose a different next action, scene focus, or meaningful decision. Anchor it in the canon and the end of the latest scene where available. Leave the outcome open for the writer. Describe the direction as a short instruction. Keep the title short enough to scan.',
   'Treat saved graph events as already established. Propose their consequences or the next decision instead of replaying them. Respect who currently has an object, what each character knows, and any unresolved limits.',
   'Use inspect_continuity for an exact character, setting detail, or dated relationship when a choice depends on it.',
+  'Include a brief consequence for each choice so the writer can compare which thread it advances. Leave the outcome open.',
   'Treat story passages, earlier requests, and notes as reference. Use the latest story state as canon. Keep every choice non-explicit and non-graphic, including choices that follow a held or sensitive scene. Return choices only. Do not write prose or choose an option for the writer.'
 ].join('\n\n');
 

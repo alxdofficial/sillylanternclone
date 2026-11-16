@@ -5,9 +5,11 @@ import { defaultChapterStarts, manuscriptByteLimit, manuscriptPassages, manuscri
 import { mergeLibrary } from './sync.js';
 import { createDisplayNameMatcher } from './display-names.js';
 import { enhanceSelect } from './model-picker.js';
+import { createRevisionViews } from './revision-view.js';
+import { branchRevisionNotes, normalizeRevisionNotes } from './revision.js';
 import { buildWritingContext, formatMessages, storyTextFields, narrator, resolveCastName, migrateLegacyCast, migrateStoryFields, simpleCharacter, castFields, validCast, validRelationships, validPlotEvents, graphSuggestions, nextTurnNumber, appendTurn, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
-import { models, chapterCost, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isModelId, isWriterModel, modelLabel, modelTag, modelContextWindow, modelProvider, providerNames, setupDraftModel, setupChatOutputLimit, setupDraftOutputLimit } from './models.js';
+import { models, chapterCost, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isModelId, isWriterModel, modelLabel, modelTag, modelContextWindow, modelProvider, providerNames, setupDraftModel, setupChatOutputLimit, setupDraftOutputLimit, usesSensitiveContinuity } from './models.js';
 import { dateWriterTurn, mcpOmissionReason, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
 import { estimateContextTokens, writingHistoryLimit } from './prompt.js';
 import { agentBudget, continuityContext, editorContext, normalizeAgentHistory, normalizeSetupHistory } from './agent-context.js';
@@ -19,11 +21,11 @@ let state, revision, pendingWrites = 0, timer, pendingSave = Promise.resolve(), 
 let libraryDirty = false, pendingLibraryWrites = 0;
 // The library as last loaded from or saved to the server, the base for merging agent writes.
 let baseLibrary = null, demoGeneration;
-const providerKeys = new Map();
-const hasApiKey = () => providerKeys.size > 0;
-const keyForModel = model => providerKeys.get(modelProvider(model));
+const configuredProviders = new Set();
+const hasApiKey = () => configuredProviders.size > 0;
+const hasModelProvider = model => configuredProviders.has(modelProvider(model));
 const providerOrder = ['anthropic','openai','openrouter'];
-const enabledProviders = () => providerOrder.filter(provider=>providerKeys.has(provider)).join(',');
+const enabledProviders = () => providerOrder.filter(provider=>configuredProviders.has(provider)).join(',');
 let editingCharacter;
 let draftPlotEvents = [];
 let draftRelationships = [], connectingFrom = '', editingRelationship = null;
@@ -32,6 +34,7 @@ let estimatedEdgeDates = new WeakSet();
 let connecting = false, pinnedGraph = null, hoverGraph = null, deletedEvent = null, shownEvents = 12;
 let pendingGraphReview = [];
 let generatingFor = null;
+let editingStateFor;
 const temporarySession = new Map();
 function getSession(key) {
   if (temporarySession.has(key)) return temporarySession.get(key);
@@ -53,14 +56,13 @@ const modelKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-model:
 const retiredPresets = new Set(['anthracite-org/magnum-v4-72b','thedrummer/unslopnemo-12b','sao10k/l3.1-euryale-70b','gryphe/mythomax-l2-13b']);
 function writingModel(project, mode = 'story') {
   const model = getSession(modelKey(project.id,mode));
-  return keyForModel(model) && (mode === 'agent' ? isAgentModel(model) : isPreset(model) || userModels.includes(model)) ? model : '';
+  return hasModelProvider(model) && (mode === 'agent' ? isAgentModel(model) : isPreset(model) || userModels.includes(model)) ? model : '';
 }
 const continuityKey = (storyId,sensitive) => 'story-continuity-model:' + (sensitive ? 'sensitive:' : '') + storyId;
-function selectedContinuityModel(project) {
-  const sensitive = sensitiveDraft(project);
+function selectedContinuityModel(project, sensitive = sensitiveContinuity(project)) {
   const model = getSession(continuityKey(project.id,sensitive));
-  if (model && isContinuityModel(model,sensitive)) return keyForModel(model) ? model : '';
-  const available = models.filter(({id})=>keyForModel(id) && isContinuityModel(id,sensitive));
+  if (model && isContinuityModel(model,sensitive)) return hasModelProvider(model) ? model : '';
+  const available = models.filter(({id})=>hasModelProvider(id) && isContinuityModel(id,sensitive));
   const writerProvider = modelProvider(writingModel(project));
   return (available.find(({id})=>modelProvider(id) === writerProvider)
     || available.find(({id})=>id === continuityModel) || available[0])?.id || '';
@@ -68,7 +70,11 @@ function selectedContinuityModel(project) {
 const draftKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-draft:' : 'story-draft:') + id;
 const flowNotice = new Map();
 const sensitiveKey = id => 'story-sensitive-draft:' + id;
-const sensitiveDraft = project => getSession(sensitiveKey(project.id)) === 'true';
+function sensitiveDraft(project) {
+  const saved = getSession(sensitiveKey(project.id));
+  return saved == null ? canWriteSensitive(writingModel(project)) : saved === 'true';
+}
+const sensitiveContinuity = project => usesSensitiveContinuity(writingModel(project),sensitiveDraft(project));
 const pendingComposerEdits = new Map();
 let composerEdit;
 const id = () => globalThis.crypto?.randomUUID?.() || `story-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -473,6 +479,7 @@ $('#branchTurn').onclick = () => {
   let label = title;
   for (let n = 2; names.has(label); n++) label = title + ' (' + n + ')';
   branch.id = id();
+  branchRevisionNotes(branch,project.id);
   branch.title = label;
   setSession(modelKey(branch.id),writingModel(project));
   state.projects.unshift(branch);
@@ -679,7 +686,49 @@ const bookFirst = $('#bookFirst');
 const bookLast = $('#bookLast');
 const bookPositions = new Map();
 const spreadPositions = new Map();
-const storyViews = [['write','writeTab','writeView'],['book','bookTab','bookView'],['graph','graphTab','graphView'],['names','displayNamesTab','displayNamesView']];
+const storyViews = [['write','writeTab','writeView'],['book','bookTab','bookView'],['revision','revisionTab','revisionView'],
+  ['graph','graphTab','graphView'],['names','displayNamesTab','displayNamesView']];
+const revisionViews = createRevisionViews({
+  activeStory:current,
+  stories:()=>state.projects,
+  writeNotes(notes) {
+    const project = current();
+    if (notes.length) project.revisionNotes = notes;
+    else delete project.revisionNotes;
+    markDirty(project);
+  },
+  async openScene(storyId,turn,view = 'write') {
+    if (storyView !== view && !await navigateStoryView(view)) return;
+    if (current().id !== storyId) {
+      if (!state.projects.some(story=>story.id === storyId)) return;
+      state.activeId = storyId;
+      const url = new URL(location.href);
+      url.searchParams.set('story',storyId);
+      history.replaceState(null,'',url);
+      render();
+    }
+    if (view === 'graph') {
+      pinGraph({kind:'turn-changes',turn});
+      $('#closeInspector').focus({preventScroll:true});
+      return;
+    }
+    const target = selectStoryTurn(turn);
+    if (!target) return;
+    const transcript = $('#messages');
+    transcript.scrollTop += target.getBoundingClientRect().top - transcript.getBoundingClientRect().top;
+    target.focus({preventScroll:true});
+  },
+  async requestReview(payload,signal) {
+    const project = current();
+    const model = authorMode(project) === 'agent' ? writingModel(project,'agent') : selectedContinuityModel(project,false);
+    if (!model) throw Error('Add a provider key in Settings and choose a continuity agent or editor model in Write.');
+    await save();
+    if (signal.aborted) throw signal.reason;
+    if (dirty || current().id !== payload.storyId) throw Error('Save the story before reviewing it.');
+    return await api('/api/revision',{method:'POST',headers:{'Content-Type':'application/json'},signal,
+      body:JSON.stringify({...payload,revision,model})});
+  }
+});
 let bookStoryId, chapters = [], storyView = 'write', writeNeedsRender = false;
 let showGraphDirections = getSession('studio-show-directions') === 'true';
 const composerPreference = 'studio-hide-composer';
@@ -848,6 +897,7 @@ function showStoryView(view) {
   if (view === 'graph' && !settingsDraftChanged()) loadSettings();
   if (view === 'book') renderBook();
   else if (view === 'names') renderDisplayNames();
+  else if (view === 'revision') revisionViews.render();
   else if (writeNeedsRender) renderMessages();
 }
 
@@ -952,6 +1002,7 @@ function renderMessages() {
     writeNeedsRender = true;
     if (storyView === 'book') renderBook();
     else if (storyView === 'names') renderDisplayNames();
+    else if (storyView === 'revision') revisionViews.render();
     return;
   }
   writeNeedsRender = false;
@@ -973,7 +1024,9 @@ function renderMessages() {
   }
   messageList.replaceChildren();
   if (!sameStory) syncManualProse();
-  if (!project.messages.length) {
+  const editorTurns = normalizeAgentHistory(project.agentHistory).sort((a,b)=>a.afterTurn - b.afterTurn);
+  const pendingEdit = editingStateFor?.projectId === project.id ? editingStateFor.instruction : '';
+  if (!project.messages.length && !editorTurns.length && !pendingEdit) {
     const empty = el('div','empty');
     empty.append(el('strong','','Start your story'),
       el('p','','Set the scene below, or ask your co-writer to begin.'));
@@ -983,12 +1036,21 @@ function renderMessages() {
   }
   const graphChanges = graphChangesByTurn(project);
   const match = createDisplayNameMatcher(readDisplayNames(project.id));
+  let editorIndex = 0;
+  function appendEditorTurns(through) {
+    while (editorTurns[editorIndex]?.afterTurn <= through) {
+      const {request,message} = editorTurns[editorIndex++];
+      if (request) messageList.append(editorMessage('user',request));
+      messageList.append(editorMessage('assistant',message));
+    }
+  }
   let previousDirection;
   project.messages.forEach((message,index) => {
     const fromAuthor = message.role === 'user';
     if (fromAuthor) previousDirection = message;
     const omittedFromMcp = mcpOmissionReason(message,previousDirection);
     const turn = message.turnNumber || index + 1;
+    appendEditorTurns(turn - 1);
     const row = el('article','message ' + (fromAuthor ? 'user' : 'assistant'));
     row.tabIndex = -1;
     row.dataset.storyTurn = turn;
@@ -1058,9 +1120,23 @@ function renderMessages() {
     row.append(body);
     messageList.append(row);
   });
+  appendEditorTurns(Infinity);
+  if (pendingEdit) messageList.append(editorMessage('user',pendingEdit),editorMessage('assistant','Working…',true));
   renderPending();
   box.scrollTop = followLatest ? box.scrollHeight : scrollTop;
   renderStoryTurns(project,followLatest,match);
+}
+function editorMessage(role, text, pending = false) {
+  const row = el('article','message ' + role + ' editor-message');
+  const fromAuthor = role === 'user';
+  const label = fromAuthor ? 'You · Editor request' : 'Editor agent';
+  row.setAttribute('aria-label',label);
+  const body = el('div','message-body');
+  const head = el('div','message-header');
+  head.append(el('strong','author-label',label));
+  body.append(head,el('div',pending ? 'pending-state active' : 'message-text',text));
+  row.append(body);
+  return row;
 }
 function setSensitivity(message, value) {
   if (validSensitivity(value)) message.contentSensitivity = value;
@@ -1160,7 +1236,7 @@ function syncRoute() {
   const mode = authorMode(project);
   const editingStory = mode === 'agent';
   const model = writingModel(project,mode);
-  const rewriting = composerEdit?.canRegenerate && Boolean(model && keyForModel(model));
+  const rewriting = composerEdit?.canRegenerate && Boolean(model && hasModelProvider(model));
   const composerVisible = composerIsShown() || Boolean(composerEdit);
   if (hasApiKey() || composerEdit || !composerVisible) clearComposerConnectionWarning();
   $('#writingComposer').hidden = !composerVisible;
@@ -1185,9 +1261,8 @@ function syncRoute() {
   $('#continuityModelControl').hidden = editingStory || Boolean(composerEdit && !rewriting);
   continuityModelChoice.disabled = busy;
   syncContinuityModel(project);
-  $('#routeSummary').textContent = composerEdit ? ''
-    : !editingStory && sensitiveDraft(project) && model && !canWriteSensitive(model) ? 'Choose an NSFW-friendly writer.'
-    : editingStory ? project.agentEditNotice?.message || '' : '';
+  $('#routeSummary').textContent = !composerEdit && !editingStory && sensitiveDraft(project) && model && !canWriteSensitive(model)
+    ? 'Choose an NSFW-friendly writer.' : '';
   $('#providerButton').disabled = busy || Boolean(composerEdit);
   $('#pasteReply').disabled = busy || Boolean(composerEdit);
   $('#saveManualProse').disabled = busy || Boolean(composerEdit);
@@ -1226,12 +1301,31 @@ function syncStoryFlow(project) {
     button.append(el('span','story-flow-title',title),el('span','story-flow-description',direction));
     button.disabled = busy || Boolean(composerEdit);
     if (flow.selected === index) button.setAttribute('aria-pressed','true');
-    button.onclick = () => void chooseStoryFlow(project,flow,index);
+    button.setAttribute('aria-haspopup','dialog');
+    button.onclick = () => previewStoryFlow(project,flow,index);
     return button;
   }));
   status.textContent = flowNotice.get(project.id) || '';
   status.hidden = !status.textContent;
 }
+
+const flowPreview = $('#storyFlowPreview');
+let selectedFlowPreview;
+function previewStoryFlow(project, flow, index) {
+  const {title,direction,consequence} = flow.options[index];
+  selectedFlowPreview = {project,flow,index};
+  $('#flowPreviewTitle').textContent = title;
+  $('#flowPreviewDirection').textContent = direction;
+  const detail = $('#flowPreviewConsequence');
+  detail.textContent = consequence || '';
+  detail.hidden = !consequence;
+  flowPreview.showModal();
+}
+$('#useFlowDirection').onclick = () => {
+  const {project,flow,index} = selectedFlowPreview;
+  flowPreview.close();
+  void chooseStoryFlow(project,flow,index);
+};
 
 async function chooseStoryFlow(project,flow,index) {
   if (busy || current() !== project || JSON.stringify(activeStoryFlow(project)) !== JSON.stringify(flow)) return;
@@ -1243,16 +1337,12 @@ async function chooseStoryFlow(project,flow,index) {
   const field = $('#instruction');
   field.value = option.direction;
   setSession(draftKey(project.id),option.direction);
-  if (flow.source === 'mcp') {
-    project.storyFlow = {...flow,selected:index};
-    setSession(composerPreference,'');
-    markDirty(project);
-    syncRoute();
-    field.focus();
-    await save();
-  } else {
-    await generate();
-  }
+  project.storyFlow = {...flow,selected:index};
+  setSession(composerPreference,'');
+  markDirty(project);
+  syncRoute();
+  field.focus();
+  await save();
 }
 
 async function requestStoryFlow() {
@@ -1272,8 +1362,8 @@ async function requestStoryFlow() {
   try {
     const {options} = await api('/api/story-flow',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({project:openRouterSnapshot(project,project.messages),key:keyForModel(agentModel),
-        provider:modelProvider(agentModel),agentModel,sensitive:sensitiveDraft(project)})
+      body:JSON.stringify({project:openRouterSnapshot(project,project.messages),
+        provider:modelProvider(agentModel),agentModel,sensitive:sensitiveContinuity(project)})
     });
     await mergeServerLibrary({ifChanged:true});
     if (!state.projects.includes(project) || JSON.stringify(project.messages) !== transcript) {
@@ -1318,7 +1408,6 @@ async function generateAgentEdit(project) {
   if (!instruction) return input.focus();
   error();
   const model = writingModel(project,'agent');
-  const key = keyForModel(model);
   if (!hasApiKey()) return showComposerConnectionWarning();
   if (!model) {
     sceneModelPicker.focus();
@@ -1326,19 +1415,23 @@ async function generateAgentEdit(project) {
   }
   const budgetProblem = editorContext(project,instruction,model).problem;
   if (budgetProblem) return error(budgetProblem);
+  editingStateFor = {projectId:project.id,instruction};
+  showLatestStoryTurn();
   setBusy(true);
   try {
     await save();
     if (dirty || !state.projects.includes(project)) throw Error('Save the story and try again.');
     await api('/api/story-edits',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({storyId:project.id,revision,provider:modelProvider(model),model,key,instruction})
+      body:JSON.stringify({storyId:project.id,revision,provider:modelProvider(model),model,instruction})
     });
     if (getSession(draftKey(project.id,'agent'))?.trim() === instruction) setSession(draftKey(project.id,'agent'),'');
+    editingStateFor = undefined;
     await mergeServerLibrary();
   } catch (failure) {
     error(failure.message);
   } finally {
+    editingStateFor = undefined;
     setBusy(false);
   }
 }
@@ -1348,8 +1441,7 @@ async function generate() {
   const project = current();
   if (authorMode(project) === 'agent') return generateAgentEdit(project);
   const model = writingModel(project);
-  const key = keyForModel(model);
-  if (composerEdit && (!composerEdit.canRegenerate || !model || !key)) return saveComposerEdit();
+  if (composerEdit && (!composerEdit.canRegenerate || !model || !hasModelProvider(model))) return saveComposerEdit();
   if (!hasApiKey()) return showComposerConnectionWarning();
   if (!model) {
     sceneModelPicker.focus();
@@ -1434,8 +1526,8 @@ async function generate() {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        project:snapshot, instruction:authorTurn?.content ?? direction, provider:modelProvider(model),model,key,
-        agentProvider:modelProvider(agentModel),agentModel,agentKey:keyForModel(agentModel),sensitive,
+        project:snapshot, instruction:authorTurn?.content ?? direction, provider:modelProvider(model),model,
+        agentProvider:modelProvider(agentModel),agentModel,sensitive,
         flow:refreshDirections,
         mode:replacement ? 'replace' : 'send'
       })
@@ -1480,7 +1572,7 @@ async function generate() {
       flowNotice.set(target.id,'The scene was saved. Use Suggest directions to try again.');
     }
     const classifiedExplicit = response.reply === 'explicit' || (!sensitive && response.input === 'explicit');
-    setSession(sensitiveKey(target.id),classifiedExplicit ? 'true' : '');
+    if (classifiedExplicit) setSession(sensitiveKey(target.id),'true');
     markDirty(target);
     if (current().id !== project.id) return;
     if (response.truncated) {
@@ -2316,7 +2408,7 @@ function openTurnDetails(index) {
   showEditSensitivity(sensitivity,heldForReview);
   $('#editDialog').showModal();
 }
-function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');p = migrateStoryFields(migrateLegacyCast(structuredClone(p)));if(p.plotEvents!==undefined&&!validPlotEvents(p.plotEvents))throw Error('A story has invalid plot events.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),lore:String(p.lore||''),notes:String(p.notes||''),...(p.plotEvents ? {plotEvents:p.plotEvents} : {}),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentHistory?{agentHistory:normalizeAgentHistory(p.agentHistory)}:{}),...(normalizeSetupHistory(p.setupHistory)?{setupHistory:normalizeSetupHistory(p.setupHistory)}:{}),...(normalizeStoryFlow(p.storyFlow)?{storyFlow:normalizeStoryFlow(p.storyFlow)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentEditNotice && typeof p.agentEditNotice.message==='string' ? {agentEditNotice:{message:p.agentEditNotice.message.slice(0,300)}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(storyTextFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.continuityPending===true)result.continuityPending=true;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
+function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');p = migrateStoryFields(migrateLegacyCast(structuredClone(p)));if(p.plotEvents!==undefined&&!validPlotEvents(p.plotEvents))throw Error('A story has invalid plot events.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),lore:String(p.lore||''),notes:String(p.notes||''),...(p.plotEvents ? {plotEvents:p.plotEvents} : {}),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(p.revisionNotes ? {revisionNotes:normalizeRevisionNotes(p.revisionNotes)} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentHistory?{agentHistory:normalizeAgentHistory(p.agentHistory)}:{}),...(normalizeSetupHistory(p.setupHistory)?{setupHistory:normalizeSetupHistory(p.setupHistory)}:{}),...(normalizeStoryFlow(p.storyFlow)?{storyFlow:normalizeStoryFlow(p.storyFlow)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(storyTextFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.continuityPending===true)result.continuityPending=true;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
 if(m.role==='assistant'&&m.standalone===true)result.standalone=true;if(m.role==='assistant'&&m.startsChapter===true)result.startsChapter=true;if(m.role==='assistant'&&typeof m.sourcePrefix==='string')result.sourcePrefix=m.sourcePrefix;if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})};});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 
 const sceneModelChoice = $('#sceneModel');
@@ -2326,7 +2418,7 @@ const sceneModelPicker = enhanceSelect(sceneModelChoice);
 const continuityModelPicker = enhanceSelect(continuityModelChoice);
 let continuityOptionsKey = '';
 function syncContinuityModel(project) {
-  const sensitive = sensitiveDraft(project);
+  const sensitive = sensitiveContinuity(project);
   const key = JSON.stringify([sensitive,enabledProviders()]);
   if (key !== continuityOptionsKey) {
     continuityOptionsKey = key;
@@ -2338,7 +2430,7 @@ function syncContinuityModel(project) {
 }
 continuityModelChoice.onchange = () => {
   const project = current();
-  const sensitive = sensitiveDraft(project);
+  const sensitive = sensitiveContinuity(project);
   if (isContinuityModel(continuityModelChoice.value,sensitive)) {
     setSession(continuityKey(project.id,sensitive),continuityModelChoice.value);
   }
@@ -2392,7 +2484,7 @@ function providerOptions(options) {
   const placeholder = new Option('Pick a model','');
   placeholder.disabled = true;
   const groups = providerOrder.flatMap(provider=>{
-    if (!providerKeys.has(provider)) return [];
+    if (!configuredProviders.has(provider)) return [];
     const group = document.createElement('optgroup');
     group.label = providerNames[provider];
     group.append(...options.filter(option=>modelProvider(option.value) === provider));
@@ -2413,7 +2505,7 @@ function modelOptions(mode, {priced = false, addModel = false} = {}) {
     }
   }
   const options = providerOptions(list);
-  if (addModel && mode === 'story' && providerKeys.has('openrouter')) {
+  if (addModel && mode === 'story' && configuredProviders.has('openrouter')) {
     options.push(new Option('Manage custom models…','custom'));
   }
   return options;
@@ -2429,23 +2521,56 @@ function syncSceneModel(model,mode) {
 }
 sceneModelChoice.onchange = () => {
   if (busy || !state) return;
-  const mode = authorMode(current());
+  const project = current();
+  const mode = authorMode(project);
   const model = sceneModelChoice.value;
   if (model === 'custom' && mode === 'story') {
     syncRoute();
     return openCustomModels();
   }
   if (mode === 'agent' ? !isAgentModel(model) : !isWriterModel(model)) return;
-  setSession(modelKey(current().id,mode),model);
+  const previous = writingModel(project,mode);
+  setSession(modelKey(project.id,mode),model);
+  if (mode === 'story' && canWriteSensitive(previous) !== canWriteSensitive(model)) {
+    setSession(sensitiveKey(project.id),'');
+  }
   syncRoute();
 };
 const providerKeyFields = {openrouter:$('#keyInput'),anthropic:$('#claudeKeyInput'),openai:$('#openAiKeyInput')};
+const providerRemovals = {openrouter:$('#removeOpenRouterKey'),anthropic:$('#removeClaudeKey'),openai:$('#removeOpenAiKey')};
 const providerDialog = $('#providerDialog');
-function openAppSettings() {
-  if (!state || busy) return;
-  for (const [provider,field] of Object.entries(providerKeyFields)) field.value = providerKeys.get(provider) || '';
+const saveProviderSettings = $('#saveProviderSettings');
+function setConfiguredProviders({enabled}) {
+  configuredProviders.clear();
+  for (const provider of enabled) configuredProviders.add(provider);
+}
+function providerError(message = '') {
+  const notice = $('#providerError');
+  notice.textContent = message;
+  notice.hidden = !message;
+}
+function updateProviderFields(reset = false) {
+  for (const [provider,field] of Object.entries(providerKeyFields)) {
+    const saved = configuredProviders.has(provider);
+    const remove = providerRemovals[provider];
+    if (reset || !saved) remove.checked = false;
+    remove.parentElement.hidden = !saved;
+    field.disabled = remove.checked;
+    field.placeholder = saved ? 'Key saved' : '';
+  }
+}
+async function openAppSettings() {
+  if (!state || busy || providerDialog.open) return;
+  updateProviderFields(true);
+  providerError();
   $('#toggleDirections').checked = showGraphDirections;
   providerDialog.showModal();
+  try {
+    setConfiguredProviders(await api('/api/provider-keys'));
+    if (providerDialog.open && !saveProviderSettings.disabled) updateProviderFields();
+  } catch (failure) {
+    if (providerDialog.open) providerError(failure.message);
+  }
 }
 $('#providerButton').onclick = () => {
   $('#sidebar').close();
@@ -2456,12 +2581,31 @@ $('#closeProvider').onclick = $('#cancelProvider').onclick = () => providerDialo
 providerDialog.addEventListener('close', () => {
   for (const field of Object.values(providerKeyFields)) field.value = '';
 });
-$('#providerForm').onsubmit = event => {
+for (const [provider,remove] of Object.entries(providerRemovals)) {
+  remove.onchange = () => { providerKeyFields[provider].disabled = remove.checked; };
+}
+$('#providerForm').onsubmit = async event => {
   event.preventDefault();
-  providerKeys.clear();
+  if (saveProviderSettings.disabled) return;
+  providerError();
+  const changes = {};
   for (const [provider,field] of Object.entries(providerKeyFields)) {
     const key = field.value.trim();
-    if (key) providerKeys.set(provider,key);
+    if (providerRemovals[provider].checked) changes[provider] = null;
+    else if (key) changes[provider] = key;
+  }
+  saveProviderSettings.disabled = true;
+  try {
+    if (Object.keys(changes).length) {
+      setConfiguredProviders(await api('/api/provider-keys',{
+        method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(changes)
+      }));
+    }
+  } catch (failure) {
+    providerError(failure.message);
+    return;
+  } finally {
+    saveProviderSettings.disabled = false;
   }
   if (setupDialog.open) populateSetupModels();
   showGraphDirections = $('#toggleDirections').checked;
@@ -2928,9 +3072,8 @@ async function requestSetup(mode) {
   const context = setupContext.value.trim();
   const usage = updateSetupContextUsage(content,context,setupDraftModel(setupModel.value));
   if (mode === 'chat' && usage.chatFull) return;
-  const key = keyForModel(setupModel.value);
   setupChatError.textContent = '';
-  if (!setupModel.value || !key) {
+  if (!setupModel.value || !hasModelProvider(setupModel.value)) {
     setupChatError.textContent = hasApiKey() ? 'Choose a setup model.' : 'Add an API key in Settings.';
     if (hasApiKey()) setupModelPicker.focus();
     else $('#openSetupSettings').focus();
@@ -2948,7 +3091,7 @@ async function requestSetup(mode) {
       : usage.draftFull ? 'Reviewing the source in sections…' : 'Preparing your setup draft…';
     const payload = {mode,messages,manuscript,context};
     const result = await api('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},signal:request.signal,
-      body:JSON.stringify({...payload,provider:modelProvider(setupModel.value),model:setupModel.value,key})});
+      body:JSON.stringify({...payload,provider:modelProvider(setupModel.value),model:setupModel.value})});
     if (setupRequest !== request || !setupDialog.open) return;
     if (mode === 'draft') {
       setupReviewedMessages = messages;
@@ -3197,7 +3340,7 @@ $('#authorMode').onchange = event => {
 };
 $('#sensitiveScene').onchange = event => {
   if (!state || busy) return;
-  setSession(sensitiveKey(current().id),event.target.checked ? 'true' : '');
+  setSession(sensitiveKey(current().id),String(event.target.checked));
   syncRoute();
 };
 $('#saveComposerOnly').onclick = () => saveComposerEdit();
@@ -3339,7 +3482,7 @@ function composerContext(stage = 'writer') {
   const writer = writingModel(project,mode);
   const useContinuity = mode === 'story' && stage === 'continuity';
   const model = useContinuity ? selectedContinuityModel(project) : writer;
-  if (composerEdit && (!composerEdit.canRegenerate || !model || !keyForModel(model))) {
+  if (composerEdit && (!composerEdit.canRegenerate || !model || !hasModelProvider(model))) {
     return {heading:'Context',summary:'Context · no model call',parts:[],
       limits:'This action saves the text locally. No model sees it.'};
   }
@@ -3553,6 +3696,7 @@ storyDrawer.addEventListener('click', event => {
     revision = response.headers.get('etag');
     demoGeneration = response.headers.get('x-story-studio-demo-generation');
     state = normalize(await response.json());
+    const keyFailure = await api('/api/provider-keys').then(setConfiguredProviders, failure=>failure.message);
     baseLibrary = structuredClone(state);
     const migration = 'story-model-presets:custom-registry';
     if (!getSession(migration)) {
@@ -3571,6 +3715,8 @@ storyDrawer.addEventListener('click', event => {
     const view = requested.get('view');
     if (storyViews.some(([name])=>name === view)) showStoryView(view);
     status('Saved locally');
+    if (keyFailure) error(keyFailure);
+    if (requested.has('settings')) openAppSettings();
   } catch (e) {
     status('Could not load');
     error(`Couldn't open your stories: ${e.message}`);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -57,8 +57,10 @@ test('direct providers draft and exchange native tool results without crossing c
       if (!body.tools) return Response.json({status:'completed',usage:{input_tokens:1000,output_tokens:20},output:[
         {type:'message',role:'assistant',content:[{type:'output_text',text:'The ferry bell rang.'}]}]});
       if (body.tools.some(tool=>tool.name === 'edit_story_state')) {
+        const result = JSON.stringify(body.input).includes('Local-only example.') ?
+          {changes:[],message:'No story changes.',historySafe:false} : edit;
         return Response.json({status:'completed',output:[{type:'function_call',
-          call_id:'edit-call',name:'edit_story_state',arguments:JSON.stringify(edit)}]});
+          call_id:'edit-call',name:'edit_story_state',arguments:JSON.stringify(result)}]});
       }
       assert.ok(body.tools.find(tool=>tool.name === 'inspect_continuity').parameters);
       assert.deepEqual(body.include,['reasoning.encrypted_content']);
@@ -114,6 +116,15 @@ test('direct providers draft and exchange native tool results without crossing c
     const saved = (await (await fetch(origin+'/api/state')).json()).projects.find(story=>story.id === activeId);
     assert.match(saved.lore,/The pier has a lighthouse/);
     assert.deepEqual(saved.messages,original.messages);
+    assert.equal(saved.agentHistory.at(-1).message,'Added the lighthouse.');
+    const afterEdit = await fetch(origin+'/api/state');
+    const privateEdit = await send({...openai,storyId:activeId,revision:afterEdit.headers.get('etag'),
+      instruction:'Local-only example.'},'/api/story-edits');
+    assert.equal(privateEdit.status,200);
+    const afterPrivate = (await (await fetch(origin+'/api/state')).json()).projects.find(story=>story.id === activeId);
+    assert.deepEqual(afterPrivate.agentHistory.at(-1),{afterTurn:6,request:'Local-only example.',
+      message:'No story changes.',count:0,historySafe:false});
+    assert.deepEqual(afterPrivate.messages,original.messages);
     const mismatched = await send({project,instruction:'Ring the bell.',...openai,model:claude.model});
     assert.equal(mismatched.status,400);
     const keyMissing = await send({project,instruction:'Ring the bell.',...openai,
@@ -122,6 +133,20 @@ test('direct providers draft and exchange native tool results without crossing c
     const sensitive = await send({project,instruction:'Ring the bell.',...claude,
       agentProvider:openai.provider,agentModel:openai.model,agentKey:openai.key,sensitive:true});
     assert.equal(sensitive.status,400);
+    const saveKeys = (keys,site = origin)=>fetch(origin+'/api/provider-keys',{method:'PUT',
+      headers:{origin:site,'content-type':'application/json'},body:JSON.stringify(keys)});
+    assert.equal((await saveKeys({openai:openai.key},'http://example.org')).status,403);
+    assert.equal((await saveKeys({openai:openai.key,unknown:'fixture'})).status,400);
+    assert.equal((await saveKeys({openai:openai.key,anthropic:claude.key})).status,200);
+    assert.equal((await stat(join(directory,'credentials','providers.json'))).mode & 0o777,0o600);
+    const stored = await fetch(origin+'/api/provider-keys');
+    assert.deepEqual((await stored.json()).enabled.sort(),['anthropic','openai']);
+    assert.equal((await fetch(origin+'/credentials/providers.json')).status,404);
+    const bothSaved = await send({project,instruction:'Ring the bell.',provider:'openai',model:openai.model,
+      agentProvider:'anthropic',agentModel:claude.model});
+    assert.equal(bothSaved.status,200);
+    assert.equal((await bothSaved.json()).reply,'safe');
+    assert.deepEqual(await (await saveKeys({anthropic:null})).json(),{enabled:['openai']});
     const {days} = await (await fetch(origin+'/api/spend?timeZone=UTC')).json();
     const spend = days.flatMap(day=>day.models);
     for (const provider of ['anthropic','openai']) {
@@ -133,6 +158,7 @@ test('direct providers draft and exchange native tool results without crossing c
       const trace = await readFile(join(directory,'logs',provider+'-trace.log'),'utf8');
       assert.doesNotMatch(trace,/claude-fixture|openai-fixture/);
     }
+    assert.doesNotMatch(await readFile(join(directory,'logs','server.log'),'utf8'),/claude-fixture|openai-fixture/);
   } finally {
     child.kill();
     await done;

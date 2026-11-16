@@ -54,7 +54,10 @@ test('the editor cuts complete old exchanges in batches and keeps its cached pre
     setupHistory:{context:'Original setup pack. '.repeat(31_000),reviewed:true,messages:[]},
     messages:Array.from({length:330},(_,index)=>({turnNumber:index + 1,role:index % 2 ? 'assistant' : 'user',
       content:'Beat ' + index + ': ' + 'The harbor light shines. '.repeat(351)})),
-    agentHistory:[{afterTurn:330,request:'Add a note about the lighthouse.',message:'The world notes include the lighthouse.',count:1}]
+    agentHistory:[
+      {afterTurn:330,request:'Add a note about the lighthouse.',message:'The world notes include the lighthouse.',count:1},
+      {afterTurn:330,request:'HELD EDITOR REQUEST',message:'HELD EDITOR REPLY',count:0,historySafe:false}
+    ]
   };
   project.messages[320].contentSensitivity = 'explicit';
   project.messages[320].content = 'HELD INPUT';
@@ -69,7 +72,7 @@ test('the editor cuts complete old exchanges in batches and keeps its cached pre
   assert.match(JSON.stringify(first.messages),/They share the key/);
   assert.match(JSON.stringify(first.messages),/edit_story_state applied 1 changes/);
   assert.match(JSON.stringify(first.messages),/Canonical tower notes/);
-  assert.doesNotMatch(JSON.stringify(first.messages),/HELD INPUT|HELD PAIRED PROSE|Original setup pack/);
+  assert.doesNotMatch(JSON.stringify(first.messages),/HELD INPUT|HELD PAIRED PROSE|HELD EDITOR|Original setup pack/);
   const next = editorContext({...project,lore:'Updated tower notes.',messages:[
     ...project.messages,{turnNumber:331,role:'assistant',content:'The ferry arrived.',standalone:true}
   ]},'Change the time',model);

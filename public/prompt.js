@@ -54,6 +54,17 @@ export function migrateStoryFields(project) {
       } catch { return false; }
     });
   }
+  const legacyEditorReply = project.agentEditNotice?.message;
+  if (typeof legacyEditorReply === 'string' && legacyEditorReply.trim()) {
+    const history = Array.isArray(project.agentHistory) ? project.agentHistory : [];
+    if (history.at(-1)?.message !== legacyEditorReply) {
+      const messages = project.messages || [];
+      history.push({afterTurn:messages.at(-1)?.turnNumber || messages.length,
+        request:'',message:legacyEditorReply,count:0,historySafe:false});
+    }
+    project.agentHistory = history;
+  }
+  delete project.agentEditNotice;
   return project;
 }
 

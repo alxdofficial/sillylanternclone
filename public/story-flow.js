@@ -1,14 +1,17 @@
 export const storyFlowTitleLimit = 80;
 export const storyFlowDirectionLimit = 400;
+export const storyFlowConsequenceLimit = 160;
 export const storyFlowOptionCount = 3;
 
 export function validStoryFlowOptions(value) {
   if (!Array.isArray(value) || value.length !== storyFlowOptionCount) return false;
   const titles = new Set(), directions = new Set();
-  const normalize = text=>text.trim().replace(/\s+/gu,' ').toLocaleLowerCase();
+  const normalize = text=>text.normalize('NFC').trim().replace(/\s+/gu,' ').toLocaleLowerCase();
   for (const option of value) {
     if (typeof option?.title !== 'string' || !option.title.trim() || option.title.length > storyFlowTitleLimit
-      || typeof option.direction !== 'string' || !option.direction.trim() || option.direction.length > storyFlowDirectionLimit) return false;
+      || typeof option.direction !== 'string' || !option.direction.trim() || option.direction.length > storyFlowDirectionLimit
+      || option.consequence !== undefined && (typeof option.consequence !== 'string' ||
+        !option.consequence.trim() || option.consequence.length > storyFlowConsequenceLimit)) return false;
     titles.add(normalize(option.title));
     directions.add(normalize(option.direction));
   }
@@ -34,7 +37,8 @@ export function normalizeStoryFlow(flow) {
   }
   if (!validStoryFlowOptions(options)) return undefined;
   return {source:flow.source,afterTurn:flow.afterTurn,
-    options:options.map(({title,direction})=>({title:title.trim(),direction:direction.trim()})),
+    options:options.map(({title,direction,consequence})=>({title:title.trim(),direction:direction.trim(),
+      ...(consequence ? {consequence:consequence.trim()} : {})})),
     ...(selected === undefined ? {} : {selected})};
 }
 

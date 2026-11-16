@@ -2,6 +2,12 @@
 
 For current setup and controls, use the [README](README.md) and [MCP guide](MCP.md). The archival walkthroughs at the end retain the interface and model behavior observed at the time.
 
+## Revision and persistent provider settings
+
+In an isolated library, exercised Settings, Story Flow, Pacing, Themes, Setups & payoffs, and Graph continuity checks in Chromium at desktop and phone widths. Verified that using a Story Flow choice fills the composer and waits for Send. Pinned a motif, linked a payoff, marked a date finding intentional, and followed a verified AI citation to the exact scene. The simulated provider received two eligible scenes and no held prose.
+
+Verified that the configured provider survived a browser reload and a server restart, and that removing its key was reflected on the next reload. Integration tests check direct-provider routing with saved credentials, local file permissions, cross-origin write refusal, and that the credentials are absent from logs. Provider responses were simulated.
+
 ## Direct providers and optional MCP tools
 
 In a disposable library, exercised Chrome with fixture credentials. Confirmed that adding and clearing keys shows and hides the corresponding model groups, the composer sends separate Claude and OpenAI selections, the returned prose appears in Write, and setup uses the selected OpenAI model. Automated integration tests capture the native Anthropic and OpenAI payloads, including read tool replies, OpenAI reasoning replay, mixed-provider credentials, setup draft validation, and a saved editor update. Provider replies in those automated checks were simulated.

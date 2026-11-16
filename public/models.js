@@ -32,6 +32,7 @@ const catalogModel = id => models.find(model=>model.id === id);
 export const modelProvider = id => catalogModel(id)?.provider || (isModelId(id) ? 'openrouter' : undefined);
 export const isWriterModel = id => Boolean(modelProvider(id)) && !catalogModel(id)?.agentOnly;
 export const canWriteSensitive = id => Boolean(catalogModel(id)?.sensitiveWriter);
+export const usesSensitiveContinuity = (writer,sensitive) => sensitive || canWriteSensitive(writer);
 export const isAgentModel = id => models.some(model => model.id === id && !model.sensitiveWriter && !model.agentOnly);
 export const isContinuityModel = (id,sensitive) => sensitive ? Boolean(catalogModel(id)?.sensitiveAgent) : isAgentModel(id);
 export const agentOutputLimit = 8_192;

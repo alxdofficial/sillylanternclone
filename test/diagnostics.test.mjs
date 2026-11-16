@@ -171,6 +171,9 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     const blockedAgent = await generate('thedrummer/cydonia-24b-v4.1','blocked route fixture','send',true,undefined,'openai/gpt-6.1-terra');
     assert.equal(blockedAgent.status,400);
     assert.match((await blockedAgent.json()).error,/supported sensitive-scene continuity agent/);
+    const unchecked = await generate('thedrummer/cydonia-24b-v4.1','unchecked scene fixture','send',false,undefined,'openai/gpt-6.1-terra');
+    assert.equal(unchecked.status,400);
+    assert.match((await unchecked.json()).error,/supported sensitive-scene continuity agent/);
     for (const agentModel of ['mistralai/mistral-large-4-0','x-ai/grok-4.7']) {
       const routed = await generate('thedrummer/cydonia-24b-v4.1','sensitive agent routing fixture','send',true,undefined,agentModel);
       assert.equal(routed.status,200);

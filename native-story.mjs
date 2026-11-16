@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { captureGraphVersion, storyAtTurn } from './public/graph-history.js';
 import { maxLibraryStories, starterStoryId } from './public/library.js';
+import { branchRevisionNotes } from './public/revision.js';
 import {
   castFields, getCast, isAvailableToMcp, localStoryTime, nextTurnNumber,
   mcpOmissionReason, precedingDirection
@@ -136,6 +137,7 @@ export function applyNativeStoryChange(library,project,change) {
       if (kind === 'rewind') library.projects[library.projects.indexOf(project)] = updated;
       else {
         const branch = appendNativeStory(library,{...updated,id:randomUUID(),title:change.title});
+        branchRevisionNotes(branch,project.id);
         return {branchId:branch.id};
       }
     }

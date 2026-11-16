@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
-import { agentOutputLimit, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isWriterModel, modelProvider, models, providerNames, proseOutputLimit, setupChatOutputLimit, setupDraftModel, setupDraftOutputLimit } from './public/models.js';
+import { agentOutputLimit, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isWriterModel, modelProvider, models, providerNames, proseOutputLimit, setupChatOutputLimit, setupDraftModel, setupDraftOutputLimit, usesSensitiveContinuity } from './public/models.js';
 import { buildWritingContext, getCast, legacyCastFields, migrateLegacyCast, migrateStoryFields, validPlotEvents, storyTextFields, validCast, validRelationships, validSensitivity, isStoryTime, estimateContextTokens } from './public/prompt.js';
 import { libraryByteLimit, maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory } from './examples/the-late-ferry.mjs';
@@ -18,10 +18,15 @@ import { createLogger, createTrace, diagnosticError, errorCode, storyReference }
 import { fileURLToPath } from 'node:url';
 import { providerAdapters, rememberProviderOutput } from './provider-api.mjs';
 import { createSpendLedger } from './provider-spend.mjs';
+import { createCredentialStore, validKey } from './provider-credentials.mjs';
+import { createRevisionReviewer, reviewOutputLimit } from './revision-review.mjs';
+import { normalizeRevisionNotes } from './public/revision.js';
 
 const root=dirname(fileURLToPath(import.meta.url));
 const dataDir=process.env.STORY_STUDIO_DATA || join(homedir(),'Library','Application Support','Story Studio');
 const spend = createSpendLedger(dataDir);
+const credentials = createCredentialStore(dataDir);
+const reviewStory = createRevisionReviewer();
 const statePath=join(dataDir,'library.json');
 const port=Number(process.env.PORT || 4317);
 const log = createLogger('server');
@@ -31,7 +36,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   console.error('Story Studio: PORT must be a number from 1 to 65535.');
   process.exit(1);
 }
-const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/generate','/api/story-edits','/api/story-flow','/api/setup','/api/export']);
+const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/generate','/api/story-edits','/api/story-flow','/api/setup','/api/export','/api/provider-keys','/api/revision']);
 const methodNames = new Set(['GET','POST','PUT']);
 const modelIds = new Set(models.map(model => model.id));
 let starter = createStarterStory();
@@ -55,7 +60,10 @@ async function parseLibrary(path) {
   return migrateLibrary(library);
 }
 function migrateLibrary(library) {
-  for (const project of library.projects) migrateStoryFields(migrateLegacyCast(project));
+  for (const project of library.projects) {
+    migrateStoryFields(migrateLegacyCast(project));
+    if (project.revisionNotes !== undefined) project.revisionNotes = normalizeRevisionNotes(project.revisionNotes);
+  }
   return library;
 }
 async function readSavedLibrary() {
@@ -147,7 +155,6 @@ const apiStatusHints = {
   429:'The selected model is rate limited. Try again later.'
 };
 
-const validKey = key => typeof key === 'string' && /^[!-~]{1,512}$/.test(key);
 const keyRequired = provider => 'Add your ' + providerNames[provider] + ' key in Settings.';
 
 async function generateCompletion(messages, model, key, diagnostics, {
@@ -271,7 +278,7 @@ async function generateCompletion(messages, model, key, diagnostics, {
   return {text:text.trim(), truncated:finish === 'length'};
 }
 async function generateSetup(req,res,diagnostics) {
-  const {mode,model,key,messages,manuscript,context,provider = 'openrouter'} = await body(req,libraryLimit) || {};
+  const {mode,model,key:requestKey,messages,manuscript,context,provider = 'openrouter'} = await body(req,libraryLimit) || {};
   const prompt = setupMessages(messages,mode,manuscript,context,'prepare_story_setup');
   if (!prompt) {
     diagnostics.code = 'INVALID_SETUP_CONVERSATION';
@@ -281,6 +288,7 @@ async function generateSetup(req,res,diagnostics) {
     diagnostics.code = 'SETUP_MODEL_INVALID';
     return json(res,400,{error:'Choose a model from the selected API provider.'});
   }
+  const [key] = await credentials.keys([[provider,requestKey]]);
   if (!validKey(key)) return json(res,400,{error:keyRequired(provider)});
   const drafting = mode === 'draft';
   const selected = drafting ? setupDraftModel(model) : model;
@@ -312,7 +320,7 @@ async function generateSetup(req,res,diagnostics) {
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8'};
 const staticAssets = new Set([
   '/index.html','/app.js','/prompt.js','/models.js','/graph-history.js','/library.js',
-  '/manuscript.js','/agent-context.js','/model-picker.js','/story-flow.js','/display-names.js','/sync.js','/style.css'
+  '/manuscript.js','/agent-context.js','/model-picker.js','/story-flow.js','/display-names.js','/sync.js','/revision.js','/revision-view.js','/style.css'
 ]);
 function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens = agentOutputLimit,{taskTimeout = true} = {}) {
   const budget = taskTimeout ? AbortSignal.timeout(300_000) : undefined;
@@ -328,11 +336,12 @@ function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens 
 }
 
 async function generateStoryEdits(req,res,diagnostics) {
-  const {storyId,revision,model,key,instruction,provider = 'openrouter'} = await body(req,libraryLimit) || {};
+  const {storyId,revision,model,key:requestKey,instruction,provider = 'openrouter'} = await body(req,libraryLimit) || {};
   if (typeof storyId !== 'string' || typeof revision !== 'string' || !validStoryEditInstruction(instruction)) {
     return json(res,400,{error:'Enter a story edit request.'});
   }
   if (!isAgentModel(model) || modelProvider(model) !== provider) return json(res,400,{error:'Choose a supported model for Agent mode.'});
+  const [key] = await credentials.keys([[provider,requestKey]]);
   if (!validKey(key)) return json(res,400,{error:keyRequired(provider)});
   const library = await getState();
   if (liveRevision(library) !== revision) return json(res,409,{error:'The story changed. Reload the latest version and try again.'});
@@ -345,7 +354,6 @@ async function generateStoryEdits(req,res,diagnostics) {
     const result = await runStoryEdit(project,instruction,storyToolCompletion(model,key,diagnostics,'story-edit',signal),model);
     if (signal.aborted) return;
     delete project.agentEditRequest;
-    project.agentEditNotice = {message:result.message};
     library.projects[index] = project;
     if (!await saveState(library,revision,false)) return json(res,409,{error:'The story changed before saving the edit. Try again from the latest version.'});
     diagnostics.appliedEdits = result.count;
@@ -362,11 +370,12 @@ function flowCompletion(model,key,diagnostics,signal) {
 }
 
 async function suggestStoryFlow(req,res,diagnostics) {
-  const {project,agentModel = continuityModel,key,sensitive = false,provider = 'openrouter'} = await body(req,libraryLimit) || {};
+  const {project,agentModel = continuityModel,key:requestKey,sensitive = false,provider = 'openrouter'} = await body(req,libraryLimit) || {};
   if (!validateState({activeId:project?.id,projects:[project]}) || typeof sensitive !== 'boolean'
       || !isContinuityModel(agentModel,sensitive) || modelProvider(agentModel) !== provider) {
     return json(res,400,{error:'Choose a supported continuity agent and story for Story Flow.'});
   }
+  const [key] = await credentials.keys([[provider,requestKey]]);
   if (!validKey(key)) return json(res,400,{error:keyRequired(provider)});
   Object.assign(diagnostics,{provider,storyRef:storyReference(project.id),model:agentModel});
   const signal = disconnectSignal(res);
@@ -380,7 +389,45 @@ async function suggestStoryFlow(req,res,diagnostics) {
   }
 }
 
+async function runRevisionReview(req,res,diagnostics) {
+  const {storyId,revision,kind,scope,query = '',comparisonId,model} = await body(req,16000) || {};
+  if (typeof storyId !== 'string' || typeof revision !== 'string' ||
+      !['themes','continuity','threads'].includes(kind) ||
+      typeof scope !== 'string' || !/^(?:book|(?:scene|chapter):[1-9][0-9]{0,15})$/.test(scope) ||
+      typeof query !== 'string' || query.length > 4000 ||
+      comparisonId !== undefined && (kind !== 'continuity' || typeof comparisonId !== 'string' || comparisonId === storyId) ||
+      !isAgentModel(model)) return json(res,400,{error:'Check the selected review scope and model.'});
+  const provider = modelProvider(model);
+  const [key] = await credentials.keys([[provider]]);
+  if (!key) return json(res,400,{error:keyRequired(provider)});
+  const library = await getState();
+  if (revision !== liveRevision(library)) return json(res,409,{error:'The library changed. Try reviewing the latest version.'});
+  const project = library.projects.find(item=>item.id === storyId);
+  const comparison = library.projects.find(item=>item.id === comparisonId);
+  if (!project || comparisonId && !comparison) return json(res,404,{error:'The selected story is no longer available.'});
+  Object.assign(diagnostics,{provider,model,reviewKind:kind,storyRef:storyReference(storyId)});
+  const signal = disconnectSignal(res);
+  try {
+    const result = await reviewStory(project,{kind,scope,query,comparison,model},
+      storyToolCompletion(model,key,diagnostics,'revision-review',signal,reviewOutputLimit));
+    if (signal.aborted) return;
+    if (revision !== liveRevision(await getState())) return json(res,409,{error:'The library changed during the review. Run it again for the latest version.'});
+    diagnostics.cached = result.cached === true;
+    diagnostics.findings = result.findings.length;
+    return json(res,200,result);
+  } catch (failure) {
+    if (signal.aborted) return;
+    diagnostics.code = errorCode(failure,'REVISION_REVIEW_FAILED');
+    return json(res,failure.status || (['REVISION_NO_PASSAGES','REVISION_SCOPE_TOO_LARGE'].includes(diagnostics.code) ? 400 : 502),
+      {error:failure.diagnosticCode ? failure.message : 'Studio could not review this scope.'});
+  }
+}
+
 async function routeRequest(req,res,url,diagnostics) {
+if (url.pathname === '/api/provider-keys') {
+  if (req.method === 'GET') return json(res,200,{enabled:await credentials.status()});
+  if (req.method === 'PUT') return json(res,200,{enabled:await credentials.update(await body(req,4096))});
+}
 if (url.pathname === '/api/spend' && req.method === 'GET') {
   let timeZone = url.searchParams.get('timeZone') || 'UTC';
   try { new Intl.DateTimeFormat('en',{timeZone}); } catch { timeZone = 'UTC'; }
@@ -447,9 +494,9 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
 if (url.pathname === '/api/setup' && req.method === 'POST') return generateSetup(req,res,diagnostics);
 if (url.pathname === '/api/story-edits' && req.method === 'POST') return generateStoryEdits(req,res,diagnostics);
 if (url.pathname === '/api/story-flow' && req.method === 'POST') return suggestStoryFlow(req,res,diagnostics);
+if (url.pathname === '/api/revision' && req.method === 'POST') return runRevisionReview(req,res,diagnostics);
 if (url.pathname === '/api/generate' && req.method === 'POST') {
-  const {project,instruction,provider,model,key,mode='send',sensitive=false,agentModel=continuityModel,agentProvider=provider,agentKey:separateKey,flow=false} = await body(req, libraryLimit) || {};
-  const agentKey = agentProvider === provider ? key : separateKey;
+  const {project,instruction,provider,model,key:requestKey,mode='send',sensitive=false,agentModel=continuityModel,agentProvider=provider,agentKey:separateKey,flow=false} = await body(req, libraryLimit) || {};
   if (!validateState({activeId:project?.id,projects:[project]}) || typeof instruction !== 'string') {
     diagnostics.code = 'INVALID_STORY_REQUEST';
     return json(res,400,{error:'Invalid story request.'});
@@ -464,6 +511,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
   diagnostics.storyRef = storyReference(project.id);
   const signal = disconnectSignal(res);
   try {
+    const [key,agentKey] = await credentials.keys([[provider,requestKey],[agentProvider,agentProvider === provider ? requestKey : separateKey]]);
     if (!validKey(key)) return json(res,400,{error:keyRequired(provider)});
     if (!isWriterModel(model) || modelProvider(model) !== provider) {
       diagnostics.code = 'WRITER_MODEL_INVALID';
@@ -473,9 +521,10 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
       diagnostics.code = 'SENSITIVE_ARTIST_REQUIRED';
       return json(res,400,{error:'Choose an NSFW-friendly writer for a sensitive scene.'});
     }
-    if (!isContinuityModel(agentModel,sensitive) || modelProvider(agentModel) !== agentProvider) {
+    const restricted = usesSensitiveContinuity(model,sensitive);
+    if (!isContinuityModel(agentModel,restricted) || modelProvider(agentModel) !== agentProvider) {
       diagnostics.code = 'CONTINUITY_MODEL_REQUIRED';
-      return json(res,400,{error:sensitive ? 'Choose a supported sensitive-scene continuity agent.'
+      return json(res,400,{error:restricted ? 'Choose a supported sensitive-scene continuity agent.'
         : 'Choose a supported continuity agent.'});
     }
     if (!validKey(agentKey)) return json(res,400,{error:keyRequired(agentProvider)});

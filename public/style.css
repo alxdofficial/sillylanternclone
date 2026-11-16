@@ -409,7 +409,84 @@ textarea { caret-color: #f0c6de; }
 .story-flow-choice:disabled { opacity: .7; }
 .story-flow-choice[aria-pressed="true"] { background: var(--selected); color: var(--text); opacity: 1; }
 .story-flow-title { font-size: 13px; font-weight: 550; }
-.story-flow-description { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.story-flow-description { color: var(--muted); font-size: 12px; line-height: 1.4; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+#flowPreviewDirection { white-space: pre-wrap; line-height: 1.6; margin: 0; }
+.revision-view { --revision-gutter: clamp(16px, 3vw, 32px); flex: 1; min-height: 0; overflow: auto; }
+.revision-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 30px; padding: 16px var(--revision-gutter); }
+.revision-heading h2, .revision-inspector h3 { margin: 0; font-weight: 550; }
+.revision-switch, .revision-actions { display: flex; flex-wrap: wrap; gap: 5px 14px; }
+.revision-switch .text-button { color: var(--muted); }
+.revision-switch [aria-pressed="true"] { color: var(--text); }
+.revision-help { margin: 0 var(--revision-gutter) 12px; max-width: 68ch; }
+.revision-help summary { width: fit-content; color: var(--muted); font-size: 13px; cursor: pointer; }
+.revision-help p { margin: 8px 0 0; line-height: 1.55; }
+.revision-work { display: grid; grid-template-columns: minmax(0, .7fr) minmax(0, 3fr) minmax(0, 1fr); gap: clamp(12px, 2vw, 32px); padding: 8px var(--revision-gutter) 30px; }
+.revision-work:has(.revision-inspector[hidden]) { grid-template-columns: minmax(0, .7fr) minmax(0, 4fr); }
+.revision-rail { min-width: 0; }
+.revision-work label, .revision-dialog label { display: grid; gap: 5px; color: var(--muted); font-size: 13px; min-width: 0; }
+.revision-work :is(input,select), .revision-dialog :is(select,textarea) { min-width: 0; max-width: 100%; }
+.revision-work select, .revision-dialog select { min-height: 40px; background: var(--rail); padding-inline: 8px; }
+#revisionScenes { display: grid; margin-top: 12px; }
+#revisionScenes button { text-align: start; overflow-wrap: anywhere; }
+#revisionScenes [aria-pressed="true"] { color: var(--focus); }
+.revision-content { min-width: 0; container-type: inline-size; }
+.revision-content h3 { margin: 22px 0 8px; font-size: 16px; font-weight: 550; }
+.revision-list-section { margin-top: 24px; }
+.revision-list-section > h3 { margin-top: 0; }
+.revision-suggestions { margin-top: 32px; }
+.revision-suggestions h3 { color: var(--focus); }
+#pacingSummary:empty { display: none; }
+.revision-tools { display: flex; flex-wrap: wrap; gap: 9px; align-items: end; margin-bottom: 10px; }
+.revision-tools label { flex: 1 1 145px; margin: 0; }
+.revision-theme-tools, .revision-thread-tools { display: grid; gap: 8px; }
+.revision-theme-tools { gap: 5px; }
+.revision-theme-controls, .revision-thread-fields { display: grid; align-items: end; gap: 12px; }
+.revision-theme-controls { grid-template-columns: minmax(0, 1fr) auto; }
+.revision-thread-fields { grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); }
+.revision-form-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.revision-tools input:not([type=file]), .revision-tools :is(select,button) { min-height: 40px; margin: 0; }
+.revision-tools .text-button { color: var(--muted); font-weight: 500; }
+.revision-tools .text-button:hover:not(:disabled) { color: var(--text); }
+@container (max-width: 520px) {
+  .revision-theme-controls { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .revision-thread-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+  .revision-thread-fields label:first-child { grid-column: 1 / -1; }
+}
+@media (pointer: coarse) {
+  .revision-tools :is(input,select,button) { min-height: 44px; }
+}
+.revision-metric-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.revision-metric-heading span { color: var(--muted); font-size: 13px; }
+.revision-metric-heading button { padding-inline: 0; }
+.revision-pacing-row { margin: 0 0 16px; }
+.revision-pace-track { height: 7px; margin: 2px 0 6px; background: var(--rail); }
+.revision-pace-bar { display: flex; height: 100%; background: var(--selected); }
+.revision-pace-bar > span { background: var(--focus); }
+.revision-finding { padding: 10px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.revision-finding h4 { margin: 0 0 4px; font-weight: 550; }
+.revision-citation { padding-inline-start: 10px; border-inline-start: 1px solid var(--border); margin: 8px 0; }
+.revision-citation blockquote { margin: 0; color: var(--text); overflow-wrap: anywhere; white-space: pre-wrap; }
+.revision-citation button { color: var(--focus); padding-inline: 0; text-align: start; }
+.revision-inspector { background: var(--rail); padding: 12px; min-width: 0; align-self: start; }
+.revision-inspector header { display: flex; align-items: center; justify-content: space-between; gap: 5px; }
+#continuityReview[open] { display: flex; flex-direction: column; width: min(760px, calc(100vw - 24px)); max-height: 90dvh; }
+.revision-dialog .dialog-top { flex: none; }
+.revision-reference { margin: 12px 0; }
+.revision-reviewed { margin: 14px 0; color: var(--muted); }
+.revision-reviewed summary { cursor: pointer; }
+@media (max-width: 900px) {
+  .revision-work, .revision-work:has(.revision-inspector[hidden]) {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 3fr);
+  }
+  .revision-inspector { grid-column: 2; grid-row: 2; }
+}
+@media (max-width: 620px) {
+  .revision-work, .revision-work:has(.revision-inspector[hidden]) { display: flex; flex-direction: column; }
+  .revision-inspector { order: 1; width: 100%; }
+  .revision-content { order: 2; }
+  #revisionScenes { display: flex; overflow-x: auto; white-space: nowrap; }
+  .revision-tools label { flex-basis: 125px; }
+}
 @container (max-width: 510px) {
   .route-bar { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .route-bar { padding-inline-end: 0; }

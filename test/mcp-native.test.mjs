@@ -39,6 +39,7 @@ test('native chat creates, writes, edits, and branches without queued work or le
     const opened = await invoke('open_studio');
     childPid = opened.pid;
     assert.match(opened.url,/\?view=book&via=mcp$/);
+    assert.match(opened.settingsUrl,/\?view=write&via=mcp&settings=1$/);
     const library = await invoke('list_stories');
     const created = await invoke('create_story',{revision:library.revision,draft:{
       title:'The Signal Tower',scenario:'The signal lamp fails.'

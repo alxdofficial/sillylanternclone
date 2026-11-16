@@ -115,6 +115,13 @@ function mergeProject(base = {}, local, server) {
   const messages = mergeMessages(base.messages || [], local.messages || [], server.messages || []);
   const {value, conflicts} = mergeFields(base, local, server, {
     messages:() => messages.conflicts.length ? unresolved : messages.value,
+    revisionNotes:(b = [],l = [],s = [])=>{
+      const byId = entries=>Object.fromEntries(entries.map(note=>[note.id,note]));
+      const merged = mergeFields(byId(b),byId(l),byId(s));
+      if (merged.conflicts.length) return unresolved;
+      const values = Object.values(merged.value);
+      return values.length ? values : undefined;
+    },
     // Both sides appending turns only needs the next number to stay ahead of both.
     nextTurn:(b, l, s) => {
       const picked = pick(b, l, s);

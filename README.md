@@ -29,7 +29,7 @@ The demo was built and exported through the current Story Studio browser workflo
 
 ## Progress the story
 
-1. Open the hamburger menu, click the **Settings** gear, add one or more API keys, and click **Save settings**. The model menus group choices by enabled provider. Keys stay in this tab until it closes or reloads. Clear a key to hide that provider. The composer links to **Settings** when you focus it without a key. [Claude keys](https://platform.claude.com/settings/keys) · [OpenAI keys](https://platform.openai.com/api-keys) · [OpenRouter keys](https://openrouter.ai/settings/keys)
+1. Open the hamburger menu, click the **Settings** gear, add one or more API keys, and click **Save settings**. Keys are saved on this machine and shared by every story. The model menus group choices by enabled provider. Select **Remove saved key** for a provider in Settings to disable it. The composer links to **Settings** when you focus it without a key. [Claude keys](https://platform.claude.com/settings/keys) · [OpenAI keys](https://platform.openai.com/api-keys) · [OpenRouter keys](https://openrouter.ai/settings/keys)
 2. In **Write**, choose **Progress the story** and select a **Prose artist** and **Continuity agent** independently. The writer menu estimates cost for a chapter of 2,000 input and 5,000 output tokens. Each pass goes to its selected provider and is metered separately. If you claimed subscription API credits, use a key from the linked organization and choose its direct API group. Click the context ring to inspect the current context. Set standing style preferences in **Graph → Writing**. Use **Sensitive scene** with an NSFW-friendly writer when appropriate. [Model notes and prices](MODELS.md) · [Claude credit terms](https://platform.claude.com/docs/en/about-claude/api-credits-for-subscribers) · [OpenAI credit terms](https://help.openai.com/en/articles/20001626-api-credits-benefit-for-eligible-chatgpt-subscriptions)
 3. Click **Send**. The selected writer writes the prose. The selected continuity agent classifies the scene and proposes non-explicit continuity updates. **View graph changes** shows the updates for that turn. Proposals needing approval are in **Graph → Review updates**.
 
@@ -41,11 +41,20 @@ To add your own OpenRouter model, choose **Manage custom models…** in the **Pr
 
 ## Story Flow
 
-In **Write**, click **Get AI recommendations** above the composer to ask your selected continuity agent for three next beats. Story Flow stays visible when you hide the composer. Choosing a suggestion or sending your own direction while an in-app offer is active requests fresh suggestions after the scene. The first suggestion request starts when you click the icon. Suggestions use a separate API request.
+In **Write**, click **Get AI recommendations** above the composer to ask your selected continuity agent for three next beats. Open a suggestion for its full direction and any consequence the agent provided. Click **Use direction** to put it in the composer, then edit or send when ready. Story Flow stays visible when you hide the composer. Sending a direction while an in-app offer is active asks for fresh suggestions after the scene. Each suggestion request uses the selected provider.
+
+## Review a draft
+
+- **Revision → Pacing** shows word counts, estimated quoted dialogue, cast mentions, and recorded graph events, scoped to a scene, chapter, or the whole book. Select a scene to see an excerpt and jump to the manuscript or graph events.
+- **Revision → Themes** finds exact words or phrases locally. Leave the search empty and click **Suggest themes with AI** to discover possible themes, or enter a phrase and use **Find related with AI** to look for indirect echoes. Pin passages you want to revisit.
+- **Revision → Setups & payoffs** tracks planted details and open threads. Link a payoff when it lands, or ask for **AI suggestions** and move the ones you want into **Tracked threads**.
+- **Graph → Check continuity** checks for graph events with missing source turns and tracked payoffs dated before their setups. Optional AI review compares cited passages. Choose a comparison story or add canon notes if you want those included. Mark findings intentional or dismiss them.
+
+AI reviews use the general continuity agent selected in Write, or the selected Editor model if Write is in **Editor agent** mode. They send only eligible passages and saved canon from the explicitly selected stories. Large reviews can be scoped to a chapter or scene. Findings link back to their evidence and never edit the story automatically. Pins and tracked threads are saved with your story. A changed or deleted source passage is marked **Needs recheck**.
 
 ## Editor agent
 
-In **Write**, choose **Editor agent** and a tool-capable model. Enter a request such as “Add a lighthouse to the setting” and click **Send**. This can update writing and author notes, cast profiles, world details, and dated plot and relationship events without changing the manuscript.
+In **Write**, choose **Editor agent** and a tool-capable model. Enter a request such as “Add a lighthouse to the setting” and click **Send**. The request and reply appear in the Write transcript as separate turns. They stay out of the manuscript, and exchanges the editor flags as unsafe stay out of future AI history. The editor can update writing notes, cast profiles, world details, and dated plot and relationship events.
 
 ## Brainstorm a new story
 
@@ -92,7 +101,7 @@ The context ring in the lower left of the composer estimates how much of the mod
 
 The narrator prompt includes the cast, setting, applicable lore, and recent eligible prose. It limits recent prose to an estimated 16,000 tokens, with a smaller allowance on models with shorter budgets. Older prose stays in the transcript. The prompt uses the remaining budget for relationship events. When the full timeline exceeds that budget, Story Studio favors events involving characters mentioned in the current scene, then newer events, and presents the selected events chronologically. Saved plot events also carry forward through the graph.
 
-For a sensitive scene, choose **Progress the story** and an NSFW-friendly writer and check **Sensitive scene** before sending. Story Studio marks that direction explicit and allows the selected writer to see eligible sensitive history for that request. The selected sensitive continuity agent sees the new direction and draft for classification and continuity. General models and MCP receive eligible prose plus approved, non-explicit graph facts. Use the checkbox before sending because automatic classification happens after the artist receives your direction. When the continuity agent detects explicit content, the checkbox turns on for the next draft. Clear it when returning to a general scene. [Model context and tools](MODELS.md#what-story-studio-sends-and-expects)
+Selecting an **NSFW-friendly** prose artist turns on **Sensitive scene** by default and switches to the restricted continuity list. A checked scene marks the direction explicit and allows the writer to see eligible sensitive history. Clear the checkbox to leave that history out and let the agent classify the direction normally. The restricted continuity agent still classifies the new direction and draft. General models and MCP receive eligible prose plus approved, non-explicit graph facts. When the continuity agent detects explicit content, the checkbox turns on for the next draft. [Model context and tools](MODELS.md#what-story-studio-sends-and-expects)
 
 Labels are model judgments and can be wrong. If classification fails, Story Studio keeps the prose and treats the unverified text as withheld from general model context. If the artist hits its output limit, the partial draft stays in the transcript and receives a cutoff warning. Changes from sensitive or unverified scenes need review before entering shared story context. Review manually added, imported, and edited passages too.
 
@@ -112,7 +121,7 @@ On the **Display names** tab, put the original character or place name on the le
 
 The default library folder is `~/Library/Application Support/Story Studio/` and its main file is `library.json`. Quit Story Studio and copy the whole folder to migrate to another Mac. Or use **Menu → Export history ZIP** to download `library.json` and readable story transcripts. To restore an export, unzip it and select `library.json` with **Import library**. Import replaces the current library after confirmation. If a newer save from another tab causes a conflict, export your local work before reloading.
 
-The app binds to your Mac’s loopback address and stores the library locally. When you use a model, the assembled context goes to its service through your selected route. API keys stay in browser page memory, pass through the local server for their own provider’s requests, and clear on reload. Story exports exclude the keys.
+The app binds to your Mac’s loopback address and stores the library locally. When you use a model, the assembled context goes to its service through your selected route. The local server keeps API keys in a file restricted to your OS user and sends them only to the selected provider. Story exports exclude the keys.
 
 ## Troubleshoot startup and writing
 

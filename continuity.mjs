@@ -119,9 +119,10 @@ export async function runStoryEdit(project,instruction,complete,model) {
     editSchema,({changes,message,historySafe}) => {
       try {
         const count = applyStoryEdits(project,changes);
-        if (historySafe) (project.agentHistory ||= []).push({
+        (project.agentHistory ||= []).push({
           afterTurn:project.messages.at(-1)?.turnNumber ?? project.messages.length,
-          request:instruction.trim(),message,count,...(count ? {changes:JSON.stringify(changes)} : {})
+          request:instruction.trim(),message,count,
+          ...(historySafe ? (count ? {changes:JSON.stringify(changes)} : {}) : {historySafe:false})
         });
         return {value:{count,message}};
       } catch (failure) {
