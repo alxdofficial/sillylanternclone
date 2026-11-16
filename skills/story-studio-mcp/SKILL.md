@@ -9,12 +9,19 @@ Work with the writer in this chat. Use the connected Story Studio tools for save
 
 For each new request about a saved story, reread the relevant state. If the story is unclear, call list_stories. Keep the storyId for the chosen story throughout the request. The latest tool result is canon. The author can change or rewind the project in the browser between messages.
 
+When the writer asks to change the manuscript or story state, make the matching MCP write call before reporting the result. Confirm the change after the tool succeeds. If the tool is unavailable or rejects the write, explain what remains unsaved.
+
+## Install or update Studio
+
+When asked to install, update, or reconnect Studio, follow [OPERATIONS.md](../../OPERATIONS.md) and [MCP.md](../../MCP.md) from the active checkout. For an update, pull into the existing checkout, run its launcher to refresh dependencies, and check which copy of this skill the client uses. Refresh any separately installed copy from this file. Start a fresh MCP session using the updated launcher path so it receives the current server instructions and tool schemas. Verify tool discovery and a read-only story listing before writing.
+
 ## Choose the tool from the request
 
 | The writer wants to | Use |
 | --- | --- |
 | Discuss what happened, brainstorm, or ask a continuity question | get_story_context with purpose reference or a focused read. Answer in chat. |
-| Draft an opening or continue | get_story_context with purpose draft and the current direction. Write in chat. If asked to append the draft, use submit_reply with storyId, revision, prose, and established non-explicit continuity updates. Use an empty updates array when nothing durable changed. Finish pending continuity with get_scene_continuity and record_scene. |
+| Write an opening or continue | Read get_story_context with purpose draft and the current direction, then call submit_reply before responding in chat. Pass the returned storyId and revision, the prose, and any non-explicit continuity updates. Finish pending continuity with get_scene_continuity and record_scene. |
+| Show a preview or draft first | Read get_story_context with purpose draft, then show the text in chat and wait for approval before saving. |
 | Quote or revise an existing scene | read_story_turns with recent true, afterTurn, or a specific turnNumber. Use nextAfterTurn to continue a turn list and nextOffset to read the rest of an eligible passage. Save a requested revision with edit_story_structure using kind edit_turn. |
 | Add a durable fact or edit story state | get_story_state for the current revision, inspect_continuity for the fields or events involved, then edit_story_state. |
 | Create a story from an agreed setup | list_stories for its revision, then create_story with the agreed baseline. Continue a large setup in batches as described below. |

@@ -7,14 +7,16 @@ Start here if you are installing, updating, or troubleshooting Story Studio for 
 1. Locate the existing Story Studio folder or clone [the repo](https://github.com/alxdofficial/sillylanternclone) if this is a fresh install. Run commands from that folder.
 2. Open **Start Story Studio.command**. From Terminal, run `zsh 'Start Story Studio.command'`. It finds or installs Node, installs the locked dependencies, and opens the browser. With Node 20+ and npm already available, `npm ci` followed by `npm start` also works.
 3. Open [Story Studio](http://127.0.0.1:4317/) and check that the writing screen loads. With the default port, `curl -fsS -o /dev/null http://127.0.0.1:4317/` checks server availability without printing library data.
-4. For MCP, register `bin/story-studio-mcp` once in the owner’s local client. In a fresh signed-in chat, ask the agent to open Story Studio and list the stories. OpenRouter is configured separately in the browser’s **Connection**.
+4. For MCP, register `bin/story-studio-mcp` once in the owner’s local client. In a fresh signed-in chat, ask the agent to open Story Studio and list the stories. OpenRouter is configured separately in the browser’s **Settings**.
 
 ## Stop, update, and restart
 
 1. Finish or cancel any current requests, wait for **Saved locally** in the browser.
 2. Press Control-C in the Terminal running Studio. If MCP `open_studio` launched it in the background, run `lsof -nP -iTCP:4317 -sTCP:LISTEN` (substitute any custom port). Verify that the reported PID is this Studio's Node process using `ps -p PID -o command=` and `lsof -a -p PID -d cwd`. Use `kill -TERM PID` for that verified process. Substitute the actual PID in each command.
 3. For a Git clone, check `git status --short`, then run `git pull --ff-only` from the existing checkout. Preserve any local changes and report divergence or merge conflicts. For a ZIP install, unpack a fresh copy. If the folder moves, update the MCP command path in the client.
-4. Start Studio again with the launcher and reload the browser. The launcher reinstalls dependencies when the lockfile changes. If launching by hand, run `npm ci` before `npm start`. After an update, start a fresh local agent session to reload MCP tools. Verify the page and tool discovery as above.
+4. Start Studio again with the launcher and reload the browser. The launcher reinstalls dependencies when the lockfile changes. If launching by hand, run `npm ci` before `npm start`.
+5. Read the updated [Story Studio MCP skill](skills/story-studio-mcp/SKILL.md) and [MCP workflow](MCP.md) from this checkout. If the client uses a separately installed copy of the skill, replace that copy with the repo version. Verify the registered MCP command resolves to `bin/story-studio-mcp` in the updated checkout and uses the same port and library path as the browser server.
+6. Reconnect or restart the MCP client to start a fresh server process, then open a fresh local chat. The server supplies its current instructions and tool schemas on connection. Verify the chat discovers `get_story_context`, `submit_reply`, and `edit_story_state`, can call `list_stories`, and understands that an ordinary “continue the story” request saves through `submit_reply`. Use a demo or an isolated library for a write test.
 
 ## Data and settings
 

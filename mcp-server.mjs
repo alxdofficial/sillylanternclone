@@ -34,11 +34,11 @@ const legacyQueue = process.env.STORY_STUDIO_LEGACY_QUEUE === '1';
 const queueTools = new Set(['wait_for_queued_turn','decline_turn','wait_for_setup_request','submit_setup_response']);
 const castPageSize = 24;
 const durableContinuity = 'Record lasting, non-explicit changes to the cast, world, relationships, and plot so the story can continue after older prose leaves the prompt. Keep standing preferences in writing notes. Apply one-scene directions only to that scene.';
-const instructions = `Story Studio collaborates in this chat. Route by the writer's latest request. To continue or draft a scene, call get_story_context with purpose "draft". Use submit_reply only to append prose the writer asked to save. To change stored lore, cast, or notes, read get_story_state and apply the requested edit with edit_story_state. To rewrite existing prose, locate its turn with read_story_turns and update it with edit_story_structure. Discussion and questions do not authorize writes.
+const instructions = `In a Story Studio project, a request to write or continue a new scene authorizes saving it. Call get_story_context with purpose "draft", then submit_reply before replying in chat. If asked for a preview or a draft first, show it in chat and wait. For lore, cast, or notes edits, use get_story_state and edit_story_state. For an existing passage, read_story_turns then edit_story_structure. Discussion alone stays in chat.
 
-For every new request about the saved story, read the relevant state again. Use list_stories if the target is unclear and keep its storyId. The current saved state is canon after a browser edit, deletion, or rewind. Use open_studio for the Book or Graph companion.
+For every new request about the saved story, read the relevant state again. Use list_stories if the target is unclear and keep its storyId. Pass the latest revision to write tools. Confirm a change only after its MCP call succeeds. The current saved state is canon after a browser edit, deletion, or rewind. Use open_studio for the Book or Graph companion.
 
-For drafting, pass the current direction to get_story_context. Earlier directions are history. Respect the requested style, point of view, and tense. "Write the next scene" can return a draft in chat. "Write and save" also calls submit_reply. Save with the current revision, the prose as reply, the in-story time when grounded, and updates. ${durableContinuity} Use updates: [] when nothing durable changed. If continuity is pending, finish with get_scene_continuity and record_scene.
+For writing, pass the current direction to get_story_context. Earlier directions are history. Respect the requested style, point of view, and tense. "Write the next scene" and "continue the story" both mean append the scene. Use the returned storyId and revision, put the prose in reply, and include the in-story time when grounded. If the save is unavailable or fails, say the scene is unsaved. ${durableContinuity} Use updates: [] when nothing durable changed. If continuity is pending, finish with get_scene_continuity and record_scene.
 
 For broad questions, use get_story_context with purpose "reference". When a brief lacks detail, page through read_story_turns for eligible prose or inspect_continuity for specific story fields, characters, and relationships. Follow nextAfterTurn for lists of turns and nextOffset for a passage or focused section.
 
@@ -444,7 +444,8 @@ function storyContext(revision, project, direction = '', purpose = 'draft') {
       storyClock:rewritesReply ? 'Omit storyTime. The original scene time is kept.' : 'Infer storyTime from the scene as YYYY-MM-DDTHH:mm.',
       continuity,
       save:request ? saveHint : chosenDirection ? 'The writer selected this direction in the browser. Draft and save the scene with submit_reply using this revision.'
-        : 'Draft in chat. When the writer asks to append the scene, use submit_reply with storyId, revision, and the prose as reply.'
+        : legacyQueue ? 'Draft in chat. When the writer asks to append the scene, use submit_reply with storyId, revision, and the prose as reply.'
+        : 'If the writer asked to write or continue this story, call submit_reply with this storyId, revision, and the prose as reply before answering in chat. For an explicitly requested preview or draft first, show it in chat and wait.'
     }),
     ...castPreview(getCast(input.project).map(({id,name}) => ({id,name}))),
     prompt:formatMessages(messages)
@@ -666,8 +667,9 @@ function readReply(reply) {
 }
 
 tool('submit_reply', {
-  description:'Append non-explicit prose the writer asked to save, with its scene time and up to five new safe continuity facts. Use the context’s storyId and revision. Pass updates: [] when nothing changed.'
-    + (legacyQueue ? ' Also accepts legacy queued replies.' : ' To rewrite a saved passage, use edit_story_structure.'),
+  description:(legacyQueue ? 'Append non-explicit prose the writer asked to save. Also accepts legacy queued replies.'
+    : 'Append a new non-explicit scene. Use this before replying in chat when the writer asks to write or continue. Preview-only requests stay in chat. To revise an existing passage, use edit_story_structure.')
+    + ' Pass the context’s storyId and revision, the scene time, and up to five safe continuity facts. Use updates: [] when nothing changed.',
   inputSchema:{
     storyId:identifier,
     revision:z.string().regex(/^"[a-f0-9]{64}"$/),

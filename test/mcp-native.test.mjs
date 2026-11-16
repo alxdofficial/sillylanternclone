@@ -34,6 +34,9 @@ test('native chat creates, writes, edits, and branches without queued work or le
     const instructions = client.getInstructions();
     assert.ok(instructions.length < 4096);
     assert.match(instructions.slice(0,512),/get_story_context.*submit_reply.*get_story_state.*edit_story_state.*read_story_turns/s);
+    assert.match(instructions.slice(0,512),/write or continue a new scene authorizes saving it/);
+    assert.match(instructions.slice(0,512),/preview or a draft first, show it in chat and wait/);
+    assert.match(tools.find(({name})=>name === "submit_reply").description,/before replying in chat.*write or continue/);
     assert.match(instructions,/If scope is unclear/);
     assert.match(instructions,/For every new request about the saved story, read the relevant state again/);
     assert.match(instructions,/create_story for the agreed baseline.*cast before its relationships/);
@@ -74,6 +77,7 @@ test('native chat creates, writes, edits, and branches without queued work or le
     assert.match(exactContext.prompt,/You are the narrator/);
     assert.match(exactContext.prompt,/CHAT DIRECTION MARKER/);
     assert.match(exactContext.continuity,/after older prose leaves the prompt/);
+    assert.match(exactContext.save,/call submit_reply.*before answering in chat/);
     const saved = await invoke('submit_reply',{storyId,revision:exactContext.revision,reply:'Ada lights the wick.',updates:[
       {kind:'fact',note:'The tower wick is the backup signal.'},
       {kind:'writing',note:'Keep each paragraph brief.'}

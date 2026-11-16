@@ -16,9 +16,11 @@ You can ask your local agent to set it up for you.
 
 Register MCP in your local **Codex or Claude desktop client**. Start a fresh chat and ask it to open Story Studio. The CLI is optional. [Desktop and CLI setup](MCP.md#register-on-your-mac) · [Start, stop, update, and restart](OPERATIONS.md)
 
+To update an existing install, tell your agent to pull the latest Story Studio checkout, run the launcher, refresh its Story Studio skill, and reconnect MCP so a fresh chat receives the current prompts and tools. [Update checklist](OPERATIONS.md#stop-update-and-restart)
+
 ## Work in native chat
 
-Ask your agent to draft, save, or edit in your normal chat. Open its Book link in the built-in browser alongside the conversation, then use the top icons to switch between **Book view** and **Graph**. Existing story tabs follow saves to the story they’re showing. Use the hamburger menu in the upper left to switch stories. The agent can work on the cast, world, relationships, scene text and times, and chapters, and can branch a story when asked. [Native workflow and tools](MCP.md#write-in-your-native-chat)
+Ask your agent to write, continue, or edit the saved story in your normal chat. A writing request saves the scene directly. Ask to see a draft first if you want to review it in chat. Open its Book link in the built-in browser alongside the conversation, then use the top icons to switch between **Book view** and **Graph**. Existing story tabs follow saves to the story they’re showing. Use the hamburger menu in the upper left to switch stories. The agent can work on the cast, world, relationships, scene text and times, and chapters, and can branch a story when asked. [Native workflow and tools](MCP.md#write-in-your-native-chat)
 
 ## Try The Late Ferry
 

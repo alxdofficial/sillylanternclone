@@ -64,7 +64,7 @@ Ask your agent to open Story Studio and work with the story in your chat. Use th
 
 > Open Story Studio next to this chat and find The Late Ferry. Draft a scene in which Mae checks the pressed letters with Noor. Show me the draft first.
 
-When you’re ready, ask the agent to save. If your first request already says to write and save, it can save in the same response. The manuscript receives the prose. Your instructions and discussion live in the native chat. Saved edits appear in the companion automatically. To work on a different story in a tab that is already open, select it from the hamburger menu or open the link returned by the agent.
+A request to write or continue the story saves the scene in the same turn. Ask to see a draft first if you want to review it in chat before the agent saves it. The manuscript receives the prose. Your instructions and discussion live in the native chat. Saved edits appear in the companion automatically. The visible browser checks for changes about every 2.5 seconds and waits while you have unsaved edits or a dialog open. To work on a different story in a tab that is already open, select it from the hamburger menu or open the link returned by the agent.
 
 Use **Graph** for cast, timeline, writing notes, and review of proposed continuity. The OpenRouter composer starts hidden when you open an MCP companion link. In **Write**, click **Show composer** to reveal it or the eye icon to hide it. Write shows saved author directions alongside the prose. To include them in the graph timeline, check **Show author directions in Graph** in **Settings**. The plus at the end of the manuscript opens a manual prose editor. Use **⋯ → Time and context** on a turn to review or change its context label.
 
@@ -72,14 +72,15 @@ Use **Graph** for cast, timeline, writing notes, and review of proposed continui
 
 The native agent interprets the latest chat request using the Story Studio instructions it receives on connect. There is no mode switch in the chat. Tool descriptions and read results tell the agent what it can do next.
 
-The [Story Studio MCP skill](skills/story-studio-mcp/SKILL.md) maps writer requests to the available tools, including the change shapes for relationship events, cast, and notes. An agent working in the repo can read the skill directly. A native chat gets the core instructions and tool schemas when MCP connects.
+The [Story Studio MCP skill](skills/story-studio-mcp/SKILL.md) maps writer requests to the available tools, including the change shapes for relationship events, cast, and notes. An agent working in the repo can read the skill directly. A native chat gets the core instructions and tool schemas when MCP connects. After pulling updates, refresh any separately installed skill copy and reconnect the client before starting a fresh chat. [Update checklist](OPERATIONS.md#stop-update-and-restart)
 
 Claude or Codex owns its conversation and compaction. Story Studio returns a bounded starting brief and lets the agent page back through the full eligible manuscript and story fields. OpenRouter instead receives task-specific instructions, context, and function schemas on each call. The OpenRouter models run without reading the repo guide.
 
 | Writer’s request | Expected tool sequence |
 | --- | --- |
-| “Continue the story with fewer lines of dialogue.” | Read `get_story_context` with `purpose: "draft"` and use that direction for the next scene. Return the draft in chat. |
-| “Write and save the next scene.” | Read drafting context, then use `submit_reply` to save the prose and its non-explicit continuity changes. |
+| “Continue the story with fewer lines of dialogue.” | Read `get_story_context` with `purpose: "draft"` and use submit_reply to save the next scene with that direction. |
+| “Show me a draft first.” | Read drafting context and show the draft in chat for review. |
+| “Write the next scene.” | Read drafting context, then use `submit_reply` to save the prose and its non-explicit continuity changes. |
 | “Make sparse dialogue the default.” | Read `get_story_state` and the writing notes if needed, then use `edit_story_state` to update the standing guidance. |
 | “Rewrite the last scene in Ada’s point of view.” | Find the saved scene with `read_story_turns` (`recent: true`), read it by turn number, then revise that turn with `edit_story_structure`. |
 | “What if Ada were the one who opened the door?” | Read `get_story_context` with `purpose: "reference"` and discuss possibilities in chat. |
@@ -102,7 +103,7 @@ For large setup material supplied in chat, the agent can work in sections. Once 
 | `create_story` | Create an agreed setup with title, premise, world, notes, cast, and starting relationships using the library revision. For importing existing prose, use the browser’s manuscript import. |
 | `get_story_context` | Read eligible recent prose, cast, and approved graph facts. Use `draft` to assemble a narrator prompt and `reference` to read without a writing instruction. Returns the story ID, revision, and history counts. |
 | `read_story_turns` | Browse turn IDs, dates, chapter breaks, and short previews. Use `recent: true` for the latest turns. Request one turn by number and follow `nextOffset` for long eligible prose. Held turns return context status and metadata. |
-| `submit_reply` | Append the approved prose and optionally record scene time and up to five non-explicit graph facts. Pass `updates: []` when nothing changed. |
+| `submit_reply` | Append the requested prose and optionally record scene time and up to five non-explicit graph facts. Pass `updates: []` when nothing changed. |
 | `get_scene_continuity`, `record_scene` | Read and finish the continuity of a scene that still has a pending pass. |
 | `get_story_state`, `inspect_continuity` | Get a story-state overview and revision, or inspect a section. Page through cast, relationship events, and long fields. Use the `eventIndex` and revision from the same relationship read for corrections. |
 | `edit_story_state` | Batch requested changes to world, premise, writing notes, author’s note, plot memory, profiles, settings, and relationship events. |
