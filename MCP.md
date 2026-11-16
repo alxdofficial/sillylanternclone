@@ -1,6 +1,6 @@
 # Connect a local writing agent
 
-Story Studio exposes a local Model Context Protocol server over standard input and output (stdio). A local Codex, Claude Code, or other compatible MCP client launches it and discovers its tools. The native client runs the model using its own sign-in and billing settings. Story Studio needs no separate model API key in MCP mode. Use OpenRouter through its own connection in the browser.
+Story Studio exposes a local Model Context Protocol server over standard input and output (stdio). A local Codex, Claude Code, or other compatible MCP client launches it and discovers its tools. The native client runs the model using its own sign-in and billing settings. Story Studio needs no separate model API key in MCP mode. For OpenRouter, use the **Settings** gear in the browser’s hamburger menu.
 
 ## Register on your Mac
 
@@ -64,9 +64,9 @@ Ask your agent to open Story Studio and work with the story in your chat. Use th
 
 > Open Story Studio next to this chat and find The Late Ferry. Draft a scene in which Mae checks the pressed letters with Noor. Show me the draft first.
 
-When you’re ready, ask the agent to save. If your first request already says to write and save, it can save in the same response. The manuscript receives the prose. Your instructions and discussion live in the native chat. Saved edits appear in the companion automatically. To work on a different story in a tab that is already open, select it in **Stories** or open the link returned by the agent.
+When you’re ready, ask the agent to save. If your first request already says to write and save, it can save in the same response. The manuscript receives the prose. Your instructions and discussion live in the native chat. Saved edits appear in the companion automatically. To work on a different story in a tab that is already open, select it from the hamburger menu or open the link returned by the agent.
 
-Use **Graph** for cast, timeline, writing notes, and review of proposed continuity. **Write** has OpenRouter, turn controls, and a button to hide the composer. **Directions** reveals author input from older or OpenRouter turns. **Add prose** is available from any view. Use **⋯ → Time and context** on a turn to review or change its context label.
+Use **Graph** for cast, timeline, writing notes, and review of proposed continuity. In **Write**, use the eye icon at the upper right to hide the composer. Click **Show composer** to bring it back. Write shows saved author directions alongside the prose. To include them in the graph timeline, check **Show author directions in Graph** in **Settings**. The plus at the end of the manuscript opens a manual prose editor. Use **⋯ → Time and context** on a turn to review or change its context label.
 
 ### How the agent chooses what to do
 
@@ -120,7 +120,7 @@ For longer fields, call `inspect_continuity` with `section: "cast"`, the exact `
 
 ### Story Flow
 
-When the writer opts in, offer three or four distinct directions grounded in current canon. Use offer_story_directions with a current revision. The browser displays the choices, and a click gives permission to write and save the selected beat. The call can return pending if its brief wait ends first. Resume with get_story_context using purpose draft and no direction. It applies a selected choice if one is available. Saving the narration clears the offer. This is a bounded interaction from the native chat session.
+When the writer opts in, offer three or four distinct directions grounded in current canon. Use offer_story_directions with a current revision. The Write view displays the choices even when the composer is hidden. A click gives permission to write and save the selected beat. The call can return pending if its brief wait ends first. Resume with get_story_context using purpose draft and no direction. It applies a selected choice if one is available. Saving the narration clears the offer. This is a bounded interaction from the native chat session.
 
 ### Older queued work
 

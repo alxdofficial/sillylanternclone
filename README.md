@@ -18,48 +18,48 @@ Register MCP in your local **Codex or Claude desktop client**. Start a fresh cha
 
 ## Work in native chat
 
-Ask your agent to draft, save, or edit in your normal chat. Open its Book link in the built-in browser alongside the conversation, then switch between **Book view** and **Graph**. Existing story tabs follow saves to the story they’re showing. Use **Stories** when you want to switch stories. The agent can work on the cast, world, relationships, scene text and times, and chapters, and can branch a story when asked. [Native workflow and tools](MCP.md#write-in-your-native-chat)
+Ask your agent to draft, save, or edit in your normal chat. Open its Book link in the built-in browser alongside the conversation, then use the top icons to switch between **Book view** and **Graph**. Existing story tabs follow saves to the story they’re showing. Use the hamburger menu in the upper left to switch stories. The agent can work on the cast, world, relationships, scene text and times, and chapters, and can branch a story when asked. [Native workflow and tools](MCP.md#write-in-your-native-chat)
 
 ## Try The Late Ferry
 
-New libraries open on **The Late Ferry**, a late-night harbor mystery with six characters and six turns. Find it later under **Stories → Open demo**. Changes to the demo stay in memory. Reload the page to put everything back, including the cast and manuscript. Your own stories save normally and are the ones included in backups.
+New libraries open on **The Late Ferry**, a late-night harbor mystery with six characters and six turns. Find it later under **Menu → Open demo**. Changes to the demo stay in memory. Reload the page to put everything back, including the cast and manuscript. Your own stories save normally and are the ones included in backups.
 
 1. Open **Graph** and click through the cast. Select the line between Sam and Ellis to see their starting relationship and the later radio call. The timeline shows the scene times across midnight.
 2. Back in the transcript, use **View graph changes** on turn 4 to see what carried forward from the gate check. Open **Book view** to read the two chapters without the author directions.
-3. Open **Prompt** to see the beacon, incident book, and cast in context. Use **Add prose**, write with OpenRouter, or ask your native agent to continue with Mae inspecting the impression on the next page. Use **⋯ → Branch from here** to keep an alternate storyline.
-4. For a story you want to keep or export, choose **Stories → New story**.
+3. With a writing model selected, click the context ring in the lower left of the composer to see the beacon, incident book, and cast in context. Click the plus at the end of the manuscript to add your own prose, write with OpenRouter, or ask your native agent to continue with Mae inspecting the impression on the next page. Use **⋯ → Branch from here** to keep an alternate storyline.
+4. For a story you want to keep or export, choose **Menu → New story**.
 
 The demo was built and exported through the current Story Studio browser workflow. DeepSeek V4.1 Flash brainstormed and proposed the setup, including the starting relationships. Cydonia 24B v4.1 drafted the scenes, and DeepSeek recorded their times and continuity changes. The prose was lightly copyedited and reviewed in Story Studio. [See the verification notes](TESTING.md#the-late-ferry-starter).
 
 ## Progress the story with OpenRouter
 
-1. Open **Connection**, enter your OpenRouter API key, and choose a writing model. The key stays in this page’s memory until it closes or reloads. Prices in the model picker assume 2,000 input and 5,000 output tokens per chapter. The continuity call is billed separately. [Model notes and prices](MODELS.md)
-2. In **Write**, choose **Progress the story** and select a **Writer** and **Continuity agent** independently. Use **Prompt** to inspect the current context. Set standing style preferences in **Graph → Writing**. Use **Sensitive scene** with an NSFW-friendly writer when appropriate.
-3. Click **Send & write**. The selected artist writes the prose. The selected continuity agent classifies the scene and proposes non-explicit continuity updates. **View graph changes** shows the updates for that turn. Proposals needing approval are in **Graph → Review updates**.
+1. Open the hamburger menu, click the **Settings** gear, enter your OpenRouter API key, and click **Save settings**. The key stays in this tab until it closes or reloads. If you focus the writing input without a key, the composer shows a link to **Settings**.
+2. In **Write**, choose **Progress the story** and select a **Prose artist** and **Continuity agent** independently. The writer menu estimates cost for a chapter of 2,000 input and 5,000 output tokens. The continuity call is billed separately. Click the context ring to inspect the current context. Set standing style preferences in **Graph → Writing**. Use **Sensitive scene** with an NSFW-friendly writer when appropriate. [Model notes and prices](MODELS.md)
+3. Click **Send**. The selected writer writes the prose. The selected continuity agent classifies the scene and proposes non-explicit continuity updates. **View graph changes** shows the updates for that turn. Proposals needing approval are in **Graph → Review updates**.
 
-**Hide composer** keeps Write focused on the manuscript. **Directions** shows or hides author inputs. Use the manuscript outline to jump to a turn and the copy icon to copy its prose. **Edit** saves prose in place. When a direction has a paired reply and OpenRouter is configured, **Save & rewrite** regenerates that reply. **Save without rewriting** saves just the edit.
+Use the eye icon at the upper right to hide the composer. Click **Show composer** to bring it back. Write always shows author inputs alongside the prose. To show them in Graph, check **Show author directions in Graph** in **Settings** and click **Save settings**. Use the manuscript outline to jump to a turn or the down arrow to return to the end after scrolling up. The copy icon copies a turn’s prose. **Edit** opens the text for revision. When a direction has a paired reply and OpenRouter is configured, **Send** saves the edit and regenerates that reply. **Save without rewriting** saves just the edit.
 
-Use **Add prose** from any view to write or paste text without a model. Choose **Explicit** for sensitive text, or **Verified non-explicit** if you want it included in general AI context. You can review a saved turn in **Write → ⋯ → Time and context**. The same menu has chapter breaks, branching, and rewind.
+In **Write**, click the plus at the end of the manuscript to write or paste prose without a model. Set **AI context** to **Explicit**, **Unverified**, or **Verified non-explicit**, then click **Save prose**. General AI context includes prose you verify as non-explicit. You can review a saved turn in **Write → ⋯ → Time and context**. The same menu has chapter breaks, branching, and rewind.
 
-To add your own OpenRouter model, select **Add model by ID…** in Connection and enter its `author/model` ID. User-added models appear in the prose model picker and setup chat. Select one in Connection to remove it.
+To add your own OpenRouter model, choose **Manage custom models…** in the **Prose artist** menu and enter its `author/model` ID. User-added models appear in the writer picker and setup chat. Use the same menu to remove them.
 
 ## Story Flow
 
-In **Write**, open **Story Flow** and use the refresh icon to suggest directions. The choices appear just above the composer. Pick one of the three or four next beats or type your own direction. In OpenRouter, picking a direction starts the next scene with your selected writer and continuity agent. While Flow is open, Story Studio offers fresh directions after a successful new scene. Suggesting directions uses a separate OpenRouter request.
+In **Write**, click the refresh icon above the composer to ask OpenRouter for three or four next beats. Story Flow stays visible when you hide the composer. Choosing a suggestion or sending your own direction while an OpenRouter offer is active requests fresh suggestions after the scene. The first suggestion request starts when you click the icon. Suggestions use a separate OpenRouter request.
 
 For native MCP, ask your agent to use Story Flow. Its directions appear above the composer. Choose one there. If the agent is still waiting, it receives the choice directly. If the brief wait has ended, tell the agent to continue in its chat. Studio keeps the selection until the agent saves the continuation or the story moves on.
 
 ## Editor agent
 
-In **Write**, choose **Editor agent** and a supported OpenRouter model. Enter a request such as “Add a lighthouse to the setting” and select **Apply edits**. This can update writing and author notes, cast profiles, world details, and existing relationship events without changing the manuscript. For conversational editing, send the request in your native chat.
+In **Write**, choose **Editor agent** and a supported OpenRouter model. Enter a request such as “Add a lighthouse to the setting” and click **Send**. This can update writing and author notes, cast profiles, world details, and existing relationship events without changing the manuscript. For conversational editing, send the request in your native chat.
 
 ## Brainstorm a new story
 
-Under **Stories → New story**, choose **Set up manually** or **Brainstorm with a model**. OpenRouter handles brainstorming in the browser. The selected model reads the conversation, additional context, and any manuscript. If they exceed the model’s input budget, **Prepare setup draft** reads them in sections and combines structured notes for review. Choose **Prepare setup draft** to get the world, cast and relationships, review them, then click **Create story**. Your native agent can also brainstorm in its chat and then create the agreed setup when asked.
+Under **Menu → New story**, choose **Set up manually** or **Brainstorm with a model**. OpenRouter handles brainstorming in the browser. The selected model reads the conversation, additional context, and any manuscript. If they exceed the model’s input budget, **Prepare setup draft** reads them in sections and combines structured notes for review. Choose **Prepare setup draft** to get the world, cast and relationships, review them, then click **Create story**. Your native agent can also brainstorm in its chat and then create the agreed setup when asked.
 
 ## Read and export the book
 
-Open **Book view** to read the story as a manuscript. It includes replies, including prose you enter through **Add prose**, and uses the selected take for every reply. Author directions stay in **Write**.
+Open **Book view** to read the manuscript. It includes manually saved prose and the selected take for each model reply. Author directions are available in **Write**.
 
 The first reply starts Chapter 1. To start another chapter at a later reply, open its **⋯** menu in **Write** and choose **Start new chapter here**. Use **Remove chapter break** in the same menu to join it to the preceding chapter. Chapter numbers update automatically.
 
@@ -67,7 +67,7 @@ In **Book view**, use **Go to chapter** to jump between chapters. On a wide wind
 
 ## Import an existing story
 
-1. Choose **Stories → New story → Import an existing story**, or **Import a manuscript** in the setup chat. Paste the manuscript or choose a plain-text or Markdown file. The library has a 16 MB transfer limit.
+1. Choose **Menu → New story → Import an existing story**, or **Import a manuscript** in the setup chat. Paste the manuscript or choose a plain-text or Markdown file. The library has a 16 MB transfer limit.
 2. Story Studio turns standalone chapter, turn and scene headings into native breaks. It also recognizes common Markdown scene dividers. Long passages are split locally at nearby paragraph or word boundaries. Existing chapter breaks take priority. For an unmarked story, review the suggested breaks or adjust them later from each turn’s **⋯** menu.
 3. To prepare a setup draft with OpenRouter, add notes or references in **Additional context**. Setup reviews your complete chat, reference notes, and manuscript. When it needs multiple requests, every source section is sent to the selected draft model for review. The preview shows a sample for your own inspection. It proposes cast, setting, and continuity fields for your review. The manuscript supplies the imported prose. For a completely local import, choose **Review without AI**.
 4. Review the draft and choose **Create story**. All original prose goes into a new story and appears in **Write** and **Book view**. The source headings are kept in Write and the library backup. Imported prose starts outside general model context until you review it as non-explicit. Eligible imported prose becomes early story turns. Setup chat and reference notes are also saved locally, with a separate review option to include them as early OpenRouter agent history.
@@ -77,6 +77,8 @@ In **Book view**, use **Go to chapter** to jump between chapters. On a wide wind
 The **Story timeline** on the left groups setup, dated scenes, and relationship events by their in-story date and time. Entries at the same minute share a timestamp. Entries within a day show the time in 24-hour format. A direction and its immediate prose reply share one entry at the reply's time when available. Select that entry to read both parts and inspect graph changes. Either text can be collapsed. Standalone prose and unanswered directions have their own entries. Select a moment to inspect its events and highlight their connections on the graph. Older and manually written turns without a date appear under **Undated turns**. To date one, open **⋯ → Time and context** on the turn in the transcript. On a narrow screen, choose **Show timeline** above the graph.
 
 Hover over a character or line for a preview in the right pane. Click or tap it to keep its details open and edit.
+
+If you leave Graph or switch stories with unsaved graph changes, choose **Save changes**, **Discard changes**, or **Keep editing**.
 
 - **+ Character** creates a profile. Every character uses the same profile and editing controls. Click a node to edit its name, aliases, description, and optional personality, scenario, and sample dialogue. You can also import a JSON character card. Removing a character removes their relationship events when you save. Their existing dialogue stays in the transcript.
 - **+ Relationship** lets you select two characters in the order of the event. Write one sentence describing what happened and choose its **In-story date and time**. Several events between the same two characters share a graph line. Its count shows how many are saved. Click the line to edit or delete individual events. **Undo last deletion** is available in the inspector before you save.
@@ -88,11 +90,11 @@ The continuity pass can update characters, world details, relationships, and sto
 
 ## Context and sensitive scenes
 
-The composer’s **Context** indicator shows the color-coded story-state and history usage, the current direction, and reserved output. Built-in writers share a 112,000-token input budget with up to 16,000 for the latest eligible story and 8,000 reserved for output. When space runs out, the writer keeps current story state and trims older prose first. If the state and direction alone are too large, Studio asks you to shorten either. OpenRouter agents use the selected model’s window and remove older exchanges from the prompt in large batches. The manuscript is preserved. In **Progress the story**, use **Pass** in the panel to see the selected writer or continuity model and its own budget.
+The context ring in the lower left of the composer estimates how much of the model’s window the input fills. Click it for color-coded usage, the current direction, and reserved output. Built-in writers share a 112,000-token input budget with up to 16,000 for the latest eligible story and 8,000 reserved for output. When space runs out, the writer keeps current story state and trims older prose first. If the state and direction alone are too large, Studio asks you to shorten either. OpenRouter agents use the selected model’s window and remove older exchanges from the prompt in large batches. The manuscript is preserved. In **Progress the story**, use **Pass** in the panel to see the selected writer or continuity model and its own budget.
 
 The narrator prompt includes the cast, setting, applicable lore, and recent eligible prose. It limits recent prose to an estimated 16,000 tokens, with a smaller allowance on models with shorter budgets. Older prose stays in the transcript. The prompt uses the remaining budget for relationship events. When the full timeline exceeds that budget, Story Studio favors events involving characters mentioned in the current scene, then newer events, and presents the selected events chronologically. Saved story-memory facts also carry forward.
 
-For a sensitive scene, choose **Progress the story** and an NSFW-friendly writer and check **Sensitive scene** before sending. Story Studio marks that direction explicit and allows the selected writer to see eligible sensitive history for that request. DeepSeek V4.1 Flash sees the new direction and draft for classification and continuity. General models and MCP receive eligible prose plus approved, non-explicit graph facts. Use the checkbox before sending because automatic classification happens after the artist receives your direction. [OpenRouter context and tools](MODELS.md#what-story-studio-sends-and-expects)
+For a sensitive scene, choose **Progress the story** and an NSFW-friendly writer and check **Sensitive scene** before sending. Story Studio marks that direction explicit and allows the selected writer to see eligible sensitive history for that request. DeepSeek V4.1 Flash sees the new direction and draft for classification and continuity. General models and MCP receive eligible prose plus approved, non-explicit graph facts. Use the checkbox before sending because automatic classification happens after the artist receives your direction. When the continuity agent detects explicit content, the checkbox turns on for the next draft. Clear it when returning to a general scene. [OpenRouter context and tools](MODELS.md#what-story-studio-sends-and-expects)
 
 Labels are model judgments and can be wrong. If classification fails, Story Studio keeps the prose and treats the unverified text as withheld from general model context. If the artist hits its output limit, the partial draft stays in the transcript and receives a cutoff warning. Changes from sensitive or unverified scenes need review before entering shared story context. Review manually added, imported, and edited passages too.
 
@@ -100,7 +102,7 @@ To continue with a general model after a sensitive scene:
 
 1. Check the badges on both the writer turn and the reply. **Context censored** means general AI prompts skip that text while approved continuity can still carry forward. After revising prose with **Edit**, you can check **I’ve verified this text is non-explicit** before saving. You can also review a label from **⋯ → Time and context**. Select **Exclude this turn’s text from all AI prompts** to withhold the text from every route, including Cydonia.
 2. Keep any needed continuity in a short, non-explicit relationship event or **World → Story memory**. Check nearby turns and notes for copies of the sensitive prose.
-3. Clear **Sensitive scene**, select your writing route, check **Prompt**, and send the next direction. Start a fresh native agent session if the previous session already saw the original text.
+3. Clear **Sensitive scene**, select your writing route, check the context ring, and send the next direction. Start a fresh native agent session if the previous session already saw the original text.
 
 The saved library and exports include the original passages. Story Studio filters its own prompts and MCP tool results. Use a dedicated writing session and keep it within those tools. A general-purpose agent may still have file, shell, or browser access that can reach the original text. The optional Claude Writer starts Claude Code with its built-in tools disabled. Keep character cards, world notes, story memory, and relationship events non-explicit because they can enter model context separately from the transcript. [MCP permissions and context](MCP.md#keep-the-agent-to-what-story-studio-shows-it)
 
@@ -110,7 +112,7 @@ On the **Display names** tab, put the original character or place name on the le
 
 ## Back up and move your library
 
-The default library folder is `~/Library/Application Support/Story Studio/` and its main file is `library.json`. Quit Story Studio and copy the whole folder to migrate to another Mac. Or use **Stories → Export history ZIP** to download `library.json` and readable story transcripts. To restore an export, unzip it and select `library.json` with **Import library**. Import replaces the current library after confirmation. If a newer save from another tab causes a conflict, export your local work before reloading.
+The default library folder is `~/Library/Application Support/Story Studio/` and its main file is `library.json`. Quit Story Studio and copy the whole folder to migrate to another Mac. Or use **Menu → Export history ZIP** to download `library.json` and readable story transcripts. To restore an export, unzip it and select `library.json` with **Import library**. Import replaces the current library after confirmation. If a newer save from another tab causes a conflict, export your local work before reloading.
 
 The app binds to your Mac’s loopback address and stores the library locally. When you use a model, the assembled context goes to its service through your selected route. The OpenRouter key is held in the browser page's memory, passed through the local server for requests, and cleared on reload. Story exports exclude the key.
 

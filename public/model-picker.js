@@ -5,6 +5,7 @@ export function enhanceSelect(select) {
 
   const button = document.createElement('button');
   const value = document.createElement('span');
+  const help = select.title ? document.createElement('span') : null;
   const chevron = document.createElement('span');
   const label = select.labels[0];
   const description = select.getAttribute('aria-describedby');
@@ -23,7 +24,11 @@ export function enhanceSelect(select) {
   }
   value.id = button.id + '-value';
   value.className = 'picker-selection';
-  button.setAttribute('aria-describedby',[value.id,description].filter(Boolean).join(' '));
+  if (help) {
+    help.id = button.id + '-help';
+    help.hidden = true;
+  }
+  button.setAttribute('aria-describedby',[value.id,help?.id,description].filter(Boolean).join(' '));
   chevron.className = 'picker-chevron';
   chevron.setAttribute('aria-hidden','true');
   button.append(value,chevron);
@@ -35,6 +40,7 @@ export function enhanceSelect(select) {
   if (label) list.setAttribute('aria-labelledby',label.id);
   select.hidden = true;
   select.after(button,list);
+  if (help) list.after(help);
 
   let choices = [];
   let active = -1;
@@ -45,6 +51,12 @@ export function enhanceSelect(select) {
     const name = document.createElement('span');
     name.className = 'picker-name';
     name.textContent = option?.dataset.name || option?.textContent || 'Pick a model';
+    if (showDetail && option?.dataset.help) {
+      const hint = document.createElement('span');
+      hint.className = 'picker-option-help';
+      hint.textContent = option.dataset.help;
+      name.append(hint);
+    }
     const result = [name];
     if (option?.dataset.tag) {
       const tag = document.createElement('span');
@@ -69,7 +81,8 @@ export function enhanceSelect(select) {
   function place() {
     const trigger = button.getBoundingClientRect();
     const gutter = 8;
-    const width = Math.min(document.documentElement.clientWidth - 2 * gutter,Math.max(260,trigger.width));
+    const minimum = choices.some(({option})=>option.dataset.detail) ? 344 : 260;
+    const width = Math.min(document.documentElement.clientWidth - 2 * gutter,Math.max(minimum,trigger.width));
     const below = window.innerHeight - trigger.bottom - 2 * gutter;
     const above = trigger.top - 2 * gutter;
     const opensAbove = below < Math.min(320,list.scrollHeight) && above > below;
@@ -133,7 +146,10 @@ export function enhanceSelect(select) {
     if (button.disabled || (isOpen() && choices.some(({option}) => option.parentElement !== select))) close();
     const option = select.selectedOptions[0] || select.options[0];
     value.replaceChildren(...optionContents(option));
-    value.title = option?.dataset.name || option?.textContent || '';
+    if (help) {
+      button.title = option?.dataset.help || select.title;
+      help.textContent = button.title;
+    } else value.title = option?.dataset.name || option?.textContent || '';
     button.classList.toggle('picker-placeholder',!select.value);
   }
 

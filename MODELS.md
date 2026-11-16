@@ -1,10 +1,10 @@
 # OpenRouter models
 
-In **Progress the story**, choose the **Writer** and **Continuity agent** separately. Economy and Preferred are menu groups for the regular continuity route and Editor agent. Marking a **Sensitive scene** switches continuity to the sensitive model list and limits the writing route to the labeled writers. The settings remember the normal and sensitive continuity choices separately.
+In **Progress the story**, choose the **Prose artist** and **Continuity agent** separately. Economy and Preferred labels appear beside applicable models in both pickers and in **Editor agent**. Marking a **Sensitive scene** switches continuity to the sensitive model list and limits the writing route to the labeled writers. The settings remember the normal and sensitive continuity choices separately.
 
 In a 16 November 2026 retest through Story Studio, Cydonia and MythoMax each returned three of three replies tagged explicit on Parasail. DeepSeek V4.1 Flash returned two replies tagged explicit on Baidu and River. A third request on Cohere returned no prose. Cydonia has Story Studio’s 8,000-token prose limit. MythoMax was removed from the presets because its listed providers have context windows of 4,096 to 8,192 tokens. [MythoMax provider limits](https://openrouter.ai/api/v1/models/gryphe/mythomax-l2-13b/endpoints)
 
-The rates were checked on 16 November 2026 and can vary by host. One estimated chapter uses 2,000 billed input tokens and 5,000 billed output tokens total. The estimate covers the artist. Continuity calls add a separate charge, and extra context, retries, or splitting a chapter into multiple turns can add input tokens. [OpenRouter public catalog](https://openrouter.ai/api/v1/models)
+The rates were checked on 16 November 2026 and can vary by host. The **Prose artist** menu estimates cost for a chapter of 2,000 billed input and 5,000 billed output tokens. Continuity calls add a separate charge, and extra context, retries, or splitting a chapter into multiple turns can add input tokens. [OpenRouter public catalog](https://openrouter.ai/api/v1/models)
 
 | Model | Role or tier | Context floor | USD per million input / output |
 | --- | --- | ---: | ---: |
@@ -20,9 +20,9 @@ The rates were checked on 16 November 2026 and can vary by host. One estimated c
 | [Qwen4 Max](https://openrouter.ai/qwen/qwen4-max) | Preferred | 1,000,000 | $1.50 / $4.50 |
 | [Mistral Large 4](https://openrouter.ai/mistralai/mistral-large-4-0) | Sensitive continuity | 524,288 | $0.70 / $2.10 |
 | [Grok 4.7](https://openrouter.ai/x-ai/grok-4.7) | Sensitive continuity | 500,000 | $2.00 / $6.00 |
-| [GLM 5.3](https://openrouter.ai/z-ai/glm-5.3) | Writer, agent | 262,144 | $0.0699 / $1.40 |
-| [Kimi K3.1 Pro](https://openrouter.ai/moonshotai/kimi-k3.1-pro) | Writer, agent | 409,600 | $0.2403 / $8.4023 |
-| [Gemini 4 Carbon](https://openrouter.ai/google/gemini-4-carbon) | Writer, agent | 1,048,576 | $2.00 / $10.00 |
+| [GLM 5.3](https://openrouter.ai/z-ai/glm-5.3) | Preferred | 262,144 | $0.0699 / $1.40 |
+| [Kimi K3.1 Pro](https://openrouter.ai/moonshotai/kimi-k3.1-pro) | Preferred | 409,600 | $0.2403 / $8.4023 |
+| [Gemini 4 Carbon](https://openrouter.ai/google/gemini-4-carbon) | Preferred | 1,048,576 | $2.00 / $10.00 |
 
 The Mistral Large 4 OpenRouter ID is **mistralai/mistral-large-4-0**. The sensitive continuity choices have listed tool-capable providers. The presets reflect application routing choices and provider capabilities. The earlier live prose test covered Cydonia and DeepSeek, and provider moderation or refusals can vary.
 
@@ -30,7 +30,7 @@ The state-editing routes use OpenRouter's native function calls. The selected pr
 
 The context column gives the conservative window used for each model. Story Studio budgets a smaller prompt and keeps up to an estimated 16,000 tokens of recent eligible prose. The same story can grow over time as more of its continuity is carried in notes and relationship events.
 
-In **Progress the story**, **Connection → Add model by ID…** saves a user-added ID in your browser. It is selectable as an artist in Progress the story or for setup chat. Select it in Connection to remove it. These uses only require ordinary text completions. Choose a supported Editor agent preset for direct story edits.
+Choose **Writer → Manage custom models…** to add an OpenRouter model by ID or remove it from your browser. Custom models are selectable as writers in **Progress the story** or for setup chat. These uses only require ordinary text completions. Choose a supported Editor agent preset for direct story edits.
 
 To compare, use the same short scene with consenting fictional adults and the same direction. Check whether each model follows the point of view, keeps the voices distinct, and maintains the desired level of detail. Review the [provider routing guidance](https://openrouter.ai/blog/tutorials/sillytavern-openrouter/) if a request is unavailable or rejected. Story Studio requests providers that deny data collection, which can narrow availability.
 
@@ -40,7 +40,7 @@ For local inference, a [quantized Cydonia GGUF](https://huggingface.co/bartowski
 
 ### Progress the story
 
-The writer receives narrator instructions, full cast and world information, writing notes, the current graph, eligible recent story, and your current direction. It returns plain prose. Built-in writers share 112,000 estimated input tokens. Recent prose uses up to 16,000 within that budget, and the writer has a separate 8,000-token output reserve. User-added models use a conservative 28,000 input and 2,048 output until Studio has a verified window. Use **Prompt** to see the actual assembled writing messages.
+The writer receives narrator instructions, full cast and world information, writing notes, the current graph, eligible recent story, and your current direction. It returns plain prose. Built-in writers share 112,000 estimated input tokens. Recent prose uses up to 16,000 within that budget, and the writer has a separate 8,000-token output reserve. User-added models use a conservative 28,000 input and 2,048 output until Studio has a verified window. Click the context ring at the lower left of the composer to see the assembled writing messages.
 
 An NSFW-friendly writer can receive sensitive history for turns marked **Sensitive scene**. The marked direction stays explicit even if the later classification suggests otherwise. **Exclude this turn’s text from all AI prompts** also withholds that turn from the sensitive writer. Automatic classification occurs after the artist receives the direction, so use **Sensitive scene** whenever you intend to request sensitive content.
 
@@ -50,7 +50,7 @@ Both direction and draft must be labeled non-explicit for automatic updates. Pro
 
 ### Story Flow
 
-When enabled in Write, Story Flow asks the selected continuity model to return three or four next-beat choices through a dedicated function. The task uses eligible story context and available non-explicit continuity. It keeps the original prose on the page when a suggestion call fails. Clicking a direction runs the regular writing pipeline.
+The **Suggest directions** icon above the composer starts Story Flow in Write. The selected continuity model returns three or four next beats through a dedicated function using eligible story context and available non-explicit continuity. After a successful scene, Studio requests new directions if you chose a suggestion or wrote your own direction with an active OpenRouter offer. If the suggestion call fails, the scene stays in the manuscript.
 
 ### Editor agent
 

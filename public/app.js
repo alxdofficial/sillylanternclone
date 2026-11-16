@@ -7,7 +7,7 @@ import { createDisplayNameMatcher } from './display-names.js';
 import { enhanceSelect } from './model-picker.js';
 import { buildWritingContext, formatMessages, storyTextFields, narrator, resolveCastName, migrateLegacyCast, castFields, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
-import { models, chapterCost, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isModelId, isWriterModel, modelLabel, modelContextWindow, setupDraftModel, setupChatOutputLimit, setupDraftOutputLimit } from './models.js';
+import { models, chapterCost, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isModelId, isWriterModel, modelLabel, modelTag, modelContextWindow, setupDraftModel, setupChatOutputLimit, setupDraftOutputLimit } from './models.js';
 import { dateWriterTurn, mcpOmissionReason, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
 import { estimateContextTokens, writingHistoryLimit } from './prompt.js';
 import { agentBudget, continuityContext, editorContext, normalizeAgentHistory, normalizeSetupHistory } from './agent-context.js';
@@ -57,8 +57,6 @@ function selectedContinuityModel(project) {
   return isContinuityModel(model,sensitive) ? model : continuityModel;
 }
 const draftKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-draft:' : 'story-draft:') + id;
-const flowKey = id => 'story-flow-enabled:' + id;
-const flowEnabled = project => getSession(flowKey(project.id)) === 'true';
 const flowNotice = new Map();
 const sensitiveKey = id => 'story-sensitive-draft:' + id;
 const sensitiveDraft = project => getSession(sensitiveKey(project.id)) === 'true';
@@ -168,7 +166,7 @@ async function mergeServerLibrary({ifChanged = false} = {}) {
   render();
 }
 window.addEventListener('beforeunload', event => {
-  if (libraryDirty || pendingLibraryWrites) event.preventDefault();
+  if (libraryDirty || pendingLibraryWrites || (state && settingsDraftChanged())) event.preventDefault();
 });
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
 const transientDisplayNames = new Map();
@@ -234,7 +232,6 @@ function addDisplayNameRow(original = '', display = '') {
     row.remove();
     labelDisplayNameRows();
     clearDisplayNameFeedback();
-    renderDisplayPreview();
     (neighbor?.querySelector('input') || $('#addDisplayName')).focus();
   };
   originalCell.append(originalInput);
@@ -256,26 +253,6 @@ function renderDisplayNames() {
     if (!entries.length) addDisplayNameRow();
     else for (const [original, display] of entries) addDisplayNameRow(original,display);
   }
-  renderDisplayPreview();
-}
-
-function renderDisplayPreview() {
-  const preview = $('#displayNamesPreview');
-  const project = current();
-  const prose = project?.messages.find(turn=>turn.role === 'assistant' && isAvailableToMcp(turn))?.content;
-  preview.replaceChildren();
-  if (!prose) {
-    preview.append(el('p','','Story prose will appear here as you write.'));
-    return;
-  }
-  const entries = new Map();
-  for (const row of displayNameRows.rows) {
-    const [original, display] = Array.from(row.querySelectorAll('input'),input=>input.value.trim());
-    if (original && display && !entries.has(original)) entries.set(original,display);
-  }
-  const match = createDisplayNameMatcher(entries);
-  preview.append(el('h4','',project.title),
-    readerText('p','',shortExcerpt(prose.split(/\n\s*\n/u)[0],460),match));
 }
 
 function clearDisplayNameFeedback() {
@@ -286,10 +263,7 @@ $('#addDisplayName').onclick = () => {
   clearDisplayNameFeedback();
   addDisplayNameRow().focus();
 };
-$('#displayNamesForm').oninput = () => {
-  clearDisplayNameFeedback();
-  renderDisplayPreview();
-};
+$('#displayNamesForm').oninput = clearDisplayNameFeedback;
 $('#displayNamesForm').onsubmit = event => {
   event.preventDefault();
   if (!state) return;
@@ -326,12 +300,11 @@ function render() {
   const list = $('#projectList');
   list.replaceChildren();
   const demo = state.projects.find(story=>story.id === starterStoryId);
-  const openStory = story => {
-    if (settingsDraftChanged() && story.id !== current().id) {
+  const openStory = async story => {
+    if (story.id !== current().id && settingsDraftChanged()) {
       $('#sidebar').close();
       showStoryView('graph');
-      error('Save or discard your graph changes before switching stories.');
-      return;
+      if (!await confirmGraphNavigation()) return;
     }
     state.activeId = story.id;
     const url = new URL(location.href);
@@ -576,17 +549,11 @@ function appendTurnContextBadge(container, badgeGroup, reason) {
 }
 
 let renderedStoryId, activeStoryTurn, lastRenderedTurn, outlineScenes = new Map();
-$('#focusWriting').onclick = event => {
-  const enabled = $('#writeView').toggleAttribute('data-focus');
-  event.currentTarget.setAttribute('aria-pressed',String(enabled));
-  event.currentTarget.textContent = enabled ? 'Exit focus' : 'Focus';
-};
 $('#inspectSceneLore').onclick = () => openSettings();
 
 function renderSceneInspector(turn) {
   const project = current();
   const scene = outlineScenes.get(turn) || Array.from(outlineScenes.values()).at(-1);
-  $('#documentLocation').textContent = scene ? `Chapter ${scene.chapter} / Turn ${scene.selection.turn}` : 'Manuscript';
   const content = $('#sceneInspectorContent');
   const match = createDisplayNameMatcher(readDisplayNames(project.id));
   content.replaceChildren();
@@ -644,8 +611,17 @@ function showLatestStoryTurn() {
 $('#latestStoryTurn').onclick = () => {
   setStoryTurnsOpen(false);
   showLatestStoryTurn();
-  $('#instruction').focus({preventScroll:true});
+  $('#messages').querySelector('.message:last-of-type')?.focus({preventScroll:true});
+  syncJumpButton();
 };
+
+function syncJumpButton() {
+  const box = $('#messages');
+  $('#latestStoryTurn').hidden = box.scrollHeight - box.scrollTop - box.clientHeight <= 32;
+}
+$('#messages').addEventListener('scroll',syncJumpButton,{passive:true});
+const transcriptResize = new ResizeObserver(syncJumpButton);
+for (const selector of ['#messages','#messageList','.manual-prose']) transcriptResize.observe($(selector));
 
 function renderStoryTurns(project, followLatest, match) {
   const nav = $('#storyTurns'), scrollTop = nav.scrollTop;
@@ -653,18 +629,14 @@ function renderStoryTurns(project, followLatest, match) {
   outlineScenes = new Map();
   let chapter = 0;
   for (const scene of storyTurns(project)) {
-    if (!showDirections && scene.authorOnly) continue;
-    const {selection,startsChapter} = scene;
-    const turn = !showDirections && selection.replyTurn ? selection.replyTurn : selection.turn;
-    const onlyProse = !showDirections && Boolean(selection.replyTurn);
-    const detail = onlyProse ? turnPreview(scene.replyPreview) : scene.detail;
-    const reason = onlyProse ? scene.replyReason : scene.reason;
+    const {selection,startsChapter,detail,reason,preview} = scene;
+    const turn = selection.turn;
     if (!chapter || startsChapter) fragment.append(el('h3','outline-chapter',`Chapter ${++chapter}`));
-    outlineScenes.set(turn,{...scene,selection:{...selection,turn},chapter,preview:onlyProse ? scene.replyPreview : scene.preview});
+    outlineScenes.set(turn,{...scene,chapter,preview:scene.replyPreview || preview});
     const button = el('button','graph-turn');
     button.type = 'button';
     button.dataset.turnLink = turn;
-    button.append(el('strong','',eventTime(turn)));
+    button.append(el('span','sr-only',eventTime(turn)));
     if (detail) button.append(readerText('span','timeline-detail',detail,match));
     appendTurnContextBadge(button,button,reason);
     button.onclick = () => {
@@ -679,7 +651,6 @@ function renderStoryTurns(project, followLatest, match) {
   }
   if (!fragment.childElementCount) fragment.append(el('p','form-note','No turns yet.'));
   nav.replaceChildren(fragment);
-  $('#latestStoryTurn').disabled = !project.messages.length;
   selectStoryTurn(activeStoryTurn);
   nav.scrollTop = followLatest ? nav.scrollHeight : scrollTop;
 }
@@ -700,15 +671,9 @@ const bookPositions = new Map();
 const spreadPositions = new Map();
 const storyViews = [['write','writeTab','writeView'],['book','bookTab','bookView'],['graph','graphTab','graphView'],['names','displayNamesTab','displayNamesView']];
 let bookStoryId, chapters = [], storyView = 'write', writeNeedsRender = false;
-let showDirections = getSession('studio-show-directions') === 'true';
+let showGraphDirections = getSession('studio-show-directions') === 'true';
 let showComposer = getSession('studio-hide-composer') !== 'true';
 
-$('#toggleDirections').onclick = event => {
-  showDirections = !showDirections;
-  setSession('studio-show-directions',showDirections ? 'true' : '');
-  event.currentTarget.setAttribute('aria-pressed',String(showDirections));
-  renderMessages();
-};
 $('#toggleComposer').onclick = () => {
   showComposer = !showComposer;
   setSession('studio-hide-composer',showComposer ? '' : 'true');
@@ -881,16 +846,35 @@ function rememberBookPosition() {
   }
 }
 bookReader.addEventListener('scroll',() => { if (storyView === 'book') rememberBookPosition(); },{passive:true});
-for (const [view,tab] of storyViews) $(`#${tab}`).onclick = () => { if (state) showStoryView(view); };
-$('.story-tabs').addEventListener('keydown',event => {
+let viewSlide;
+async function navigateStoryView(view,slide = false) {
+  if (!state || view === storyView) return false;
+  if (storyView === 'graph' && !await confirmGraphNavigation()) {
+    $('#graphTab').focus();
+    return false;
+  }
+  const currentIndex = storyViews.findIndex(([name])=>name === storyView);
+  const nextIndex = storyViews.findIndex(([name])=>name === view);
+  viewSlide?.cancel();
+  showStoryView(view);
+  if (slide && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const panel = document.getElementById(storyViews[nextIndex][2]);
+    const offset = nextIndex > currentIndex ? 14 : -14;
+    viewSlide = panel.animate([{transform:'translateX(' + offset + 'px)',opacity:.8},
+      {transform:'translateX(0)',opacity:1}],
+      {duration:160,easing:getComputedStyle(panel).getPropertyValue('--ease-out').trim()});
+  }
+  return true;
+}
+for (const [view,tab] of storyViews) $(`#${tab}`).onclick = event => void navigateStoryView(view,event.detail > 0);
+$('.story-tabs').addEventListener('keydown',async event => {
   if (!state || !['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
   event.preventDefault();
   const index = storyViews.findIndex(([view])=>view === storyView);
   const next = event.key === 'Home' ? 0 : event.key === 'End' ? storyViews.length - 1
     : (index + storyViews.length + (event.key === 'ArrowRight' ? 1 : -1)) % storyViews.length;
   const [view,tab] = storyViews[next];
-  showStoryView(view);
-  $(`#${tab}`).focus();
+  if (await navigateStoryView(view)) $(`#${tab}`).focus();
 });
 bookChapter.onchange = () => {
   const heading = $(`#chapter-${bookChapter.value} h3`);
@@ -961,6 +945,7 @@ function renderMessages() {
   writeNeedsRender = false;
   closeTurnMenu();
   const project = current(), box = $('#messages');
+  const messageList = $('#messageList');
   const sameStory = renderedStoryId === project.id;
   const scrollTop = box.scrollTop;
   const followLatest = !sameStory || box.scrollHeight - scrollTop - box.clientHeight < 40;
@@ -974,12 +959,13 @@ function renderMessages() {
     activeStoryTurn = undefined;
     setStoryTurnsOpen(false);
   }
-  box.replaceChildren();
+  messageList.replaceChildren();
+  if (!sameStory) syncManualProse();
   if (!project.messages.length) {
     const empty = el('div','empty');
     empty.append(el('strong','','Start your story'),
       el('p','','Set the scene below, or ask your co-writer to begin.'));
-    box.append(empty);
+    messageList.append(empty);
     renderStoryTurns(project,followLatest);
     return;
   }
@@ -989,7 +975,6 @@ function renderMessages() {
   project.messages.forEach((message,index) => {
     const fromAuthor = message.role === 'user';
     if (fromAuthor) previousDirection = message;
-    if (fromAuthor && !showDirections && !composerEdit?.canRegenerate) return;
     const omittedFromMcp = mcpOmissionReason(message,previousDirection);
     const turn = message.turnNumber || index + 1;
     const row = el('article','message ' + (fromAuthor ? 'user' : 'assistant'));
@@ -1003,6 +988,7 @@ function renderMessages() {
     appendTurnContextBadge(row,head,omittedFromMcp);
     if (graphChanges.has(turn) || (!message.excludeFromContext && message.graphSuggestions?.length)) {
       const changes = el('button','text-button','View graph changes');
+      changes.title = 'See what this turn added to the story graph.';
       changes.onclick = () => {
         openSettings();
         pinGraph({kind:'turn-changes',turn});
@@ -1057,7 +1043,7 @@ function renderMessages() {
       body.append(nav);
     }
     row.append(body);
-    box.append(row);
+    messageList.append(row);
   });
   renderPending();
   box.scrollTop = followLatest ? box.scrollHeight : scrollTop;
@@ -1151,7 +1137,7 @@ function renderPending() {
   row.id = 'pendingTurn';
   body.append(el('span','pending-state' + (pending.active ? ' active' : ''),pending.state));
   row.append(body);
-  box.append(row);
+  $('#messageList').append(row);
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 function syncRoute() {
@@ -1163,11 +1149,12 @@ function syncRoute() {
   const model = writingModel(project,mode);
   const rewriting = composerEdit?.canRegenerate && Boolean(model && openRouterKey);
   const composerVisible = showComposer || Boolean(composerEdit);
+  if (openRouterKey || composerEdit || !composerVisible) clearComposerConnectionWarning();
   $('#writingComposer').hidden = !composerVisible;
   $('#toggleComposer').setAttribute('aria-expanded',String(composerVisible));
-  $('#toggleComposer').textContent = composerVisible ? 'Hide composer' : 'Show composer';
+  $('#toggleComposer').title = composerVisible ? 'Hide composer' : 'Show composer';
+  $('#toggleComposer').setAttribute('aria-label',$('#toggleComposer').title);
   $('#toggleComposer').disabled = Boolean(composerEdit);
-  $('#toggleDirections').setAttribute('aria-pressed',String(showDirections));
   $('#authorMode').value = mode;
   $('#routeModels').classList.toggle('editor-route',editingStory);
   $('#routeModels').hidden = Boolean(composerEdit && !rewriting);
@@ -1178,17 +1165,19 @@ function syncRoute() {
   modePicker.sync();
   $('#sceneModelControl').hidden = Boolean(composerEdit && !rewriting);
   sceneModelChoice.disabled = busy || Boolean(composerEdit);
+  $('#sceneModelLabel').textContent = editingStory ? 'Editor model' : 'Prose artist';
+  sceneModelChoice.title = editingStory ? 'This model updates the story details you ask it to change.'
+    : 'This model writes the next scene.';
   syncSceneModel(model,mode);
-  $('#sceneModelLabel').textContent = editingStory ? 'Editor model' : 'Writer';
   $('#continuityModelControl').hidden = editingStory || Boolean(composerEdit && !rewriting);
   continuityModelChoice.disabled = busy;
   syncContinuityModel(project);
   $('#routeSummary').textContent = composerEdit ? ''
     : !editingStory && sensitiveDraft(project) && model && !canWriteSensitive(model) ? 'Choose an NSFW-friendly writer.'
-    : !openRouterKey ? 'Add your API key in Connection.'
     : editingStory ? project.agentEditNotice?.message || '' : '';
   $('#providerButton').disabled = busy || Boolean(composerEdit);
   $('#pasteReply').disabled = busy || Boolean(composerEdit);
+  $('#saveManualProse').disabled = busy || Boolean(composerEdit);
   $('#composerEditStatus').hidden = !composerEdit;
   $('#composerEditStatus').textContent = composerEdit ? `Editing turn ${composerEdit.turnNumber}` : '';
   $('#verifyComposerEditLabel').hidden = !composerEdit;
@@ -1200,9 +1189,8 @@ function syncRoute() {
   $('#composeShortcut').textContent = rewriting ? '⌘/Ctrl + Enter to rewrite'
     : composerEdit ? '⌘/Ctrl + Enter to save' : '⌘/Ctrl + Enter to send';
   $('#sendButton').disabled = busy;
-  $('#sendButton').textContent = editingStory ? busy ? 'Editing…' : 'Apply edits'
-    : busy ? 'Writing…' : composerEdit ? rewriting ? 'Save & rewrite ↗' : 'Save edit' : 'Send & write ↗';
-  syncStoryFlow(project,editingStory,composerVisible);
+  $('#sendButton').setAttribute('aria-busy',String(busy));
+  syncStoryFlow(project);
   updateContextIndicator();
   if (followLatest) transcript.scrollTop = transcript.scrollHeight;
 }
@@ -1210,38 +1198,27 @@ function speakerMetadata(speaker) {
   return {speakerId:speaker.id, speakerName:speaker.name};
 }
 
-function syncStoryFlow(project,editingStory,composerVisible) {
+function syncStoryFlow(project) {
   const flow = activeStoryFlow(project);
   const native = flow?.source === 'mcp';
-  const dismissKey = 'story-flow-dismissed:' + project.id;
-  const expanded = native ? getSession(dismissKey) !== JSON.stringify(flow.options) : flowEnabled(project) && !editingStory;
-  const panel = $('#storyFlowPanel');
-  const toggle = $('#toggleStoryFlow');
-  toggle.hidden = editingStory && !native;
-  toggle.disabled = busy || Boolean(composerEdit);
-  const visible = (composerVisible || native) && expanded && !composerEdit;
-  toggle.setAttribute('aria-expanded',String(visible));
-  panel.hidden = !visible;
-  if (panel.hidden) return;
   const request = $('#requestStoryFlow');
   const options = $('#storyFlowOptions');
   const status = $('#storyFlowStatus');
   request.hidden = native;
-  request.disabled = busy;
-  request.title = flow ? 'New directions' : 'Suggest directions';
-  request.setAttribute('aria-label',request.title);
+  request.disabled = busy || Boolean(composerEdit);
+  request.title = flow ? 'Suggest different directions for the next scene.' : 'Suggest directions for the next scene.';
+  request.setAttribute('aria-label',flow ? 'New directions' : 'Suggest directions');
   options.replaceChildren(...(flow?.options || []).map(({title,direction},index)=>{
     const button = el('button','story-flow-choice');
     button.type = 'button';
     button.append(el('span','story-flow-title',title),el('span','story-flow-description',direction));
-    button.disabled = busy || flow.selected !== undefined;
+    button.disabled = busy || Boolean(composerEdit) || flow.selected !== undefined;
     if (flow.selected === index) button.setAttribute('aria-pressed','true');
     button.onclick = () => void chooseStoryFlow(project,flow,index);
     return button;
   }));
-  status.textContent = flowNotice.get(project.id) || (native
-    ? flow.selected === undefined ? 'Pick a direction to send it to your agent.' : 'Direction selected. Return to your agent to continue.'
-    : '');
+  status.textContent = flowNotice.get(project.id) ||
+    (native && flow.selected !== undefined ? 'Direction selected. Return to your agent to continue.' : '');
   status.hidden = !status.textContent;
 }
 
@@ -1259,6 +1236,10 @@ async function chooseStoryFlow(project,flow,index) {
     }
     return;
   }
+  if (authorMode(project) === 'agent') {
+    setSession(modeKey(project.id),'story');
+    syncRoute();
+  }
   const field = $('#instruction');
   field.value = option.direction;
   setSession(draftKey(project.id),option.direction);
@@ -1268,10 +1249,9 @@ async function chooseStoryFlow(project,flow,index) {
 async function requestStoryFlow() {
   if (!state || busy || composerEdit) return;
   const project = current();
-  if (!openRouterKey) {
-    openConnection();
-    return error('Enter your OpenRouter key to suggest directions.');
-  }
+  if (!openRouterKey) return openAppSettings();
+  const trigger = $('#requestStoryFlow');
+  const restoreFocus = document.activeElement === trigger;
   const transcript = JSON.stringify(project.messages);
   flowNotice.set(project.id,'Suggesting directions…');
   setBusy(true);
@@ -1294,18 +1274,12 @@ async function requestStoryFlow() {
     flowNotice.set(project.id,failure.message);
   } finally {
     setBusy(false);
+    if (restoreFocus && document.activeElement === document.body && !trigger.hidden) {
+      trigger.focus({preventScroll:true});
+    }
   }
 }
 
-$('#toggleStoryFlow').onclick = () => {
-  const project = current();
-  const flow = activeStoryFlow(project);
-  if (flow?.source === 'mcp') {
-    const key = 'story-flow-dismissed:' + project.id;
-    setSession(key,$('#storyFlowPanel').hidden ? '' : JSON.stringify(flow.options));
-  } else setSession(flowKey(project.id),flowEnabled(project) ? '' : 'true');
-  syncRoute();
-};
 $('#requestStoryFlow').onclick = () => void requestStoryFlow();
 
 function openRouterSnapshot(project, messages, replyTime) {
@@ -1332,9 +1306,10 @@ async function generateAgentEdit(project) {
   error();
   const model = writingModel(project,'agent');
   const key = openRouterKey;
-  if (!model || !key) {
-    openConnection();
-    return error('Choose an Editor agent model and enter your OpenRouter key.');
+  if (!key) return showComposerConnectionWarning();
+  if (!model) {
+    sceneModelPicker.focus();
+    return error('Choose an editor model, then send again.');
   }
   const budgetProblem = editorContext(project,instruction,model).problem;
   if (budgetProblem) return error(budgetProblem);
@@ -1362,6 +1337,8 @@ async function generate() {
   const model = writingModel(project);
   const key = openRouterKey;
   if (composerEdit && (!composerEdit.canRegenerate || !model || !key)) return saveComposerEdit();
+  if (!key) return showComposerConnectionWarning();
+  const refreshDirections = activeStoryFlow(project)?.source === 'openrouter';
   const sensitive = sensitiveDraft(project);
   const agentModel = selectedContinuityModel(project);
   if (sensitive && !canWriteSensitive(model)) {
@@ -1400,9 +1377,9 @@ async function generate() {
     error('This direction is outside the selected model’s context. Check its label in ⋯ → Time and context.');
     return;
   }
-  if (!model || !key) {
-    openConnection();
-    error('Enter your OpenRouter key and choose a model, then send again.');
+  if (!model) {
+    sceneModelPicker.focus();
+    error('Choose a writer model, then send again.');
     return;
   }
 
@@ -1436,12 +1413,11 @@ async function generate() {
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
         project:snapshot, instruction:authorTurn?.content ?? direction, provider:'openrouter', model, agentModel, key, sensitive,
-        flow:flowEnabled(project),
+        flow:refreshDirections,
         mode:replacement ? 'replace' : 'send'
       })
     });
     const {text} = response;
-    setSession(sensitiveKey(project.id),'');
     await mergeServerLibrary({ifChanged:true});
     if (!text?.trim()) throw Error('The co-writer returned an empty response.');
     const target = state.projects.find(item => item.id === project.id);
@@ -1474,12 +1450,14 @@ async function generate() {
       allowAutomatic:!contextChanged && isAvailableToMcp(savedDirection) && response.input === 'safe' && response.reply === 'safe'
         && !(target.id === current().id && settingsDraftChanged())
     });
+    flowNotice.delete(target.id);
     if (validStoryFlowOptions(response.flowOptions)) {
       target.storyFlow = {source:'openrouter',afterTurn:storyFlowTurn(target),options:response.flowOptions};
-      flowNotice.delete(target.id);
     } else if (response.flowUnavailable) {
       flowNotice.set(target.id,'The scene was saved. Use Suggest directions to try again.');
     }
+    const classifiedExplicit = response.reply === 'explicit' || (!sensitive && response.input === 'explicit');
+    setSession(sensitiveKey(target.id),classifiedExplicit ? 'true' : '');
     markDirty(target);
     if (current().id !== project.id) return;
     if (response.truncated) {
@@ -1682,8 +1660,7 @@ const countEvents = count => `${count} relationship ${count === 1 ? 'event' : 'e
 const timelineTime = (message,reply) => reply?.storyTime || message?.storyTime || '';
 
 function renderGraphTurns() {
-  const entries = [{time:draftStartAt, label:'Story setup', selection:{kind:'turn',turn:0},
-    detail:countEvents(draftRelationships.filter(edge => !edge.turn).length)}];
+  const entries = [{time:draftStartAt, label:'Story setup', selection:{kind:'turn',turn:0}}];
   const moments = new Map();
   for (const edge of draftRelationships) {
     if (!edge.turn) continue;
@@ -1692,13 +1669,15 @@ function renderGraphTurns() {
   }
   for (const [time,edges] of moments) {
     const [first] = edges;
-    entries.push({time, label:edges.length === 1 ? `${nameOf(first.from)} → ${nameOf(first.to)}` : 'Relationship events',
-      detail:edges.length === 1 ? turnPreview(first.label) : countEvents(edges.length), selection:{kind:'moment',time}});
+    const pairs = [...new Set(edges.map(edge=>`${nameOf(edge.from)} → ${nameOf(edge.to)}`))];
+    entries.push({time, label:pairs.length === 1 ? pairs[0] : '',
+      detail:pairs.length === 1 ? turnPreview(first.label) : pairs.join(' · '),
+      accessibleLabel:countEvents(edges.length), selection:{kind:'moment',time}});
   }
   for (const entry of storyTurns(current())) {
-    if (entry.authorOnly && !showDirections) continue;
-    const onlyProse = !showDirections && Boolean(entry.selection.replyTurn);
-    entries.push({...entry,label:eventTime(onlyProse ? entry.selection.replyTurn : entry.selection.turn),
+    if (entry.authorOnly && !showGraphDirections) continue;
+    const onlyProse = !showGraphDirections && Boolean(entry.selection.replyTurn);
+    entries.push({...entry,accessibleLabel:eventTime(onlyProse ? entry.selection.replyTurn : entry.selection.turn),
       ...(onlyProse ? {detail:turnPreview(entry.replyPreview),reason:entry.replyReason} : {})});
   }
   entries.sort((a,b) => Number(!a.time) - Number(!b.time) || a.time.localeCompare(b.time)
@@ -1706,7 +1685,7 @@ function renderGraphTurns() {
   const rail = $('#graphTurns');
   rail.replaceChildren();
   let day, list, lastTime, timeGroup;
-  for (const {time,label,detail,reason,selection} of entries) {
+  for (const {time,label,accessibleLabel,detail,reason,selection} of entries) {
     const key = time.slice(0,10);
     if (key !== day) {
       day = key;
@@ -1731,7 +1710,8 @@ function renderGraphTurns() {
     button.type = 'button';
     button.dataset.timelineSelection = selectionKey(selection);
     button.setAttribute('aria-pressed',String(selectionKey(pinnedGraph) === button.dataset.timelineSelection));
-    button.append(el('strong','',label));
+    if (accessibleLabel) button.append(el('span','sr-only',accessibleLabel + ' '));
+    if (label) button.append(el('strong','',label));
     if (detail) button.append(el('span','timeline-detail',detail));
     appendTurnContextBadge(button,button,reason);
     button.onclick = () => {
@@ -1852,7 +1832,7 @@ function renderInspector() {
     if (message) {
       preview.replaceChildren();
       if (reply) {
-        if (showDirections) preview.append(timelineText(message,'Direction',message,time));
+        if (showGraphDirections) preview.append(timelineText(message,'Direction',message,time));
         preview.append(timelineText(reply,attributedSpeaker(reply) || 'Prose',message,time));
       }
       else preview.append(el('p','inspector-copy',message.content));
@@ -1969,12 +1949,12 @@ function clearConnection() {
 function openRelationship(from,to,edge) {
   clearConnection();
   const pair = {kind:'pair',from,to,key:pairKey(from,to)};
-  editingRelationship = {from,to,edge,pair};
+  const time = current().messages.length ? edge?.storyTime || lastStoryTime(current()) || draftStartAt : draftStartAt;
+  editingRelationship = {from,to,edge,pair,time};
   $('#relationshipLabel').textContent = `What happened between ${nameOf(from)} and ${nameOf(to)}?`;
   $('#relationshipText').value = edge?.label || '';
   $('#relationshipText').setCustomValidity('');
-  $('#relationshipTime').value = edge?.storyTime || lastStoryTime(current()) || draftStartAt;
-  if (!current().messages.length) $('#relationshipTime').value = draftStartAt;
+  $('#relationshipTime').value = time;
   $('#relationshipTime').setCustomValidity('');
   $('#storeRelationship').textContent = edge ? 'Save event' : 'Add event';
   pinGraph({...pair,kind:'edge-edit'});
@@ -2000,8 +1980,8 @@ $('#cancelRelationship').onclick = () => {
   pinGraph(pairEvents(pair || {}).length ? pair : null);
   $('#connectCharacters').focus();
 };
-$('#storeRelationship').onclick = () => {
-  if (!editingRelationship) return;
+function storeRelationship() {
+  if (!editingRelationship) return false;
   const {from,to,edge,pair} = editingRelationship;
   const input = $('#relationshipText');
   const label = input.value.trim();
@@ -2010,12 +1990,12 @@ $('#storeRelationship').onclick = () => {
   if (!label) {
     input.setCustomValidity('Describe the relationship event.');
     input.reportValidity();
-    return;
+    return false;
   }
   if (!isStoryTime(storyTime)) {
     clock.setCustomValidity('Enter an in-story date and time.');
     clock.reportValidity();
-    return;
+    return false;
   }
   const project = current();
   const turn = edge ? edge.turn : project.messages.length ? project.messages.at(-1).turnNumber || project.messages.length : 0;
@@ -2032,7 +2012,9 @@ $('#storeRelationship').onclick = () => {
   renderGraphTurns();
   pinGraph(pair);
   $('#closeInspector').focus();
-};
+  return true;
+}
+$('#storeRelationship').onclick = storeRelationship;
 $('#relationshipText').oninput = event => event.target.setCustomValidity('');
 $('#relationshipTime').oninput = event => event.target.setCustomValidity('');
 $('#relationshipText').onkeydown = event => {
@@ -2136,6 +2118,8 @@ $('#storyStartAt').onchange = event => setDraftStart(event.target.value);
 $('#storyStartAt').oninput = event => event.target.setCustomValidity('');
 
 let settingsStoryId, settingsBaseline;
+let confirmingGraphNavigation = false;
+let savingGraphChanges = false;
 function settingsSnapshot() {
   const form = $('#settingsForm');
   return JSON.stringify([
@@ -2146,7 +2130,33 @@ function settingsSnapshot() {
 }
 function settingsDraftChanged() {
   return Boolean(settingsBaseline && settingsStoryId === current()?.id &&
-    (editingRelationship || settingsSnapshot() !== settingsBaseline));
+    (relationshipDraftChanged() || settingsSnapshot() !== settingsBaseline));
+}
+function relationshipDraftChanged() {
+  return editingRelationship && ($('#relationshipText').value.trim() !== (editingRelationship.edge?.label || '') ||
+    $('#relationshipTime').value !== editingRelationship.time);
+}
+async function confirmGraphNavigation() {
+  if (confirmingGraphNavigation) return false;
+  if (!settingsDraftChanged()) return true;
+  const dialog = $('#unsavedGraph');
+  confirmingGraphNavigation = true;
+  try {
+    const result = await new Promise(resolve => {
+      dialog.returnValue = 'stay';
+      dialog.addEventListener('close',() => resolve(dialog.returnValue),{once:true});
+      dialog.showModal();
+    });
+    if (result === 'discard') {
+      loadSettings(undefined,false);
+      error();
+      return true;
+    }
+    if (result !== 'save') return false;
+    return await persistGraphChanges();
+  } finally {
+    confirmingGraphNavigation = false;
+  }
 }
 function openSettings(initialTab = $('#castTab')) {
   if (!state) return;
@@ -2274,13 +2284,11 @@ function openTurnDetails(index) {
 function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');p = migrateLegacyCast({...p});if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentHistory?{agentHistory:normalizeAgentHistory(p.agentHistory)}:{}),...(normalizeSetupHistory(p.setupHistory)?{setupHistory:normalizeSetupHistory(p.setupHistory)}:{}),...(normalizeStoryFlow(p.storyFlow)?{storyFlow:normalizeStoryFlow(p.storyFlow)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentEditNotice && typeof p.agentEditNotice.message==='string' ? {agentEditNotice:{message:p.agentEditNotice.message.slice(0,300)}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(storyTextFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.continuityPending===true)result.continuityPending=true;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
 if(m.role==='assistant'&&m.standalone===true)result.standalone=true;if(m.role==='assistant'&&m.startsChapter===true)result.startsChapter=true;if(m.role==='assistant'&&typeof m.sourcePrefix==='string')result.sourcePrefix=m.sourcePrefix;if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})};});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 
-const modelChoice = $('#modelPreset');
 const sceneModelChoice = $('#sceneModel');
 const continuityModelChoice = $('#continuityModel');
 const modePicker = enhanceSelect($('#authorMode'));
 const sceneModelPicker = enhanceSelect(sceneModelChoice);
 const continuityModelPicker = enhanceSelect(continuityModelChoice);
-const connectionPicker = enhanceSelect(modelChoice);
 let continuitySensitive;
 function syncContinuityModel(project) {
   const sensitive = sensitiveDraft(project);
@@ -2338,7 +2346,7 @@ function presetOption(model,mode,priced = false) {
   const detail = cost === undefined ? '' : `~$${cost.toFixed(5)} / chapter`;
   const option = new Option([name,detail].filter(Boolean).join(' · '),model.id);
   option.dataset.name = model.name;
-  const tag = mode === 'agent' ? model.tier : model.sensitiveWriter ? 'NSFW-friendly' : '';
+  const tag = modelTag(model,{agent:mode === 'agent'});
   if (tag) option.dataset.tag = tag;
   if (detail) option.dataset.detail = detail;
   return option;
@@ -2356,14 +2364,14 @@ function modelOptions(mode, {priced = false, addModel = false} = {}) {
       option.dataset.tag = 'User-added';
       list.push(option);
     }
-    if (addModel) list.push(new Option('Add model by ID…','custom'));
+    if (addModel) list.push(new Option('Manage custom models…','custom'));
   }
   return [placeholder,...list];
 }
 function syncSceneModel(model,mode) {
   const optionsKey = JSON.stringify([mode,userModels]);
   if (sceneModelOptionsKey !== optionsKey) {
-    sceneModelChoice.replaceChildren(...modelOptions(mode,{addModel:true}));
+    sceneModelChoice.replaceChildren(...modelOptions(mode,{priced:true,addModel:true}));
     sceneModelOptionsKey = optionsKey;
   }
   sceneModelChoice.value = model;
@@ -2375,105 +2383,123 @@ sceneModelChoice.onchange = () => {
   const model = sceneModelChoice.value;
   if (model === 'custom' && mode === 'story') {
     syncRoute();
-    return openConnection(true);
+    return openCustomModels();
   }
   if (mode === 'agent' ? !isAgentModel(model) : !isWriterModel(model)) return;
   setSession(modelKey(current().id,mode),model);
   syncRoute();
 };
 const providerDialog = $('#providerDialog');
-const tokenRateFormat = new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});
-
-function showModelPrice() {
-  const model = models.find(item => item.id === modelChoice.value);
-  $('#customModel').hidden = modelChoice.value !== 'custom';
-  $('#removeUserModel').hidden = !userModels.includes(modelChoice.value);
-  $('#modelPrice').hidden = !model || chapterCost(model) === undefined;
-  if ($('#modelPrice').hidden) return;
-  $('#modelEstimate').textContent = `~$${chapterCost(model).toFixed(5)} per chapter`;
-  $('#modelRates').textContent = `$${tokenRateFormat.format(model.input)} input / $${tokenRateFormat.format(model.output)} output per million tokens`;
-  $('#modelSource').href = 'https://openrouter.ai/' + model.id;
-}
-modelChoice.onchange = () => { $('#modelError').textContent = ''; showModelPrice(); };
-$('#modelInput').oninput = () => { $('#modelError').textContent = ''; };
-
-function openConnection(addModel = false) {
+function openAppSettings() {
   if (!state || busy) return;
-  const mode = authorMode(current());
-  const model = writingModel(current(),mode);
-  modelChoice.replaceChildren(...modelOptions(mode,{priced:true,addModel:true}));
-  modelChoice.value = addModel === true ? 'custom' : model;
-  connectionPicker.sync();
-  $('#modelPolicy').textContent = mode === 'agent' ? 'These models can use the story-state editing tools.'
-    : 'NSFW-friendly writers can use sensitive context when you enable Sensitive scene.';
-  $('#modelEstimate').hidden = mode === 'agent';
-  $('#modelChapterAssumption').hidden = mode === 'agent';
-  $('#modelBilling').textContent = mode === 'agent'
-    ? 'The selected model receives your request and the story metadata. OpenRouter bills that edit.'
-    : 'OpenRouter bills the writer and the selected continuity agent separately.';
-  $('#modelInput').value = '';
-  showModelPrice();
-  $('#modelError').textContent = '';
   $('#keyInput').value = openRouterKey;
+  $('#toggleDirections').checked = showGraphDirections;
   providerDialog.showModal();
-  if (addModel === true) $('#modelInput').focus();
 }
-$('#providerButton').onclick = openConnection;
-$('#closeProvider').onclick = $('#cancelProvider').onclick = () => $('#providerDialog').close();
-providerDialog.addEventListener('close', () => {
-  connectionPicker.close?.();
-  $('#keyInput').value = '';
-});
+$('#providerButton').onclick = () => {
+  $('#sidebar').close();
+  openAppSettings();
+};
+$('#openComposerSettings').onclick = openAppSettings;
+$('#closeProvider').onclick = $('#cancelProvider').onclick = () => providerDialog.close();
+providerDialog.addEventListener('close', () => { $('#keyInput').value = ''; });
 $('#providerForm').onsubmit = event => {
   event.preventDefault();
-  const project = current();
-  const mode = authorMode(project);
-  const custom = modelChoice.value === 'custom';
-  const modelInput = $('#modelInput');
-  const model = custom ? modelInput.value.trim().toLowerCase() : modelChoice.value;
-  if (mode === 'agent' ? !isAgentModel(model) : !isWriterModel(model)) {
-    $('#modelError').textContent = mode === 'agent' ? 'Choose a model supported by Editor agent.' : custom
-      ? 'Enter a specific model ID in author/model format.'
-      : 'Choose an OpenRouter model.';
-    if (custom) modelInput.focus();
-    else connectionPicker.focus();
-    return;
-  }
-  if (custom && !isPreset(model) && !userModels.includes(model)) saveUserModels([...userModels,model]);
   openRouterKey = $('#keyInput').value.trim();
-  if (model) setSession(modelKey(project.id,mode),model);
+  showGraphDirections = $('#toggleDirections').checked;
+  setSession('studio-show-directions',showGraphDirections ? 'true' : '');
   syncRoute();
+  if (storyView === 'graph') renderGraphTurns();
   renderMessages();
-  $('#providerDialog').close();
+  providerDialog.close();
   error();
 };
-$('#removeUserModel').onclick = () => {
-  const model = modelChoice.value;
-  if (!userModels.includes(model)) return;
-  saveUserModels(userModels.filter(id=>id !== model));
-  clearRemovedModelSelections();
-  modelChoice.replaceChildren(...modelOptions('story',{priced:true,addModel:true}));
-  modelChoice.value = '';
-  connectionPicker.sync();
-  showModelPrice();
+
+const customModelDialog = $('#customModelDialog');
+function renderCustomModels() {
+  const list = $('#customModelList');
+  list.hidden = !userModels.length;
+  list.replaceChildren(...userModels.map(model => {
+    const item = el('li');
+    const remove = el('button','text-button danger','Remove');
+    remove.type = 'button';
+    remove.setAttribute('aria-label','Remove ' + model);
+    remove.onclick = () => {
+      saveUserModels(userModels.filter(id=>id !== model));
+      clearRemovedModelSelections();
+      syncRoute();
+      renderCustomModels();
+      $('#modelInput').focus();
+    };
+    item.append(el('span','',model),remove);
+    return item;
+  }));
+}
+function openCustomModels() {
+  $('#customModelForm').reset();
+  $('#modelError').textContent = '';
+  renderCustomModels();
+  customModelDialog.showModal();
+}
+$('#closeCustomModel').onclick = () => customModelDialog.close();
+$('#modelInput').oninput = () => { $('#modelError').textContent = ''; };
+$('#customModelForm').onsubmit = event => {
+  event.preventDefault();
+  const model = $('#modelInput').value.trim().toLowerCase();
+  if (!isWriterModel(model)) {
+    $('#modelError').textContent = 'Enter an OpenRouter writer model ID in author/model format.';
+    return;
+  }
+  if (!isPreset(model) && !userModels.includes(model)) saveUserModels([...userModels,model]);
+  setSession(modelKey(current().id),model);
   syncRoute();
-  connectionPicker.focus();
+  customModelDialog.close();
 };
 
-$('#pasteReply').onclick=()=>{$('#pasteForm').reset();$('#pasteDialog').showModal()};
-$('#closePaste').onclick=$('#cancelPaste').onclick=()=>$('#pasteDialog').close();
+const manualProseDrafts = new Map();
+function syncManualProse() {
+  const draft = manualProseDrafts.get(current().id);
+  $('#pasteForm').hidden = !draft;
+  $('#pasteReply').hidden = Boolean(draft);
+  $('#pasteReply').setAttribute('aria-expanded',String(Boolean(draft)));
+  $('#pasteText').value = draft?.text || '';
+  $('#pasteSensitivity').value = draft?.sensitivity || 'unclassified';
+}
+$('#pasteReply').onclick = () => {
+  manualProseDrafts.set(current().id,{text:'',sensitivity:'unclassified'});
+  syncManualProse();
+  $('#pasteText').focus();
+};
+$('#pasteForm').oninput = () => {
+  $('#pasteText').setCustomValidity('');
+  manualProseDrafts.set(current().id,{text:$('#pasteText').value,sensitivity:$('#pasteSensitivity').value});
+};
+$('#cancelPaste').onclick = () => {
+  manualProseDrafts.delete(current().id);
+  syncManualProse();
+  $('#pasteReply').focus();
+};
 $('#pasteForm').onsubmit=event=>{
   event.preventDefault();
-  const text = $('#pasteText').value.trim();
-  if (!text) return;
+  if (busy || composerEdit) return;
+  const field = $('#pasteText');
+  const text = field.value.trim();
+  if (!text) {
+    field.setCustomValidity('Enter a passage to save.');
+    field.reportValidity();
+    return;
+  }
   const project = current();
   delete project.agentRequest;
   delete project.agentNotice;
   appendTurn(project,{role:'assistant',content:text,...speakerMetadata(narrator),
     standalone:true,contentSensitivity:$('#pasteSensitivity').value});
   markDirty();
-  $('#pasteDialog').close();
+  manualProseDrafts.delete(project.id);
+  syncManualProse();
   render();
+  showLatestStoryTurn();
+  $('#pasteReply').focus({preventScroll:true});
 };
 // Import fills only the selected profile draft. Saving is still explicit.
 const cardButton = el('button', 'button subtle', 'Import JSON card');
@@ -2520,20 +2546,61 @@ $('#settingsForm').addEventListener('input', event => {
 });
 $('#settingsForm').onsubmit = event => {
   event.preventDefault();
-  const form = event.currentTarget;
+  void persistGraphChanges();
+};
+async function persistGraphChanges() {
+  if (savingGraphChanges) return false;
+  savingGraphChanges = true;
+  try {
+    await pendingSave;
+    const project = current();
+    const keys = [...settingsFields,'cast','storyStartAt','storyStartSource','relationships','graphUpdates','graphHistory'];
+    const reviewKeys = ['graphSuggestions','appliedGraphUpdates'];
+    const targets = [{keys,find:()=>project}, ...project.messages.filter(turn=>turn.graphSuggestions).map(turn=>({
+      keys:reviewKeys,find:()=>project.messages.find(item=>item.turnNumber === turn.turnNumber)
+    }))];
+    const read = ({keys,find}) => keys.map(key=>structuredClone(find()?.[key]));
+    const before = targets.map(read);
+    if (!saveGraphSettings()) return false;
+    const applied = targets.map(read);
+    const submitted = settingsSnapshot();
+    await save();
+    if (dirty) {
+      targets.forEach(({keys,find},index) => {
+        const target = find();
+        if (!target) return;
+        keys.forEach((key,position) => {
+          if (JSON.stringify(target[key]) !== JSON.stringify(applied[index][position])) return;
+          const original = before[index][position];
+          if (original === undefined) delete target[key];
+          else target[key] = original;
+        });
+      });
+      return false;
+    }
+    settingsBaseline = submitted;
+    const hasNewDraft = settingsDraftChanged();
+    render();
+    return !hasNewDraft;
+  } finally {
+    savingGraphChanges = false;
+  }
+}
+function saveGraphSettings() {
+  const form = $('#settingsForm');
   const project = current();
   if (!form.elements.title.value.trim()) {
     selectSettingsTab($('#writingTab'));
     form.elements.title.setCustomValidity('Enter a story title.');
     form.elements.title.reportValidity();
-    return;
+    return false;
   }
   form.elements.title.setCustomValidity('');
   if (!isStoryTime($('#storyStartAt').value)) {
     selectSettingsTab($('#worldTab'));
     $('#storyStartAt').setCustomValidity('Enter an in-story starting date and time.');
     $('#storyStartAt').reportValidity();
-    return;
+    return false;
   }
   setDraftStart($('#storyStartAt').value);
   const cast = readCast();
@@ -2545,8 +2612,9 @@ $('#settingsForm').onsubmit = event => {
       missingName.setCustomValidity('Enter a name for this character.');
       missingName.reportValidity();
     }
-    return;
+    return false;
   }
+  if (relationshipDraftChanged() && !storeRelationship()) return false;
   ensureGraphBaseline(project);
   for (const key of settingsFields) project[key] = form.elements[key].value.trim();
   project.cast = cast;
@@ -2564,9 +2632,9 @@ $('#settingsForm').onsubmit = event => {
   }
   captureGraphVersion(project, Math.max(nextTurnNumber(project)-1, project.graphHistory.at(-1)?.turn || 0));
   markDirty();
-  settingsBaseline = undefined;
-  render();
-};
+  error();
+  return true;
+}
 $('#settingsForm').elements.title.oninput = event => event.target.setCustomValidity('');
 $('#closeEdit').onclick = $('#cancelEdit').onclick = () => $('#editDialog').close();
 $('#turnSensitivity').onchange = event => showEditSensitivity(event.target.value === 'include' ? 'reviewed-safe' : 'explicit');
@@ -2835,13 +2903,12 @@ async function requestSetup(mode) {
   }
 }
 
-$('#newProject').onclick = () => {
+$('#newProject').onclick = async () => {
   if (!state) return;
   if (settingsDraftChanged()) {
     $('#sidebar').close();
     showStoryView('graph');
-    error('Save or discard your graph changes before starting a new story.');
-    return;
+    if (!await confirmGraphNavigation()) return;
   }
   if (state.projects.length - 1 >= maxLibraryStories) {
     alert('Your library has reached its story limit.');
@@ -3058,6 +3125,25 @@ $('#cancelComposerEdit').onclick = closeComposerEdit;
 $('#verifyComposerEdit').onchange = event => {
   if (composerEdit) composerEdit.verified = event.target.checked;
 };
+function clearComposerConnectionWarning() {
+  $('#connectionWarning').hidden = true;
+  $('#instruction').removeAttribute('aria-invalid');
+  $('#instruction').removeAttribute('aria-describedby');
+}
+function showComposerConnectionWarning() {
+  const transcript = $('#messages');
+  const following = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 40;
+  $('#connectionWarning').hidden = false;
+  $('#instruction').setAttribute('aria-invalid','true');
+  $('#instruction').setAttribute('aria-describedby','connectionWarning');
+  if (following) transcript.scrollTop = transcript.scrollHeight;
+}
+$('#instruction').addEventListener('focus',() => {
+  if (!openRouterKey && !composerEdit) showComposerConnectionWarning();
+});
+$('#writingComposer').addEventListener('focusout',event => {
+  if (!event.currentTarget.contains(event.relatedTarget)) clearComposerConnectionWarning();
+});
 $('#instruction').oninput = event => {
   const input = event.target;
   input.setCustomValidity('');
@@ -3156,7 +3242,13 @@ function updateContextIndicator() {
   if (!state) return;
   clearTimeout(contextEstimateTimer);
   const details = composerContext();
-  $('#contextIndicator').title = details.summary;
+  const indicator = $('#contextIndicator');
+  const usage = details.usage;
+  const label = usage === undefined ? details.summary
+    : (usage > 0 && usage < 1 ? 'Less than 1%' : Math.round(usage) + '%') + ' of the context window used';
+  indicator.title = label + '. Open to inspect what the model receives.';
+  indicator.setAttribute('aria-description',label);
+  $('#contextProgress').setAttribute('stroke-dasharray',`${Math.min(100,usage ?? 0)} 100`);
   if ($('#promptDialog').open) renderContextPanel();
   return details;
 }
@@ -3207,6 +3299,7 @@ function composerContext(stage = 'writer') {
     parts:[...details.parts,{label:'Output reserve',tokens:details.outputLimit}],
     messages:mode === 'story' && !useContinuity && !details.problem ? details.messages : undefined,
     window:modelWindow ?? (details.inputLimit + details.outputLimit),
+    usage:modelWindow ? tokens / modelWindow * 100 : undefined,
     limits:details.problem ? limits + ' ' + details.problem : limits};
 }
 
@@ -3223,7 +3316,7 @@ function renderContextPanel() {
   $('#promptContents').textContent = messages ? formatMessages(messages) : '';
 }
 $('#contextStage').onchange = renderContextPanel;
-$('#promptPreview').onclick = $('#contextIndicator').onclick = () => {
+$('#contextIndicator').onclick = () => {
   if (!state) return;
   $('#contextStage').value = 'writer';
   renderContextPanel();
@@ -3273,6 +3366,7 @@ $('#importFile').onchange = async event => {
     }
     if (!await confirmDanger('Replace your library?',
       'Import replaces your saved stories with the contents of this file. Cancel and export your current library first if you want a backup.', 'Replace library')) return;
+    if (!await confirmGraphNavigation()) return;
     const demo = state.projects.find(project => project.id === starterStoryId);
     const replacement = incoming.projects.find(project => project.id === incoming.activeId);
     for (const project of [...state.projects,...incoming.projects]) {

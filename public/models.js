@@ -15,9 +15,9 @@ export const models = [
   {id:'google/gemini-4-hydrogen', name:'Gemini 4 Hydrogen', input:1.50, output:7.50, contextWindow:1_048_576, tier:'Preferred', reasoningRequired:true},
   {id:'anthropic/claude-sonnet-5.5', name:'Claude Sonnet 5.5', input:2, output:10, contextWindow:1_000_000, tier:'Preferred', reasoningRequired:true},
   {id:'qwen/qwen4-max', name:'Qwen4 Max', input:1.50, output:4.50, contextWindow:1_000_000, tier:'Preferred'},
-  {id:'z-ai/glm-5.3', name:'GLM 5.3', input:0.0699, output:1.4, contextWindow:262_144, reasoningRequired:true},
-  {id:'moonshotai/kimi-k3.1-pro', name:'Kimi K3.1 Pro', input:0.2403, output:8.4023, contextWindow:409_600},
-  {id:'google/gemini-4-carbon', name:'Gemini 4 Carbon', input:2, output:10, contextWindow:1_048_576, reasoningRequired:true},
+  {id:'z-ai/glm-5.3', name:'GLM 5.3', input:0.0699, output:1.4, tier:'Preferred', contextWindow:262_144, reasoningRequired:true},
+  {id:'moonshotai/kimi-k3.1-pro', name:'Kimi K3.1 Pro', input:0.2403, output:8.4023, tier:'Preferred', contextWindow:409_600},
+  {id:'google/gemini-4-carbon', name:'Gemini 4 Carbon', input:2, output:10, tier:'Preferred', contextWindow:1_048_576, reasoningRequired:true},
 ];
 
 export const isModelId = value => typeof value === 'string' && /^[a-z0-9_.-]+\/[a-z0-9_.:-]+$/i.test(value)
@@ -38,8 +38,12 @@ export function agentReasoning(id) {
   return catalogModel(id)?.reasoningRequired ? {effort:'low'} : {enabled:false};
 }
 
-export function modelLabel(model,{agent = false} = {}) {
-  return [model.name,agent ? model.tier : model.sensitiveWriter ? 'NSFW-friendly' : ''].filter(Boolean).join(' · ');
+export function modelTag(model,{agent = false} = {}) {
+  return model.tier || (!agent && model.sensitiveWriter ? 'NSFW-friendly' : '');
+}
+
+export function modelLabel(model,options) {
+  return [model.name,modelTag(model,options)].filter(Boolean).join(' · ');
 }
 
 export function proseOutputLimit(modelId) {
