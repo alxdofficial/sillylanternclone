@@ -20,12 +20,12 @@ Set up MCP and start the watcher in a local **Codex or Claude desktop session**.
 
 New libraries open on **The Late Ferry**, a late-night harbor mystery with six characters and six turns. Find it later under **Stories → The Late Ferry · Demo**. Changes to the demo stay in memory. Reload the page to put everything back, including the cast, transcript, and any queued writing request. Your own stories save normally and are the ones included in backups.
 
-1. Open **Character & lore**. Read the world setting and click through the cast. Click the line between Sam and Tomas or Noor and Mae to inspect the saved radio reports.
-2. Back in the transcript, use **Next** and **Previous** to compare the two takes of the final scene. **View graph changes** on turn 4 shows the saved radio reports. It also takes you to the pending suggestion on turn 6.
-3. Open **Prompt** to see the beacon and radio lore in context. Try writing a line in **Manual**, or ask **MCP** or **OpenRouter** to continue with Noor checking the beacon. Follow the relevant connection instructions below to use a model.
+1. Open **Character & lore** and click through the cast. Select the line between Sam and Ellis to see their starting relationship and the later radio call. The timeline shows the scene times across midnight.
+2. Back in the transcript, use **View graph changes** on turn 4 to see what carried forward from the gate check. Open **Book view** to read the two chapters without the author directions.
+3. Open **Prompt** to see the beacon, incident book, and cast in context. Try **Manual**, or ask **MCP** or **OpenRouter** to continue with Mae inspecting the impression on the next page. Use **⋯ → Branch from here** to keep an alternate storyline.
 4. For a story you want to keep or export, choose **Stories → New story**.
 
-The demo began as a blank story in the browser. The cast and setting were entered by hand, and Cydonia wrote the three scenes and alternate through OpenRouter. DeepSeek supplied scene times and graph proposals. [See the verification notes](TESTING.md#the-late-ferry-starter).
+The demo was built and exported through the current Story Studio browser workflow. DeepSeek V4.1 Flash brainstormed and proposed the setup, including the starting relationships. Cydonia 24B v4.1 drafted the scenes, and DeepSeek recorded their times and continuity changes. The prose was lightly copyedited and reviewed in Story Studio. [See the verification notes](TESTING.md#the-late-ferry-starter).
 
 ## Story mode
 

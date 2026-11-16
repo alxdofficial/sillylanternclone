@@ -1,77 +1,250 @@
 import { starterStoryId } from '../public/library.js';
 
-// This story was authored and exported through Story Studio. See TESTING.md.
+// Authored and exported through Story Studio. See TESTING.md.
 const starter = {
   "title": "The Late Ferry",
-  "character": "Lina, 39, dispatches the night ferry and knows the regulars by their orders at the tea urn. A fall ended her years on deck, but she still keeps an old pair of deck gloves behind the ticket glass. Tonight she must keep passengers informed while someone checks a beacon flashing the wrong signal.",
+  "character": "A former deckhand now dispatching the night ferry. She has to explain the delay to waiting passengers and to the skipper, and she feels the weight of every clearance she grants. She works from the dispatch desk, tracks the radio, and keeps the incident book within reach. Her stake is her authority on the night watch and the harbor's trust in her judgment.",
   "persona": "",
-  "lore": "Bellwether, October 1998. The last ferry carries night workers from a low terminal across a cold channel to Alder Island. The radio at the ticket window reaches the ferry, the workshop and the weather desk. The shore beacon must show a steady single flash before the skipper can sail. Behind the staff door, the dock gate has a motor and a manual key, but the key will bind unless the motor circuit is isolated. Dispatch keeps a clothbound incident book; the weather desk keeps duplicate observations. There are no smartphones. A rain squall is ending as the night begins.\nTurn 2: The dispatch board in Bellwether terminal fails at 23:40, forcing staff to rely on radio and manual procedures to hold the ferry.\nTurn 4: The dock gate motor breaker is located at the north panel, third from the left. Isolating the motor before using the manual key prevents the key from binding.\nTurn 4: The eastern shore beacon is showing an inconsistent flash pattern: two flashes, then dark, which violates the steady single flash required for ferry departure.",
-  "notes": "A quiet harbor mystery told in close third person, past tense. Keep dialogue natural and the physical details specific. Let the crew establish facts through ordinary work rather than explaining the mystery in advance.",
-  "storyStartAt": "1998-10-24T23:40",
-  "storyStartSource": "author",
-  "messages": [
+  "lore": "Bellwether is a small working harbor with a late ferry crossing to Alder Island. The terminal is a modest, practical building where passengers wait on benches after the last squall has moved through. The harbor runs on paper: clothbound incident books kept at dispatch, duplicate weather readings preserved in grease pencil, radio traffic, and payphones. The east beacon is supposed to flash once at regular intervals to mark the channel; tonight it flashes twice and goes dark. A rain squall has just passed, and the cause of the beacon fault is still unknown. Departure is tightly controlled: the skipper needs clearance from dispatch, and no ferry leaves the dock without it. The night is quiet, wet, and ordinary in every way except for the details that do not line up.\nTurn 4: The gate motor is fed from the north panel; the breaker for it is third from the left, and the gate can be cranked open by hand once the motor is isolated.\nTurn 6: At 00:07 the weather desk's duplicate record put the beacon irregularity at 23:41, lasting eighteen seconds; station pressure 1012 mb, wind southwest at eight knots.",
+  "notes": "Keep close third person, past tense, grounded technical detail, and quiet suspense. The opening clue should stay small: a beacon fault, a gap in the paper log, nothing solved on the first night. The ferry must remain moored for now. Treat harbor work as procedural and specific — clearance, radio checks, signboards, gate circuits, weather duplicates. Do not name or hint at a culprit. Avoid explicit content.",
+  "relationships": [
     {
-      "role": "user",
-      "content": "Open at 23:40. When the departure board dies, Lina asks Sam to check the gate, and asks Mae to relay Tomas’s radio messages to the people in the waiting room. Write a short opening scene in about 150 words. Hold the ferry at the dock.",
-      "contentSensitivity": "reviewed-safe",
-      "turnNumber": 1,
+      "from": "primary",
+      "to": "c9c204e5-f2c4-44e0-b1aa-34b0636b7adc",
+      "label": "Lina coordinates departure clearance with Tomas, and he will not move the ferry without her go-ahead.",
+      "turn": 0,
       "storyTime": "1998-10-24T23:40"
     },
     {
+      "from": "primary",
+      "to": "cc3407eb-83e6-4f96-a36b-ee08bccfd517",
+      "label": "Lina supervises Mae on the night shift and relies on her to keep the terminal calm.",
+      "turn": 0,
+      "storyTime": "1998-10-24T23:40"
+    },
+    {
+      "from": "1b92d34f-1884-4031-ac36-7577103bb86c",
+      "to": "c87bf87c-691c-492c-aaf7-adc8adf164e6",
+      "label": "Ellis mentors Sam in electrical maintenance and trained him to read the gate circuit.",
+      "turn": 0,
+      "storyTime": "1998-10-24T23:40"
+    },
+    {
+      "from": "cc3407eb-83e6-4f96-a36b-ee08bccfd517",
+      "to": "2ce7d2c7-5995-4b5b-9438-8abaa654245e",
+      "label": "Mae and Noor exchange observations when the harbor turns foul, comparing what each of them has noticed.",
+      "turn": 0,
+      "storyTime": "1998-10-24T23:40"
+    },
+    {
+      "from": "primary",
+      "to": "c87bf87c-691c-492c-aaf7-adc8adf164e6",
+      "label": "Lina sent Sam to check the gate circuit, trusting them with the fault rather than just the ticket window.",
+      "turn": 2,
+      "storyTime": "1998-10-24T23:41"
+    },
+    {
+      "from": "primary",
+      "to": "cc3407eb-83e6-4f96-a36b-ee08bccfd517",
+      "label": "Lina assigned Mae to keep waiting passengers informed during the delay.",
+      "turn": 2,
+      "storyTime": "1998-10-24T23:41"
+    },
+    {
+      "from": "c9c204e5-f2c4-44e0-b1aa-34b0636b7adc",
+      "to": "primary",
+      "label": "Tomas radioed from the still-moored ferry asking about the schedule and is holding for Lina's clearance.",
+      "turn": 2,
+      "storyTime": "1998-10-24T23:41"
+    },
+    {
+      "from": "1b92d34f-1884-4031-ac36-7577103bb86c",
+      "to": "c87bf87c-691c-492c-aaf7-adc8adf164e6",
+      "label": "Ellis talked Sam through the north panel breaker over the radio, relying on the training he had given them.",
+      "turn": 4,
+      "storyTime": "1998-10-24T23:53"
+    }
+  ],
+  "storyStartAt": "1998-10-24T23:40",
+  "storyStartSource": "author",
+  "cast": [
+    {
+      "id": "c87bf87c-691c-492c-aaf7-adc8adf164e6",
+      "name": "Sam Bell",
+      "nickname": "",
+      "description": "Works the ticket window and studies electrical maintenance on their own time. They carry a pencil and a torch and want to be taken seriously as a technician rather than a ticket clerk. They notice hardware details others miss and are eager to prove the training Ellis gave them was worth giving.",
+      "personality": "",
+      "scenario": "",
+      "examples": ""
+    },
+    {
+      "id": "c9c204e5-f2c4-44e0-b1aa-34b0636b7adc",
+      "name": "Tomas Reyes",
+      "nickname": "",
+      "description": "The ferry skipper, cautious since a close call in fog. He will not move the ferry without Lina's clearance and prefers to wait out uncertain conditions. He is steady with passengers but quietly watches the channel and the beacon.",
+      "personality": "",
+      "scenario": "",
+      "examples": ""
+    },
+    {
+      "id": "cc3407eb-83e6-4f96-a36b-ee08bccfd517",
+      "name": "Mae Chen",
+      "nickname": "",
+      "description": "A junior clerk with spare signboards at hand. She can reassure passengers and keep the terminal calm while the ferry is delayed, and she is learning how the harbor's paperwork actually moves through the night. Her stake is being trusted with more responsibility.\nTurn 6: Checking the incident book to draft the passenger announcement, she noticed the struck-through entries and pressed pen marks, and now wants to find who owns the heavy pressing pen.",
+      "personality": "",
+      "scenario": "",
+      "examples": ""
+    },
+    {
+      "id": "2ce7d2c7-5995-4b5b-9438-8abaa654245e",
+      "name": "Noor Haddad",
+      "nickname": "",
+      "description": "Keeps the weather station and makes duplicate entries in grease pencil. She logs readings with care and treats the duplicates as a safeguard, not a formality. Her observations are precise and she notices when a record does not match what she remembers writing.\nTurn 6: Read the weather desk's duplicate record over the radio, giving the exact beacon irregularity time and duration.",
+      "personality": "",
+      "scenario": "",
+      "examples": ""
+    },
+    {
+      "id": "1b92d34f-1884-4031-ac36-7577103bb86c",
+      "name": "Ellis Ward",
+      "nickname": "",
+      "description": "The blunt harbor electrician who trained Sam to read the gate circuit. He is practical, impatient with unclear thinking, and respected for knowing the harbor's wiring better than anyone. He speaks plainly and expects others to keep up.",
+      "personality": "",
+      "scenario": "",
+      "examples": ""
+    }
+  ],
+  "characterName": "Lina Park",
+  "characterNickname": "",
+  "personaName": "",
+  "personality": "",
+  "scenario": "It is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified.",
+  "examples": "",
+  "authorNote": "",
+  "postHistory": "",
+  "loreRules": "",
+  "continuity": "Turn 2: At 23:41 the departure board in the terminal flickered and died, and the east beacon flashed twice then went dark.\nTurn 4: Sam isolated the gate motor's breaker, opened the gate with the manual key, and radioed Tomas that the gate is clear; the ferry remains moored pending Lina's clearance and a working east beacon.\nTurn 4: Noor reported the east beacon's two-flash pattern over the radio, and Mae relayed it to the waiting passengers.\nTurn 6: The dispatch incident book has a clean gap between 23:30 and 23:45: several lines neatly struck through with a felt pen, exactly where a beacon fault entry should have been. The page is not torn, just crossed out.\nTurn 6: Lina told the waiting passengers only what she could verify: the east beacon had a brief glitch, the ferry departs once the beacon is confirmed working, and the payphones are available for calls home. The ferry remains firmly moored.",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Open at 23:40 on October 24 in close third person from Lina. When the departure board dies, have her send Sam to check the gate and ask Mae to keep the passengers informed. Tomas calls from the still-moored ferry, ready to leave as soon as she clears him. Let Lina look up and see the east beacon flash twice. About 170 words.",
+      "contentSensitivity": "safe",
+      "turnNumber": 1,
+      "storyTime": "1998-10-24T23:41"
+    },
+    {
       "role": "assistant",
-      "content": "The dispatch board flickered and died at 23:40. Lina Park tapped her pencil against the red dispatch drawer. \"Sam, leave the window. Check the gate relay. Take a light.\"\n\nSam nodded, their pencil clicking against the counter as they rounded the corner. The waiting room filled with the murmur of damp shoulders and stolen newspapers.\n\n\"Mae,\" Lina said, watching the lights cross the harbor. \"Tell Tomas we're holding. Also tell people... tell them weather's holding too. We need five minutes.\"\n\nFrom the ferry's bridge, Tomas keyed his radio. \"Bellwether Control, we are ready on board. Request considerable delay and passage permission.\"\n\nLina replied, but kept her eyes on the empty departure board. \"Understood, Tomas. One can't leave without dispatch.\"\n\nMae unsnapped her radio from her bag and walked toward the waiting room, her boots quiet on the damp concrete. \"Is everyone comfortable?\" Each person looked up from their reading or drowsing. \"We might be a few minutes late.\"\n\nOutside, rain beat against the windows as Lina's pencil tapped, the dispatch book remained closed, and everyone waited for light or word.",
+      "content": "Lina Park watched the clock on her desk tick past 23:40, her fingers steady on the radio microphone. The dispatch office was quiet except for the hum of the radio and the scribble of paperwork. From her elevated desk, she could see the dark water of the harbor through the rain-streaked window and the regular flash of the east beacon marking the channel—until at 23:41, it flashed twice. Then went dark.\n\nThe departure board on the wall flickered and died.\n\nShe cursed under her breath, reaching for the phone. \"Sam, can you check the gate circuit? The board's gone dark.\" Sam Bell, working the ticket counter, nodded and disappeared moments later with a pencil and torch from their pocket. Lina punched the intercom. \"Mae, keep passengers informed. We've got a minor system issue.\" Mae Chen, junior clerk and resident calm, gave a thumbs-up from the terminal before addressing the waiting passengers.\n\nHer radio crackled. Tomas Reyes, the ferry skipper. \"Dispatch, are we still on schedule?\"\n\n\"Not yet, Skipper.\" Lina found herself talking to the dead microphone while her eyes remained fixed on the harbor where one weak afterimage lingered where the beacon had gone out.",
       "speakerId": "story-studio:narrator",
       "speakerName": "Narrator",
-      "contentSensitivity": "safe",
-      "storyTime": "1998-10-24T23:40",
-      "turnNumber": 2
+      "contentSensitivity": "reviewed-safe",
+      "storyTime": "1998-10-24T23:41",
+      "turnNumber": 2,
+      "appliedGraphUpdates": [
+        {
+          "kind": "fact",
+          "note": "At 23:41 the departure board in the terminal flickered and died, and the east beacon flashed twice then went dark."
+        },
+        {
+          "kind": "relationship",
+          "from": "Lina Park",
+          "to": "Sam Bell",
+          "label": "Lina sent Sam to check the gate circuit, trusting them with the fault rather than just the ticket window.",
+          "storyTime": "1998-10-24T23:41"
+        },
+        {
+          "kind": "relationship",
+          "from": "Lina Park",
+          "to": "Mae Chen",
+          "label": "Lina assigned Mae to keep waiting passengers informed during the delay.",
+          "storyTime": "1998-10-24T23:41"
+        },
+        {
+          "kind": "relationship",
+          "from": "Tomas Reyes",
+          "to": "Lina Park",
+          "label": "Tomas radioed from the still-moored ferry asking about the schedule and is holding for Lina's clearance.",
+          "storyTime": "1998-10-24T23:41"
+        }
+      ]
     },
     {
       "role": "user",
-      "content": "At 23:53, follow Sam to the staff door. Show Sam asking Ellis over channel three which breaker to open, Ellis warning them that the key will bind with the motor energized, and Sam reporting the reopened gate to Tomas. Noor then radios Mae that the east beacon is flashing twice. Keep the ferry moored, about 170 words.",
-      "contentSensitivity": "reviewed-safe",
+      "content": "At 23:53, follow Sam to the service door. The gate’s motor is still energized and the manual key won’t turn safely. Ellis explains over the radio that the breaker is third from the left in the north panel. Sam isolates the motor, uses the key and tells Tomas the gate is clear. Noor radios Mae the exact two-flash pattern. The reopened gate does not clear the ferry to sail. About 175 words.",
+      "contentSensitivity": "safe",
       "turnNumber": 3,
       "storyTime": "1998-10-24T23:53"
     },
     {
       "role": "assistant",
-      "content": "Sam found the red dispatch drawer unlocked, the manual key smooth and cold. At the staff door, they keyed their radio. \"Harbor Works, this is terminal. Where's the breaker for the dock gate motor?\"\n\nEllis's voice crackled with static. \"North panel, third from the left. And whatever you do, pull the breaker before you touch that key. Motor half-energized'll seize the lock faster than you can say fog bank.\"\n\nSam pulled the breaker. \"Copy. Got it.\" The heavy key turned smoothly now, the motor silent in the rain.\n\nMae leaned into the doorway. \"Radio says we have to hold.\"\n\nSam nodded, finishing with the lock. \"Tell Tomas the gate's open again.\" They returned to the radio. \"Skipper, this is Dispatch. The gate's operational. But we might have a problem with the beacon.\"\n\nTomas's voice came clear. \"Say again about the beacon.\"\n\n\"Noor's reporting an inconsistent flash pattern. Two flashes, then dark.\"\n\nThe tower Ruger boomed. \"Pardon, Dispatch. We're holding until we verify that beacon. Harbor regulations, practically letter of the law.\"\n\nNo one moved from the dock.",
+      "content": "At 23:53, Sam Bell pushed through the service door, a sweep of rain already soaking their jacket. The gate motor hummed, energized, a dangerous situation that explained why the manual key refused to turn in its lock.\n\nSam pulled the pencil and torch from their pocket, turning the beam on the panel. Without hesitation, they spoke into their radio. \"Um, Ellis? Can anyone hear me?\"\n\nA moment later, Ellis Ward's voice crackled through. \"What now, kid?\"\n\n\"The gate motor's live. Key won't turn.\"\n\n\"Third breaker from the left in the north panel,\" Ellis snapped. \"You gonna stand there all night?\"\n\nSam found the correct breaker and flicked it off. The motor fell silent, and this time, the key turned smoothly in the lock. They manually cranked the gate wide open, then keyed the radio to inform Tomas. \"The gate's clear, Skipper.\"\n\nFrom inside, Noor Haddad's voice came through to Mae. \"Two flashes, then dark again. Did anybody else see that?\"\n\nMae nodded, conveying the message to waiting passengers, but the information did nothing to change Lina's stance on the ferry's departure. The ferry still wasn't going anywhere without her official clearance, for which the east beacon needed to be working correctly.",
       "speakerId": "story-studio:narrator",
       "speakerName": "Narrator",
-      "contentSensitivity": "safe",
+      "contentSensitivity": "reviewed-safe",
       "storyTime": "1998-10-24T23:53",
-      "turnNumber": 4
+      "turnNumber": 4,
+      "appliedGraphUpdates": [
+        {
+          "kind": "world",
+          "note": "The gate motor is fed from the north panel; the breaker for it is third from the left, and the gate can be cranked open by hand once the motor is isolated."
+        },
+        {
+          "kind": "fact",
+          "note": "Sam isolated the gate motor's breaker, opened the gate with the manual key, and radioed Tomas that the gate is clear; the ferry remains moored pending Lina's clearance and a working east beacon."
+        },
+        {
+          "kind": "fact",
+          "note": "Noor reported the east beacon's two-flash pattern over the radio, and Mae relayed it to the waiting passengers."
+        },
+        {
+          "kind": "relationship",
+          "from": "Ellis Ward",
+          "to": "Sam Bell",
+          "label": "Ellis talked Sam through the north panel breaker over the radio, relying on the training he had given them.",
+          "storyTime": "1998-10-24T23:53"
+        }
+      ]
     },
     {
       "role": "user",
-      "content": "At 00:07 on October 25, write Mae comparing the dispatch log with the beacon report Noor reads over the radio. Let them discover that the page in the dispatch book was removed after the earlier fault. Give Lina a concrete decision about how to inform the passengers. Keep this to about 170 words and leave the ferry moored.",
-      "contentSensitivity": "reviewed-safe",
+      "content": "At 00:07 on October 25, follow Mae as Noor reads the weather desk’s duplicate record over the radio. Mae finds a clean gap in the dispatch incident book exactly where a similar beacon fault should have been logged. The gate is open, but the ferry is still firmly moored. Lina decides to tell the passengers what she can verify and offer them a way to call home. End on one concrete clue that someone could investigate next. Keep the culprit and cause unresolved. About 185 words.",
+      "contentSensitivity": "safe",
       "turnNumber": 5,
       "storyTime": "1998-10-25T00:07"
     },
     {
       "role": "assistant",
-      "content": "Mae slipped behind the ticket window, her eyes darting between the dispatch log and the radio where Noor's voice crackled again. \"Two flashes, clear as anything. Then dark. Again and again.\"\n\nMae flipped open the bound dispatch book. Her fingers traced the entries - missing the previous month's page. Sam was right the fuse had gone, but there was more than that.\n\n\"There's a page missing from August.\" Mae pointed. \"Right where someone had the gate reopened.\"\n\nLina came over, her expression hardening. \"What isn't in the book stays out in the open. Mae, ask everyone to listen up. Three minutes to explain what we know, then I want everyone off that ferry until we sort this properly. Weather's clear enough from this broadcast loop. No one needs to be taking risks tonight because we're missing something that's already marked in Noor's ledger.\"\n\nThe passengers looked up from their wet shoulders, sensing the change in tone. Mae took a breath and walked toward the waiting room. \"Could I have your attention, please?\"",
+      "content": "At 00:07, Mae Chen listened as Noor Haddad read the weather desk's duplicate record over the radio. The station pressure was 1012 mb, the wind southwest at eight knots—routine until Noor's voice tightened.\n\n\"...the time of this beacon irregularity,\" Noor said over the radio, \"was 23:41, lasting exactly eighteen seconds before normal operation resumed.\"\n\nMae's eyes flicked to the dispatch incident book lying open on Lina's desk. She had been checking its entries to compose the passenger announcement, but now her breath caught. Between 23:30 and 23:45, several lines had been neatly struck through with a felt pen, leaving a clean gap where the beacon fault should have been logged. Her fingers found the edge of the page. The lines had been struck hard enough to leave a ridge in the paper.\n\nThe radio hissed again, this time from the ferry. \"Still holding, Dispatch,\" Tomas said, his voice steady but with an edge of impatience.\n\nLina stood, waiting for the room to quiet. \"We believe the east beacon experienced a brief glitch earlier. The ferry will depart as soon as we confirm it's working properly,\" she announced. \"There are payphones over there if anyone needs to make a call.\"\n\nMae slipped a finger between the pages. The ink had dried, but the impression carried through to the sheet underneath. A note or initials might still be legible there.",
       "speakerId": "story-studio:narrator",
       "speakerName": "Narrator",
-      "contentSensitivity": "safe",
+      "contentSensitivity": "reviewed-safe",
       "storyTime": "1998-10-25T00:07",
       "turnNumber": 6,
-      "alternatives": [
-        "Mae slipped behind the ticket window, her eyes darting between the dispatch log and the radio where Noor's voice crackled again. \"Two flashes, clear as anything. Then dark. Again and again.\"\n\nMae flipped open the bound dispatch book. Her fingers traced the entries - missing the previous month's page. Sam was right the fuse had gone, but there was more than that.\n\n\"There's a page missing from August.\" Mae pointed. \"Right where someone had the gate reopened.\"\n\nLina came over, her expression hardening. \"What isn't in the book stays out in the open. Mae, ask everyone to listen up. Three minutes to explain what we know, then I want everyone off that ferry until we sort this properly. Weather's clear enough from this broadcast loop. No one needs to be taking risks tonight because we're missing something that's already marked in Noor's ledger.\"\n\nThe passengers looked up from their wet shoulders, sensing the change in tone. Mae took a breath and walked toward the waiting room. \"Could I have your attention, please?\"",
-        "Mae watched the clock tick to 00:07 as she paged through the clothbound incident book, her fingers tracing the neat columns. \"Lina, the dispatch log shows the gate fault at 23:40, but—the page after that was removed.\"\n\nIn the small office, Lina's head snapped up. \"Are you certain?\"\n\nMae nodded. \"I've seen the emergency logs a hundred times. Page 257 is missing entirely. Noor's reporting the beacon fault at 23:53.\" She radioed up to the weather desk. \"Noor, can you confirm our observation timestamp?\" She listened intently. \"Understood. Thank you.\"\n\nLina closed the book with a soft thud. \"Preserve the radio log, Mae. Keep a new handwritten record beside it.\"\n\nLina walked through to the waiting room. \"Attention, everyone. There's been an unusual overnight equipment failure. For safety, we're holding until the situation is resolved. We don't have an estimated time yet, but there'll be refreshments available shortly. Please remain in the waiting area.\" She returned to dispatch, pulled out the radio, and called the ferry."
-      ],
-      "alternativeSensitivities": [
-        "safe",
-        "safe"
-      ],
-      "selectedAlternative": 0,
-      "graphSuggestions": [
+      "appliedGraphUpdates": [
         {
           "kind": "world",
-          "note": "The clothbound dispatch book is missing a page from August, exactly where a prior gate reopening was recorded."
+          "note": "At 00:07 the weather desk's duplicate record put the beacon irregularity at 23:41, lasting eighteen seconds; station pressure 1012 mb, wind southwest at eight knots."
+        },
+        {
+          "kind": "fact",
+          "note": "The dispatch incident book has a clean gap between 23:30 and 23:45: several lines neatly struck through with a felt pen, exactly where a beacon fault entry should have been. The page is not torn, just crossed out."
+        },
+        {
+          "kind": "fact",
+          "note": "Lina told the waiting passengers only what she could verify: the east beacon had a brief glitch, the ferry departs once the beacon is confirmed working, and the payphones are available for calls home. The ferry remains firmly moored."
+        },
+        {
+          "kind": "profile",
+          "name": "Mae Chen",
+          "note": "Checking the incident book to draft the passenger announcement, she noticed the struck-through entries and pressed pen marks, and now wants to find who owns the heavy pressing pen."
+        },
+        {
+          "kind": "profile",
+          "name": "Noor Haddad",
+          "note": "Read the weather desk's duplicate record over the radio, giving the exact beacon irregularity time and duration."
         }
-      ]
+      ],
+      "startsChapter": true
     }
   ],
   "graphHistory": [
@@ -81,143 +254,132 @@ const starter = {
         {
           "id": "primary",
           "name": "Lina Park",
-          "nickname": "Lin, Dispatch",
-          "description": "Lina, 39, dispatches the night ferry and knows the regulars by their orders at the tea urn. A fall ended her years on deck, but she still keeps an old pair of deck gloves behind the ticket glass. Tonight she must keep passengers informed while someone checks a beacon flashing the wrong signal.",
-          "personality": "Dry, practical and careful about promising a departure.",
-          "scenario": "She runs dispatch and coordinates the shore crew.",
-          "examples": "“Give me the part you saw with your own eyes.”"
+          "nickname": "",
+          "description": "A former deckhand now dispatching the night ferry. She has to explain the delay to waiting passengers and to the skipper, and she feels the weight of every clearance she grants. She works from the dispatch desk, tracks the radio, and keeps the incident book within reach. Her stake is her authority on the night watch and the harbor's trust in her judgment.",
+          "personality": "",
+          "scenario": "It is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified.",
+          "examples": ""
         },
         {
-          "id": "6b0236e9-239b-45d7-a718-f675fbac304f",
-          "name": "Tomas Reyes",
-          "nickname": "Tom, Skipper",
-          "description": "Tomas, 41, captains the last ferry. He grew up mending nets and can tell a change in the tide from the slap of water under the pier. He was late to act on a warning two winters ago, so he reads every radio clearance back verbatim. He keeps a spare wool hat in the wheelhouse for anyone who arrives wet.",
-          "personality": "Methodical, stubborn under pressure, generous in quiet ways.",
-          "scenario": "He has passengers waiting and needs a verified signal before sailing.",
-          "examples": "“Say it again so I can read it back.”"
-        },
-        {
-          "id": "b3b30ed5-3615-4aca-b9e6-ae2ab531a763",
-          "name": "Mae Chen",
-          "nickname": "Mae from the bakery",
-          "description": "Mae, 35, takes the final crossing home after closing the bakery. She brings unsold buns in folded paper and knows who comes off the island for night shifts. Seventeen years after volunteering at the lifeboat station, she still waits for a break in radio chatter before pressing the talk button.",
-          "personality": "Observant and dry, with an unshowy knack for calming a room.",
-          "scenario": "She is waiting to travel and can relay messages from the ticket window.",
-          "examples": "“Tell me what they can do while they wait.”"
-        },
-        {
-          "id": "370a9bff-f910-4b1f-b2ab-057f7c7b7385",
+          "id": "c87bf87c-691c-492c-aaf7-adc8adf164e6",
           "name": "Sam Bell",
-          "nickname": "Sam at the desk",
-          "description": "Sam, 30, works the ticket window while studying electrical maintenance. They learned to follow wiring diagrams from a parent who repaired jukeboxes. A flashlight, a blunt pencil and a folded resignation letter live in the same shirt pocket. They know the ferry terminal better than the officials who sign its maintenance forms.",
-          "personality": "Curious and practical, inclined to volunteer for work beyond their title.",
-          "scenario": "They can trace the gate wiring and compare the dispatch entries.",
-          "examples": "“I can tell you which fuse went.”"
+          "nickname": "",
+          "description": "Works the ticket window and studies electrical maintenance on their own time. They carry a pencil and a torch and want to be taken seriously as a technician rather than a ticket clerk. They notice hardware details others miss and are eager to prove the training Ellis gave them was worth giving.",
+          "personality": "",
+          "scenario": "",
+          "examples": ""
         },
         {
-          "id": "4daceab0-3b86-4021-a10c-d6e606fe81d2",
-          "name": "Noor Ahmad",
-          "nickname": "Weather desk",
-          "description": "Noor, 27, keeps overnight weather watch above East Pier. They have been logging a double flash and are tired of having their maintenance reports classed as a fog effect. The original readings are in a pencil ledger, with a duplicate page made before every call to Harbor Works.",
-          "personality": "Precise, patient with people and impatient with vague findings.",
-          "scenario": "They can verify the beacon from shore and check the original readings.",
-          "examples": "“Two short flashes, then dark. I counted four cycles.”"
+          "id": "c9c204e5-f2c4-44e0-b1aa-34b0636b7adc",
+          "name": "Tomas Reyes",
+          "nickname": "",
+          "description": "The ferry skipper, cautious since a close call in fog. He will not move the ferry without Lina's clearance and prefers to wait out uncertain conditions. He is steady with passengers but quietly watches the channel and the beacon.",
+          "personality": "",
+          "scenario": "",
+          "examples": ""
         },
         {
-          "id": "f2206e3c-59fc-4218-8a30-f09f3495e6a6",
-          "name": "Ellis Gray",
-          "nickname": "Harbor Works",
-          "description": "Ellis, 58, looks after the dock gate and the old beacon relay. The original circuit drawings are in a tobacco tin in his workshop. Years ago he installed a temporary relay and was embarrassed when the replacement order went missing. He fixes other people’s tools while waiting for a kettle to boil.",
-          "personality": "Reserved and generous with tools. Direct about anything dangerous.",
-          "scenario": "He knows which breaker isolates the dock gate and which report describes the old relay.",
-          "examples": "“Let’s see which circuit someone actually touched.”"
+          "id": "cc3407eb-83e6-4f96-a36b-ee08bccfd517",
+          "name": "Mae Chen",
+          "nickname": "",
+          "description": "A junior clerk with spare signboards at hand. She can reassure passengers and keep the terminal calm while the ferry is delayed, and she is learning how the harbor's paperwork actually moves through the night. Her stake is being trusted with more responsibility.",
+          "personality": "",
+          "scenario": "",
+          "examples": ""
+        },
+        {
+          "id": "2ce7d2c7-5995-4b5b-9438-8abaa654245e",
+          "name": "Noor Haddad",
+          "nickname": "",
+          "description": "Keeps the weather station and makes duplicate entries in grease pencil. She logs readings with care and treats the duplicates as a safeguard, not a formality. Her observations are precise and she notices when a record does not match what she remembers writing.",
+          "personality": "",
+          "scenario": "",
+          "examples": ""
+        },
+        {
+          "id": "1b92d34f-1884-4031-ac36-7577103bb86c",
+          "name": "Ellis Ward",
+          "nickname": "",
+          "description": "The blunt harbor electrician who trained Sam to read the gate circuit. He is practical, impatient with unclear thinking, and respected for knowing the harbor's wiring better than anyone. He speaks plainly and expects others to keep up.",
+          "personality": "",
+          "scenario": "",
+          "examples": ""
         }
       ],
-      "lore": "Bellwether, October 1998. The last ferry carries night workers from a low terminal across a cold channel to Alder Island. The radio at the ticket window reaches the ferry, the workshop and the weather desk. The shore beacon must show a steady single flash before the skipper can sail. Behind the staff door, the dock gate has a motor and a manual key, but the key will bind unless the motor circuit is isolated. Dispatch keeps a clothbound incident book; the weather desk keeps duplicate observations. There are no smartphones. A rain squall is ending as the night begins.",
+      "lore": "Bellwether is a small working harbor with a late ferry crossing to Alder Island. The terminal is a modest, practical building where passengers wait on benches after the last squall has moved through. The harbor runs on paper: clothbound incident books kept at dispatch, duplicate weather readings preserved in grease pencil, radio traffic, and payphones. The east beacon is supposed to flash once at regular intervals to mark the channel; tonight it flashes twice and goes dark. A rain squall has just passed, and the cause of the beacon fault is still unknown. Departure is tightly controlled: the skipper needs clearance from dispatch, and no ferry leaves the dock without it. The night is quiet, wet, and ordinary in every way except for the details that do not line up.",
       "continuity": ""
     },
     {
       "turn": 2,
-      "lore": "Bellwether, October 1998. The last ferry carries night workers from a low terminal across a cold channel to Alder Island. The radio at the ticket window reaches the ferry, the workshop and the weather desk. The shore beacon must show a steady single flash before the skipper can sail. Behind the staff door, the dock gate has a motor and a manual key, but the key will bind unless the motor circuit is isolated. Dispatch keeps a clothbound incident book; the weather desk keeps duplicate observations. There are no smartphones. A rain squall is ending as the night begins.\nTurn 2: The dispatch board in Bellwether terminal fails at 23:40, forcing staff to rely on radio and manual procedures to hold the ferry."
+      "continuity": "Turn 2: At 23:41 the departure board in the terminal flickered and died, and the east beacon flashed twice then went dark."
     },
     {
       "turn": 4,
-      "lore": "Bellwether, October 1998. The last ferry carries night workers from a low terminal across a cold channel to Alder Island. The radio at the ticket window reaches the ferry, the workshop and the weather desk. The shore beacon must show a steady single flash before the skipper can sail. Behind the staff door, the dock gate has a motor and a manual key, but the key will bind unless the motor circuit is isolated. Dispatch keeps a clothbound incident book; the weather desk keeps duplicate observations. There are no smartphones. A rain squall is ending as the night begins.\nTurn 2: The dispatch board in Bellwether terminal fails at 23:40, forcing staff to rely on radio and manual procedures to hold the ferry.\nTurn 4: The dock gate motor breaker is located at the north panel, third from the left. Isolating the motor before using the manual key prevents the key from binding.\nTurn 4: The eastern shore beacon is showing an inconsistent flash pattern: two flashes, then dark, which violates the steady single flash required for ferry departure."
+      "lore": "Bellwether is a small working harbor with a late ferry crossing to Alder Island. The terminal is a modest, practical building where passengers wait on benches after the last squall has moved through. The harbor runs on paper: clothbound incident books kept at dispatch, duplicate weather readings preserved in grease pencil, radio traffic, and payphones. The east beacon is supposed to flash once at regular intervals to mark the channel; tonight it flashes twice and goes dark. A rain squall has just passed, and the cause of the beacon fault is still unknown. Departure is tightly controlled: the skipper needs clearance from dispatch, and no ferry leaves the dock without it. The night is quiet, wet, and ordinary in every way except for the details that do not line up.\nTurn 4: The gate motor is fed from the north panel; the breaker for it is third from the left, and the gate can be cranked open by hand once the motor is isolated.",
+      "continuity": "Turn 2: At 23:41 the departure board in the terminal flickered and died, and the east beacon flashed twice then went dark.\nTurn 4: Sam isolated the gate motor's breaker, opened the gate with the manual key, and radioed Tomas that the gate is clear; the ferry remains moored pending Lina's clearance and a working east beacon.\nTurn 4: Noor reported the east beacon's two-flash pattern over the radio, and Mae relayed it to the waiting passengers."
+    },
+    {
+      "turn": 6,
+      "cast": [
+        {
+          "id": "primary",
+          "name": "Lina Park",
+          "nickname": "",
+          "description": "A former deckhand now dispatching the night ferry. She has to explain the delay to waiting passengers and to the skipper, and she feels the weight of every clearance she grants. She works from the dispatch desk, tracks the radio, and keeps the incident book within reach. Her stake is her authority on the night watch and the harbor's trust in her judgment.",
+          "personality": "",
+          "scenario": "It is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified.",
+          "examples": ""
+        },
+        {
+          "id": "c87bf87c-691c-492c-aaf7-adc8adf164e6",
+          "name": "Sam Bell",
+          "nickname": "",
+          "description": "Works the ticket window and studies electrical maintenance on their own time. They carry a pencil and a torch and want to be taken seriously as a technician rather than a ticket clerk. They notice hardware details others miss and are eager to prove the training Ellis gave them was worth giving.",
+          "personality": "",
+          "scenario": "",
+          "examples": ""
+        },
+        {
+          "id": "c9c204e5-f2c4-44e0-b1aa-34b0636b7adc",
+          "name": "Tomas Reyes",
+          "nickname": "",
+          "description": "The ferry skipper, cautious since a close call in fog. He will not move the ferry without Lina's clearance and prefers to wait out uncertain conditions. He is steady with passengers but quietly watches the channel and the beacon.",
+          "personality": "",
+          "scenario": "",
+          "examples": ""
+        },
+        {
+          "id": "cc3407eb-83e6-4f96-a36b-ee08bccfd517",
+          "name": "Mae Chen",
+          "nickname": "",
+          "description": "A junior clerk with spare signboards at hand. She can reassure passengers and keep the terminal calm while the ferry is delayed, and she is learning how the harbor's paperwork actually moves through the night. Her stake is being trusted with more responsibility.\nTurn 6: Checking the incident book to draft the passenger announcement, she noticed the struck-through entries and pressed pen marks, and now wants to find who owns the heavy pressing pen.",
+          "personality": "",
+          "scenario": "",
+          "examples": ""
+        },
+        {
+          "id": "2ce7d2c7-5995-4b5b-9438-8abaa654245e",
+          "name": "Noor Haddad",
+          "nickname": "",
+          "description": "Keeps the weather station and makes duplicate entries in grease pencil. She logs readings with care and treats the duplicates as a safeguard, not a formality. Her observations are precise and she notices when a record does not match what she remembers writing.\nTurn 6: Read the weather desk's duplicate record over the radio, giving the exact beacon irregularity time and duration.",
+          "personality": "",
+          "scenario": "",
+          "examples": ""
+        },
+        {
+          "id": "1b92d34f-1884-4031-ac36-7577103bb86c",
+          "name": "Ellis Ward",
+          "nickname": "",
+          "description": "The blunt harbor electrician who trained Sam to read the gate circuit. He is practical, impatient with unclear thinking, and respected for knowing the harbor's wiring better than anyone. He speaks plainly and expects others to keep up.",
+          "personality": "",
+          "scenario": "",
+          "examples": ""
+        }
+      ],
+      "lore": "Bellwether is a small working harbor with a late ferry crossing to Alder Island. The terminal is a modest, practical building where passengers wait on benches after the last squall has moved through. The harbor runs on paper: clothbound incident books kept at dispatch, duplicate weather readings preserved in grease pencil, radio traffic, and payphones. The east beacon is supposed to flash once at regular intervals to mark the channel; tonight it flashes twice and goes dark. A rain squall has just passed, and the cause of the beacon fault is still unknown. Departure is tightly controlled: the skipper needs clearance from dispatch, and no ferry leaves the dock without it. The night is quiet, wet, and ordinary in every way except for the details that do not line up.\nTurn 4: The gate motor is fed from the north panel; the breaker for it is third from the left, and the gate can be cranked open by hand once the motor is isolated.\nTurn 6: At 00:07 the weather desk's duplicate record put the beacon irregularity at 23:41, lasting eighteen seconds; station pressure 1012 mb, wind southwest at eight knots.",
+      "continuity": "Turn 2: At 23:41 the departure board in the terminal flickered and died, and the east beacon flashed twice then went dark.\nTurn 4: Sam isolated the gate motor's breaker, opened the gate with the manual key, and radioed Tomas that the gate is clear; the ferry remains moored pending Lina's clearance and a working east beacon.\nTurn 4: Noor reported the east beacon's two-flash pattern over the radio, and Mae relayed it to the waiting passengers.\nTurn 6: The dispatch incident book has a clean gap between 23:30 and 23:45: several lines neatly struck through with a felt pen, exactly where a beacon fault entry should have been. The page is not torn, just crossed out.\nTurn 6: Lina told the waiting passengers only what she could verify: the east beacon had a brief glitch, the ferry departs once the beacon is confirmed working, and the payphones are available for calls home. The ferry remains firmly moored."
     }
   ],
-  "characterName": "Lina Park",
-  "characterNickname": "Lin, Dispatch",
-  "personality": "Dry, practical and careful about promising a departure.",
-  "scenario": "She runs dispatch and coordinates the shore crew.",
-  "examples": "“Give me the part you saw with your own eyes.”",
-  "authorNote": "",
-  "postHistory": "",
-  "loreRules": "beacon, east pier | Two flashes followed by darkness indicate a relay fault; Noor keeps a duplicate record at the weather desk.\nradio, channel three | The terminal, ferry and weather desk share channel three.\nkey, gate | The manual key is in the red dispatch drawer. Isolate the gate motor before using it.",
-  "continuity": "",
-  "cast": [
-    {
-      "id": "6b0236e9-239b-45d7-a718-f675fbac304f",
-      "name": "Tomas Reyes",
-      "nickname": "Tom, Skipper",
-      "description": "Tomas, 41, captains the last ferry. He grew up mending nets and can tell a change in the tide from the slap of water under the pier. He was late to act on a warning two winters ago, so he reads every radio clearance back verbatim. He keeps a spare wool hat in the wheelhouse for anyone who arrives wet.",
-      "personality": "Methodical, stubborn under pressure, generous in quiet ways.",
-      "scenario": "He has passengers waiting and needs a verified signal before sailing.",
-      "examples": "“Say it again so I can read it back.”"
-    },
-    {
-      "id": "b3b30ed5-3615-4aca-b9e6-ae2ab531a763",
-      "name": "Mae Chen",
-      "nickname": "Mae from the bakery",
-      "description": "Mae, 35, takes the final crossing home after closing the bakery. She brings unsold buns in folded paper and knows who comes off the island for night shifts. Seventeen years after volunteering at the lifeboat station, she still waits for a break in radio chatter before pressing the talk button.",
-      "personality": "Observant and dry, with an unshowy knack for calming a room.",
-      "scenario": "She is waiting to travel and can relay messages from the ticket window.",
-      "examples": "“Tell me what they can do while they wait.”"
-    },
-    {
-      "id": "370a9bff-f910-4b1f-b2ab-057f7c7b7385",
-      "name": "Sam Bell",
-      "nickname": "Sam at the desk",
-      "description": "Sam, 30, works the ticket window while studying electrical maintenance. They learned to follow wiring diagrams from a parent who repaired jukeboxes. A flashlight, a blunt pencil and a folded resignation letter live in the same shirt pocket. They know the ferry terminal better than the officials who sign its maintenance forms.",
-      "personality": "Curious and practical, inclined to volunteer for work beyond their title.",
-      "scenario": "They can trace the gate wiring and compare the dispatch entries.",
-      "examples": "“I can tell you which fuse went.”"
-    },
-    {
-      "id": "4daceab0-3b86-4021-a10c-d6e606fe81d2",
-      "name": "Noor Ahmad",
-      "nickname": "Weather desk",
-      "description": "Noor, 27, keeps overnight weather watch above East Pier. They have been logging a double flash and are tired of having their maintenance reports classed as a fog effect. The original readings are in a pencil ledger, with a duplicate page made before every call to Harbor Works.",
-      "personality": "Precise, patient with people and impatient with vague findings.",
-      "scenario": "They can verify the beacon from shore and check the original readings.",
-      "examples": "“Two short flashes, then dark. I counted four cycles.”"
-    },
-    {
-      "id": "f2206e3c-59fc-4218-8a30-f09f3495e6a6",
-      "name": "Ellis Gray",
-      "nickname": "Harbor Works",
-      "description": "Ellis, 58, looks after the dock gate and the old beacon relay. The original circuit drawings are in a tobacco tin in his workshop. Years ago he installed a temporary relay and was embarrassed when the replacement order went missing. He fixes other people’s tools while waiting for a kettle to boil.",
-      "personality": "Reserved and generous with tools. Direct about anything dangerous.",
-      "scenario": "He knows which breaker isolates the dock gate and which report describes the old relay.",
-      "examples": "“Let’s see which circuit someone actually touched.”"
-    }
-  ],
-  "relationships": [
-    {
-      "from": "370a9bff-f910-4b1f-b2ab-057f7c7b7385",
-      "to": "6b0236e9-239b-45d7-a718-f675fbac304f",
-      "label": "reported the dock gate reopened",
-      "turn": 4,
-      "storyTime": "1998-10-24T23:53"
-    },
-    {
-      "from": "4daceab0-3b86-4021-a10c-d6e606fe81d2",
-      "to": "b3b30ed5-3615-4aca-b9e6-ae2ab531a763",
-      "label": "reported an inconsistent east beacon flash pattern",
-      "turn": 4,
-      "storyTime": "1998-10-24T23:53"
-    }
-  ],
-  "graphUpdates": true,
   "nextTurn": 7
 };
 

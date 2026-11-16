@@ -241,6 +241,9 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     assert.equal(await readFile(join(directory,'library.json'),'utf8'),disk);
 
     const starter = restored.projects.find(story => story.id === starterStoryId);
+    assert.equal(starter.relationships.filter(edge => edge.turn === 0 && edge.storyTime === starter.storyStartAt).length,4);
+    assert.ok(starter.messages.filter(turn => turn.role === 'assistant').every(turn => turn.appliedGraphUpdates?.length));
+    assert.deepEqual(starter.messages.filter(turn => turn.startsChapter).map(turn => turn.turnNumber),[6]);
     const openedDemo = await fetch(origin+'/api/starter',{
       method:'PUT',headers:{...jsonHeaders,'if-match':reset.headers.get('etag')},body:JSON.stringify(starter)
     });

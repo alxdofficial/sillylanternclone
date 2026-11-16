@@ -88,10 +88,16 @@ test('setup chat uses the chosen model and stages a validated draft through the 
         }
       }
       if (!setupTool) {
-        assert.equal(request.model,'fixture/brainstorm');
+        if (request.model === 'deepseek/deepseek-v4.1-flash') {
+          assert.equal(request.provider.require_parameters,true);
+          assert.deepEqual(request.reasoning,{enabled:false});
+        } else {
+          assert.equal(request.model,'fixture/brainstorm');
+          assert.equal(request.provider.require_parameters,undefined);
+          assert.equal(request.reasoning,undefined);
+        }
         assert.equal(request.max_tokens,768);
         assert.match(request.messages[0].content,/fiction brainstorming partner/);
-        assert.equal(request.provider.require_parameters,undefined);
         return Response.json({choices:[{finish_reason:'stop',message:{content:question}}]});
       }
       const selected = request.messages[3]?.content.includes('selected-tool-model') ? 'openai/gpt-6.1-terra' : 'deepseek/deepseek-v4.1-flash';
@@ -129,6 +135,9 @@ test('setup chat uses the chosen model and stages a validated draft through the 
     const first = await send('chat',[writer(seed)]);
     assert.equal(first.status,200);
     assert.deepEqual(await first.json(),{text:question});
+    const deepSeekChat = await send('chat',[writer(seed)],origin,{model:'deepseek/deepseek-v4.1-flash'});
+    assert.equal(deepSeekChat.status,200);
+    assert.deepEqual(await deepSeekChat.json(),{text:question});
     const conversation = [writer(seed),assistant(question),writer(clarification)];
     const second = await send('chat',conversation);
     assert.equal(second.status,200);

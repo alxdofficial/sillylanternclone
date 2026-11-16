@@ -174,10 +174,11 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
   const upstreamSignal = signal ? AbortSignal.any([signal,timeout]) : timeout;
   const timedOut = error => errorCode(error) === 'TIMEOUT' || upstreamSignal.reason?.name === 'TimeoutError';
   const exchange = {requestId:diagnostics.requestId,storyRef:diagnostics.storyRef,stage,exchangeId:randomUUID()};
+  const reasoning = tools || (stage === 'setup-chat' && isAgentModel(model)) ? agentReasoning(model) : undefined;
   const payload = {
     model, messages, max_tokens:maxOutputTokens,
-    provider:{data_collection:'deny',...(tools ? {require_parameters:true} : {})},
-    ...(tools ? {tools,tool_choice:'auto',reasoning:agentReasoning(model)} : {})
+    provider:{data_collection:'deny',...(reasoning ? {require_parameters:true} : {})},
+    ...(tools ? {tools,tool_choice:'auto'} : {}), reasoning
   };
   trace('request',{...exchange,payload},key);
   let response;

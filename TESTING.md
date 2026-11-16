@@ -10,6 +10,12 @@ A browser run with a simulated OpenRouter provider staged the world, cast and se
 
 Separate live OpenRouter requests through the current Story Studio server verified the expanded setup draft, Cydonia prose followed by DeepSeek continuity, and a DeepSeek Agent edit that left the manuscript intact. Live setup returned world information, two cast members, two starting relationship facts, and the intended opening minute. The total reported cost was $0.00165. These live probes used non-explicit fiction. The MCP walkthrough exercised the actual tool transport with scripted responses. It did not run a fresh Claude or Codex inference session.
 
+## The Late Ferry starter
+
+Regenerated from a blank story in the built-in browser on 16 November 2026. Live DeepSeek V4.1 Flash brainstormed the plot and staged the world, six cast profiles, four opening relationships, and the 23:40 start time. Reviewed and created the story, then used Agent mode to update Sam's profile. Live Cydonia 24B v4.1 wrote three scenes from three author directions. The current DeepSeek continuity tools classified all three pairs as non-explicit and applied updates on each scene, giving the demo eight dated relationship entries and four cast and world snapshots.
+
+The first brainstorm request exhausted its 768-token budget on reasoning. The app now applies its existing reasoning settings to known Agent models during setup chat, and the live DeepSeek retry returned a visible reply. Lightly copyedited the scenes in the composer, approved the edited prose for shared context, and placed a chapter break at the third scene. Exported through the browser and packaged the saved story, excluding the original library ID and transient Agent status. The regeneration cost about half a cent including the initial retry.
+
 ## Harness and documentation audit
 
 Reviewed the writing, continuity, direct-edit, setup, and watcher paths against the published OpenRouter and MCP tool contracts. Verified that context filtering is app-owned, reads are scoped, and writes are revision-checked. Regression tests cover an abandoned browser request canceling the local upstream fetch, a repeated final tool call being retried as one batch before any edits apply, and bounded metadata previews excluding unknown stored fields. These checks used fixtures and local stdio MCP.
@@ -95,7 +101,7 @@ The responsive audit covered Chromium at 320–2560 pixels wide and WebKit at fi
 
 A simulated OpenRouter response added explicit labels and an inferred date to a browser-written scene. The browser preserved the flagged prose locally and allowed a non-explicit timed graph proposal to be reviewed. A real stdio MCP client then read the queued continuation, confirmed the flagged prose was absent and the approved event was present, and saved a follow-up with its own date. This test exercised the app handoff without a live model or paid request.
 
-### The Late Ferry starter
+### Earlier starter generation
 
 Regenerated the bundled story from a blank story in an isolated Chromium session. Entered six character profiles, the world setting, and keyword lore through **Character & lore**. Submitted three directions and **Another take** using live OpenRouter calls to Cydonia and DeepSeek. All four writing and analysis passes finished normally. Kept the generated graph updates from turns 2 and 4 and left the last proposal pending for the demo. DeepSeek incorrectly marked the three ordinary directions explicit in this run, so they were corrected with **Edit**. A live retest of the revised classification prompt labeled all three directions and replies non-explicit and classified an explicit direction independently from its non-explicit reply.
 
