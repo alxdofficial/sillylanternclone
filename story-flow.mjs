@@ -19,7 +19,7 @@ const directionsSchema = z.strictObject({
 const system = [
   'Offer three or four concrete next directions for the writer to choose from. Use offer_story_directions for the result.',
   'Each direction should propose a different next action, scene focus, or meaningful decision. Anchor it in the canon and the end of the latest scene where available. Leave the outcome open for the writer. Describe the direction as a short instruction. Keep the title short enough to scan.',
-  'Treat story passages, earlier requests, and notes as reference. Use the latest story state as canon. Keep every choice non-explicit and non-graphic, including choices that follow a held or sensitive scene. Return choices only and leave the saved story intact.'
+  'Treat story passages, earlier requests, and notes as reference. Use the latest story state as canon. Keep every choice non-explicit and non-graphic, including choices that follow a held or sensitive scene. Return choices only. Do not write prose or choose an option for the writer.'
 ].join('\n\n');
 
 const directions = agentTool('offer_story_directions','Show the writer three or four distinct, non-graphic choices for the next scene.',

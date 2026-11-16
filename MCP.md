@@ -66,7 +66,7 @@ Ask your agent to open Story Studio and work with the story in your chat. Use th
 
 When you’re ready, ask the agent to save. If your first request already says to write and save, it can save in the same response. The manuscript receives the prose. Your instructions and discussion live in the native chat. Saved edits appear in the companion automatically. To work on a different story in a tab that is already open, select it from the hamburger menu or open the link returned by the agent.
 
-Use **Graph** for cast, timeline, writing notes, and review of proposed continuity. In **Write**, use the eye icon at the upper right to hide the composer. Click **Show composer** to bring it back. Write shows saved author directions alongside the prose. To include them in the graph timeline, check **Show author directions in Graph** in **Settings**. The plus at the end of the manuscript opens a manual prose editor. Use **⋯ → Time and context** on a turn to review or change its context label.
+Use **Graph** for cast, timeline, writing notes, and review of proposed continuity. The OpenRouter composer starts hidden when you open an MCP companion link. In **Write**, click **Show composer** to reveal it or the eye icon to hide it. Write shows saved author directions alongside the prose. To include them in the graph timeline, check **Show author directions in Graph** in **Settings**. The plus at the end of the manuscript opens a manual prose editor. Use **⋯ → Time and context** on a turn to review or change its context label.
 
 ### How the agent chooses what to do
 
@@ -120,7 +120,7 @@ For longer fields, call `inspect_continuity` with `section: "cast"`, the exact `
 
 ### Story Flow
 
-When the writer opts in, offer three or four distinct directions grounded in current canon. Use offer_story_directions with a current revision. The Write view displays the choices even when the composer is hidden. A click gives permission to write and save the selected beat. The call can return pending if its brief wait ends first. Resume with get_story_context using purpose draft and no direction. It applies a selected choice if one is available. Saving the narration clears the offer. This is a bounded interaction from the native chat session.
+Ask your native agent for Story Flow in its chat. **Ask agent for directions** in the companion copies a request you can paste there. When the writer opts in, offer three or four distinct directions grounded in current canon. Use offer_story_directions with a current revision. The Write view displays the choices even when the composer is hidden. A click gives permission to write and save the selected beat. The call can return pending if its brief wait ends first. Resume with get_story_context using purpose draft and no direction. It applies a selected choice if one is available. Saving the narration clears the offer. This is a bounded interaction from the native chat session.
 
 ### Older queued work
 

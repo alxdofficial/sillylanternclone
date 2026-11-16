@@ -47,7 +47,7 @@ To add your own OpenRouter model, choose **Manage custom models…** in the **Pr
 
 In **Write**, click the refresh icon above the composer to ask OpenRouter for three or four next beats. Story Flow stays visible when you hide the composer. Choosing a suggestion or sending your own direction while an OpenRouter offer is active requests fresh suggestions after the scene. The first suggestion request starts when you click the icon. Suggestions use a separate OpenRouter request.
 
-For native MCP, ask your agent to use Story Flow. Its directions appear above the composer. Choose one there. If the agent is still waiting, it receives the choice directly. If the brief wait has ended, tell the agent to continue in its chat. Studio keeps the selection until the agent saves the continuation or the story moves on.
+For native MCP, ask your agent to use Story Flow. The companion opens with the composer hidden. **Ask agent for directions** copies a request to paste into your agent chat. Its directions appear above the composer. Choose one there. If the agent is still waiting, it receives the choice directly. If the brief wait has ended, tell the agent to continue in its chat. Studio keeps the selection until the agent saves the continuation or the story moves on.
 
 ## Editor agent
 

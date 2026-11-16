@@ -378,6 +378,7 @@ textarea { caret-color: #f0c6de; }
 .story-flow-panel:not(:has(#requestStoryFlow:not([hidden]))) { grid-template-columns: minmax(0, 1fr); }
 #requestStoryFlow { color: var(--muted); }
 .story-flow-panel #requestStoryFlow { grid-area: 1 / 2; }
+#copyNativeFlowRequest { justify-self: end; }
 .story-flow-panel:has(.story-flow-options:empty):not(:has(.story-flow-status:not([hidden]))) { padding-block: 0; }
 .story-flow-status { grid-column: 1; margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .story-flow-options {
@@ -492,7 +493,19 @@ textarea { caret-color: #f0c6de; }
 }
 #bookExportToggle { margin-inline-start: auto; }
 #bookSpreadToggle[aria-pressed="true"] { border-color: var(--focus); }
-.book-toolbar select, .book-export select {
+#bookChapter, .book-toolbar .picker-trigger {
+  width: auto;
+  min-height: 34px;
+  padding: 4px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+}
+.book-toolbar .picker-trigger:hover:not(:disabled), .book-toolbar .picker-trigger[aria-expanded="true"] {
+  background: var(--raised);
+}
+.book-export select {
   width: auto;
   min-width: 55px;
   min-height: 34px;
@@ -595,8 +608,7 @@ textarea { caret-color: #f0c6de; }
   .book-export button { margin-inline-start: auto; }
 }
 @media (pointer: coarse) {
-  .story-tabs button, .book-toolbar select, .book-export select { min-height: 44px; }
-  .book-toolbar select { font-size: 16px; }
+  .story-tabs button, #bookChapter, .book-toolbar .picker-trigger, .book-export select { min-height: 44px; }
   .copy-prose { width: 44px; height: 44px; }
 }
 

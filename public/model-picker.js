@@ -1,5 +1,5 @@
 // Keep the select as the value source and as a fallback for older browsers.
-export function enhanceSelect(select) {
+export function enhanceSelect(select, {minWidth} = {}) {
   const list = document.createElement('div');
   if (typeof list.showPopover !== 'function') return {sync() {}, focus:()=>select.focus()};
 
@@ -81,7 +81,7 @@ export function enhanceSelect(select) {
   function place() {
     const trigger = button.getBoundingClientRect();
     const gutter = 8;
-    const minimum = choices.some(({option})=>option.dataset.detail) ? 344 : 260;
+    const minimum = minWidth ?? (choices.some(({option})=>option.dataset.detail) ? 344 : 260);
     const width = Math.min(document.documentElement.clientWidth - 2 * gutter,Math.max(minimum,trigger.width));
     const below = window.innerHeight - trigger.bottom - 2 * gutter;
     const above = trigger.top - 2 * gutter;

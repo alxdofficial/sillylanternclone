@@ -665,6 +665,7 @@ const desktopBook = matchMedia('(min-width: 1100px) and (min-height: 640px)');
 const bookExport = $('#bookExport');
 const bookExportToggle = $('#bookExportToggle');
 const bookChapter = $('#bookChapter');
+const bookChapterPicker = enhanceSelect(bookChapter,{minWidth:152});
 const bookFirst = $('#bookFirst');
 const bookLast = $('#bookLast');
 const bookPositions = new Map();
@@ -672,11 +673,27 @@ const spreadPositions = new Map();
 const storyViews = [['write','writeTab','writeView'],['book','bookTab','bookView'],['graph','graphTab','graphView'],['names','displayNamesTab','displayNamesView']];
 let bookStoryId, chapters = [], storyView = 'write', writeNeedsRender = false;
 let showGraphDirections = getSession('studio-show-directions') === 'true';
-let showComposer = getSession('studio-hide-composer') !== 'true';
+const nativeCompanion = new URLSearchParams(location.search).get('via') === 'mcp';
+const nativeFlowStories = new Set();
+
+function usesNativeFlow(project) {
+  if (activeStoryFlow(project)?.source === 'mcp') nativeFlowStories.add(project.id);
+  return nativeCompanion || (!openRouterKey && nativeFlowStories.has(project.id));
+}
+
+function composerPreference(project) {
+  return usesNativeFlow(project) ? 'studio-hide-mcp-composer' : 'studio-hide-composer';
+}
+
+function composerIsShown(project) {
+  const preference = composerPreference(project);
+  const hidden = getSession(preference);
+  return hidden === null ? preference === 'studio-hide-composer' : hidden !== 'true';
+}
 
 $('#toggleComposer').onclick = () => {
-  showComposer = !showComposer;
-  setSession('studio-hide-composer',showComposer ? '' : 'true');
+  const project = current();
+  setSession(composerPreference(project),String(composerIsShown(project)));
   syncRoute();
 };
 let bookSpreadWanted = false, spreadCount = 1;
@@ -790,13 +807,14 @@ function renderBook() {
     ? Math.max(first,Math.min(Number(bookLast.value),count)) : count;
   if (!sameStory || oldCount !== count) {
     const options = () => chapters.map((_,index) => new Option(String(index + 1),String(index + 1)));
-    const choose = new Option('Choose…','');
+    const choose = new Option('Chapters','');
     choose.disabled = true;
-    bookChapter.replaceChildren(choose,...options());
+    bookChapter.replaceChildren(choose,...chapters.map((_,index)=>new Option(`Chapter ${index + 1}`,String(index + 1))));
     bookFirst.replaceChildren(...options());
     bookLast.replaceChildren(...options());
   }
   bookChapter.value = '';
+  bookChapterPicker.sync();
   updateBookRange(first,last);
   const manuscript = document.createDocumentFragment();
   const match = createDisplayNameMatcher(readDisplayNames(project.id));
@@ -879,6 +897,7 @@ $('.story-tabs').addEventListener('keydown',async event => {
 bookChapter.onchange = () => {
   const heading = $(`#chapter-${bookChapter.value} h3`);
   bookChapter.value = '';
+  bookChapterPicker.sync();
   if (!heading) return;
   jumpToChapter(heading);
   heading.focus({preventScroll:true});
@@ -1148,7 +1167,7 @@ function syncRoute() {
   const editingStory = mode === 'agent';
   const model = writingModel(project,mode);
   const rewriting = composerEdit?.canRegenerate && Boolean(model && openRouterKey);
-  const composerVisible = showComposer || Boolean(composerEdit);
+  const composerVisible = composerIsShown(project) || Boolean(composerEdit);
   if (openRouterKey || composerEdit || !composerVisible) clearComposerConnectionWarning();
   $('#writingComposer').hidden = !composerVisible;
   $('#toggleComposer').setAttribute('aria-expanded',String(composerVisible));
@@ -1199,12 +1218,15 @@ function speakerMetadata(speaker) {
 }
 
 function syncStoryFlow(project) {
-  const flow = activeStoryFlow(project);
+  const offer = activeStoryFlow(project);
+  const nativeMode = usesNativeFlow(project);
+  const flow = nativeMode && offer?.source === 'openrouter' ? null : offer;
   const native = flow?.source === 'mcp';
   const request = $('#requestStoryFlow');
   const options = $('#storyFlowOptions');
   const status = $('#storyFlowStatus');
-  request.hidden = native;
+  request.hidden = native || nativeMode;
+  $('#copyNativeFlowRequest').hidden = !nativeMode || Boolean(flow);
   request.disabled = busy || Boolean(composerEdit);
   request.title = flow ? 'Suggest different directions for the next scene.' : 'Suggest directions for the next scene.';
   request.setAttribute('aria-label',flow ? 'New directions' : 'Suggest directions');
@@ -1217,7 +1239,7 @@ function syncStoryFlow(project) {
     button.onclick = () => void chooseStoryFlow(project,flow,index);
     return button;
   }));
-  status.textContent = flowNotice.get(project.id) ||
+  status.textContent = (nativeMode && !native ? '' : flowNotice.get(project.id)) ||
     (native && flow.selected !== undefined ? 'Direction selected. Return to your agent to continue.' : '');
   status.hidden = !status.textContent;
 }
@@ -1281,6 +1303,17 @@ async function requestStoryFlow() {
 }
 
 $('#requestStoryFlow').onclick = () => void requestStoryFlow();
+$('#copyNativeFlowRequest').onclick = async () => {
+  const prompt = 'Use Story Studio’s Story Flow tool to offer three or four directions for the current story in Write.';
+  const status = $('#storyFlowStatus');
+  try {
+    await navigator.clipboard.writeText(prompt);
+    status.textContent = 'Request copied. Paste it into your agent chat.';
+  } catch {
+    status.textContent = prompt;
+  }
+  status.hidden = false;
+};
 
 function openRouterSnapshot(project, messages, replyTime) {
   return {
@@ -1338,7 +1371,7 @@ async function generate() {
   const key = openRouterKey;
   if (composerEdit && (!composerEdit.canRegenerate || !model || !key)) return saveComposerEdit();
   if (!key) return showComposerConnectionWarning();
-  const refreshDirections = activeStoryFlow(project)?.source === 'openrouter';
+  const refreshDirections = !usesNativeFlow(project) && activeStoryFlow(project)?.source === 'openrouter';
   const sensitive = sensitiveDraft(project);
   const agentModel = selectedContinuityModel(project);
   if (sensitive && !canWriteSensitive(model)) {

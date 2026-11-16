@@ -99,6 +99,7 @@
           <h3 id="storyFlowHeading" class="sr-only">Story Flow</h3>
           <p id="storyFlowStatus" class="story-flow-status" role="status"></p>
           <div id="storyFlowOptions" class="story-flow-options" role="group" aria-labelledby="storyFlowHeading"></div>
+          <button id="copyNativeFlowRequest" type="button" class="text-button" title="Copy a request to paste into your agent chat" hidden>Ask agent for directions</button>
           <button id="requestStoryFlow" type="button" class="icon" aria-label="Suggest directions" title="Suggest directions"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5.3"/></svg></button>
         </section>
         <div class="composer-dock">
@@ -164,7 +165,7 @@
         </aside>
         <div class="book-workspace">
         <div class="book-toolbar" id="bookToolbar" hidden>
-          <label for="bookChapter">Go to chapter</label>
+          <label for="bookChapter" class="sr-only">Go to chapter</label>
           <select id="bookChapter"></select>
           <button type="button" id="bookSpreadToggle" class="button" aria-pressed="false" hidden>Two pages</button>
           <button type="button" id="bookExportToggle" class="button" aria-controls="bookExport" aria-expanded="false">Export Markdown</button>

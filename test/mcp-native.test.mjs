@@ -39,7 +39,7 @@ test('native chat creates, writes, edits, and branches without queued work or le
     assert.match(instructions,/create_story for the agreed baseline.*cast before its relationships/);
     const opened = await invoke('open_studio');
     childPid = opened.pid;
-    assert.match(opened.url,/\?view=book$/);
+    assert.match(opened.url,/\?view=book&via=mcp$/);
     const library = await invoke('list_stories');
     const created = await invoke('create_story',{revision:library.revision,draft:{
       title:'The Signal Tower',scenario:'The signal lamp fails.'
@@ -185,6 +185,7 @@ test('native chat creates, writes, edits, and branches without queued work or le
     assert.equal(offer.status,'pending');
     assert.equal(offer.afterTurn,22);
     assert.match(offer.url,/\?view=write&story=/);
+    assert.equal(new URL(offer.url).searchParams.get('via'),'mcp');
     const pending = await invoke('get_story_context',{storyId,purpose:'draft'});
     assert.deepEqual(pending.storyFlow,{status:'pending',afterTurn:22});
     assert.doesNotMatch(pending.prompt,/missing chart behind the dispatch desk/);
