@@ -62,7 +62,8 @@ test('agents watch for queued turns, decline them, and get checked map updates',
     assert.match(instructions, /decline_turn/);
     const {tools} = await client.listTools();
     assert.deepEqual(tools.map(item => item.name).sort(),
-      ['decline_turn', 'get_story_context', 'list_stories', 'open_studio', 'submit_reply', 'wait_for_queued_turn']);
+      ['decline_turn', 'get_story_context', 'list_stories', 'open_studio', 'submit_reply',
+        'submit_setup_response', 'wait_for_queued_turn', 'wait_for_setup_request']);
     const opened = toolData(await client.callTool({name:'open_studio', arguments:{}}));
     childPid = opened.pid;
 

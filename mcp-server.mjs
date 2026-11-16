@@ -9,6 +9,7 @@ import { appendTurn, buildMessages, dateWriterTurn, stripSpeakerName, formatMess
 import { applyTurnGraphUpdates, storyAtTurn } from './public/graph-history.js';
 
 import { checkMapUpdates, updateSchema } from './map-updates.mjs';
+import { setupResultShape } from './setup-chat.mjs';
 import { createLogger, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
 
 const log = createLogger('mcp');
@@ -25,6 +26,8 @@ const appDirectory = fileURLToPath(new URL('.', import.meta.url));
 const instructions = `Story Studio is a local fiction-writing app. Use the assembled prompt and narrate the scene.
 
 A queued turn authorizes writing and saving its reply. Follow the context's save instructions. If you decline, call decline_turn with a short reason so the queue clears. When asked to watch, loop on wait_for_queued_turn. Handle each queued result and call again after idle. Report skipped stories once. Stop when asked or when the app is unreachable.
+
+For a browser setup session, use wait_for_setup_request with the writer's session ID. Follow its brainstorming or draft prompt and call submit_setup_response, then wait again until closed. A setup draft is reviewed in the browser. Never open the full manuscript or library to supplement approved excerpts.
 
 For a direction given in chat, call get_story_context with that direction. If the tool returns a pending Studio request, use its story context and follow the chat direction for the draft you show in chat. Save the chat draft only when asked, and pass writerTurn for a new unsaved direction.
 
@@ -129,6 +132,47 @@ function pendingRequest(project) {
 
 const identifier = z.string().min(1).max(200);
 const saveHint = 'Pass storyId, revision and the prose as reply to submit_reply.';
+
+async function requestStudioSetup(payload, signal) {
+  let response;
+  try {
+    const timeout = AbortSignal.timeout(5000);
+    response = await fetch(origin + '/api/setup/mcp',{
+      method:'POST',headers:{'content-type':'application/json',origin},redirect:'error',
+      signal:signal ? AbortSignal.any([signal,timeout]) : timeout,
+      body:JSON.stringify({...payload,agentId})
+    });
+  } catch {
+    throw diagnosticError('APP_UNREACHABLE','Story Studio setup is not reachable. Check that the browser app is running.');
+  }
+  const result = await response.json();
+  if (!response.ok) throw diagnosticError('SETUP_REQUEST_FAILED',result.error || 'The setup request could not be handled.');
+  return result;
+}
+
+tool('wait_for_setup_request',{
+  description:'Wait for work in the browser setup session named by the writer. Contains only their setup conversation and approved manuscript excerpts. Loop on idle and stop on closed.',
+  inputSchema:{sessionId:z.uuid(),waitSeconds:z.int().min(1).max(50).default(45)},
+  annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}
+},async ({sessionId,waitSeconds},extra) => {
+  const end = Date.now() + waitSeconds * 1000;
+  do {
+    const queued = await requestStudioSetup({action:'claim',sessionId},extra.signal);
+    if (queued.status === 'closed') return queued;
+    if (queued.status === 'queued') return {...queued,sessionId,
+      next:'Follow the prompt. Use submit_setup_response with the session and request IDs, then call wait_for_setup_request again.'};
+    if (Date.now() < end) await delay(Math.min(900,Math.max(1,end - Date.now())),undefined,{signal:extra.signal});
+  } while (Date.now() < end);
+  return {status:'idle'};
+});
+
+tool('submit_setup_response',{
+  description:'Return a setup chat reply (text), structured setup draft (draft), or short reason for declining (reason). The browser writer reviews the result before creating a story.',
+  inputSchema:{sessionId:z.uuid(),requestId:z.uuid(),text:z.string().trim().min(1).max(6000).optional(),
+    draft:z.union([setupResultShape(false),setupResultShape(true)]).optional(),
+    reason:z.string().trim().min(1).max(300).optional()},
+  annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}
+},async (payload,extra) => requestStudioSetup({action:'submit',...payload},extra.signal));
 
 function storyContext(revision, project, direction = '') {
   const request = pendingRequest(project);

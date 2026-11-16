@@ -525,6 +525,30 @@ form textarea { resize: vertical; }
 }
 .setup-connection label { flex: 1 1 180px; min-width: 0; }
 .setup-connection p { flex-basis: 100%; margin: 0; }
+.setup-agent-instructions { flex-basis: 100%; }
+.setup-agent-instructions textarea { margin-top: 6px; }
+.setup-source, .setup-source-review {
+  min-height: 0;
+  padding: 8px var(--dialog-padding);
+  color: var(--muted);
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.setup-source { flex: 0 2 auto; overflow: auto; }
+.setup-source-review { padding-inline: 0; }
+.setup-source p, .setup-source-review p { margin: 0 0 5px; }
+.setup-source summary { cursor: pointer; width: fit-content; }
+.setup-source .context-toggle, .setup-source-review .context-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 7px 0;
+}
+#setupDialog .context-toggle input[type="checkbox"] { flex: none; width: auto; margin: 3px 0 0; }
+.setup-excerpts { list-style: none; max-height: 22dvh; overflow: auto; margin: 7px 0 0; padding: 0; }
+.setup-excerpts li { border-top: 1px solid var(--border); padding-top: 6px; }
+.setup-excerpts p, .manuscript-heading { overflow-wrap: anywhere; white-space: pre-wrap; }
+.manuscript-heading { margin-bottom: 8px; color: var(--muted); font-size: 13px; }
 .setup-connection label, .setup-chat-input label { margin: 0; }
 .setup-connection label :is(select,input) { margin-block: 5px; }
 .setup-chat-input { flex: none; }

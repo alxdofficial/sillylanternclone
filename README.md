@@ -29,7 +29,7 @@ The demo began as a blank story in the browser. The cast and setting were entere
 
 ## Write a scene
 
-1. Open **Stories → New story**. Choose **Set up manually** to enter a title, premise, world, writing notes, and cast. Or choose **Brainstorm with a model**, pick an OpenRouter model, and chat through your ideas. Click **Prepare setup draft** when you are ready. DeepSeek V4.1 Flash turns the discussion into editable setup fields. Review or revise them, then click **Create story**. You can change the setup later under **Character & lore**.
+1. Open **Stories → New story**. Choose **Set up manually** to enter a title, premise, world, writing notes, and cast. Or choose **Brainstorm with a model**, choose OpenRouter or MCP, and chat through your ideas. Click **Prepare setup draft** when you are ready. Review or revise the editable fields, then click **Create story**. You can change the setup later under **Character & lore**.
 2. Write what happens next, paste the start of a scene, or give a direction in the composer. The narrator continues the story using whichever characters the scene needs. Set a one-off style in the composer or a standing preference in **Character & lore → Writing → Writing notes**. With no style direction, the narrator matches established prose or uses third-person past tense for a new story. **Prompt** shows the writing instructions and context for the selected route. Earlier author directions are history. The current direction controls the next reply.
 3. Choose a writing mode.
 
@@ -45,7 +45,7 @@ Use **Edit** on an author direction to bring it back into the composer. **Save &
 
 **Write with** and the OpenRouter model are remembered per story in the current tab, including through rewind and turn deletion. The OpenRouter key stays in memory and must be entered again after a reload.
 
-Model-assisted setup sends only the new brainstorming conversation to OpenRouter. Brainstorming and draft extraction both use your OpenRouter credits. The discussion stays in the setup window, and only the fields you approve are saved with the story. After creation, you can use any of the three writing modes.
+For model-assisted setup, choose **OpenRouter** or **MCP agent** beside **Chat with**. OpenRouter brainstorming and draft extraction use your OpenRouter credits. For MCP, queue the first request, click **Copy instructions for your agent**, and paste them into a connected agent chat. The discussion stays in the setup window, and only the fields you approve are saved with the story. After creation, you can use any of the three writing modes.
 
 Open **⋯** on a turn to explore a different path. **Branch from here** creates a separate story through that turn, including the selected take, the cast and world notes recorded then, and earlier relationship events. You can branch from the demo to keep writing a regular saved story. **Rewind to here** removes later turns and their events from the current story. Deleting a story or a turn, rewinding, removing a character or relationship event, and replacing your library all ask for confirmation. For older turns without a saved cast or world version, Story Studio uses the current notes.
 
@@ -56,6 +56,13 @@ Open **Book view** to read the story as a manuscript. It includes replies, inclu
 The first reply starts Chapter 1. To start another chapter at a later reply, open its **⋯** menu in **Write** and choose **Start new chapter here**. Use **Remove chapter break** in the same menu to join it to the preceding chapter. Chapter numbers update automatically.
 
 In **Book view**, use **Go to chapter** to jump between chapters. On a wide window, choose **Two pages** to read facing pages with **Previous** and **Next**. Choose **Export Markdown**, select the first and last chapters to include, and click **Download .md**. The file uses the story’s chapter numbers and is generated locally in the browser. Use **Export history ZIP** separately to make a restorable library backup.
+
+## Import an existing story
+
+1. Choose **Stories → New story → Import an existing story**, or **Import a manuscript** in the setup chat. A long paste into the chat opens the import form with the text filled in. The limit is **100,000 words and 2 MB**. You can also choose a plain-text or Markdown file.
+2. Story Studio turns standalone chapter, turn and scene headings into native breaks. It also recognizes common Markdown scene dividers. Long passages are split locally at nearby paragraph or word boundaries. Existing chapter breaks take priority. For an unmarked story, review the suggested breaks or adjust them later from each turn’s **⋯** menu.
+3. Choose a setup model, then chat or click **Prepare setup draft**. The draft includes editable cast, setting and continuity notes. A model sees the chat and up to 16 short excerpts from across the story. Preview those excerpts before sending. MCP receives manuscript excerpts only if you mark them reviewed and non-explicit. For a completely local import, choose **Review without AI**.
+4. Review the draft and choose **Create story**. All original prose goes into a new story and appears in **Write** and **Book view**. The source headings are kept in Write and the library backup. Imported prose starts outside future MCP writing context unless you explicitly approve the full manuscript as non-explicit.
 
 ## Character & lore
 

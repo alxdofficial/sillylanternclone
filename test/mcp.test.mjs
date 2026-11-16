@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -72,7 +73,8 @@ test('native MCP handshake, private context, queued replies, alternates and revi
   try {
     await client.connect(transport);
     const {tools} = await client.listTools();
-    assert.deepEqual(tools.map(tool => tool.name).sort(), ['decline_turn','get_story_context','list_stories','open_studio','submit_reply','wait_for_queued_turn']);
+    assert.deepEqual(tools.map(tool => tool.name).sort(), ['decline_turn','get_story_context','list_stories','open_studio','submit_reply',
+      'submit_setup_response','wait_for_queued_turn','wait_for_setup_request']);
     const opened = await client.callTool({name:'open_studio',arguments:{}});
     assert.equal(opened.isError, undefined, JSON.stringify(opened));
     assert.equal(toolData(opened).started, true, JSON.stringify(opened));
@@ -110,6 +112,31 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     assert.doesNotMatch(diagnostics,/PRIVATE TEST MARKER|Mara tests the bridge|Old draft/);
 
     const origin = `http://127.0.0.1:${port}`;
+    const sessionId = randomUUID();
+    const setup = body => fetch(origin+'/api/setup/mcp',{method:'POST',
+      headers:{origin,'Content-Type':'application/json'},body:JSON.stringify({sessionId,...body})});
+    const waitForSetup = () => client.callTool({name:'wait_for_setup_request',arguments:{sessionId,waitSeconds:1}}).then(toolData);
+    const manuscript = {turnCount:2,hasChapters:true,passages:[{turn:2,excerpt:'APPROVED SETUP EXCERPT'}]};
+    const request = {action:'queue',mode:'chat',messages:[{role:'user',content:'Help me plan an import.'}],manuscript};
+    assert.equal((await setup(request)).status,400);
+    assert.equal(toolData(await client.callTool({name:'wait_for_setup_request',arguments:{sessionId,waitSeconds:1}})).status,'closed');
+    assert.equal((await setup({...request,reviewed:true})).status,200);
+    const queuedSetup = await waitForSetup();
+    assert.match(queuedSetup.prompt[1].content,/APPROVED SETUP EXCERPT/);
+    assert.doesNotMatch(JSON.stringify(queuedSetup),/PRIVATE TEST MARKER/);
+    const submitSetup = (requestId,response) => client.callTool({name:'submit_setup_response',arguments:{sessionId,requestId,...response}});
+    assert.equal(toolData(await submitSetup(queuedSetup.requestId,{text:'What should we preserve?'})).status,'saved');
+    assert.deepEqual(await (await setup({action:'status'})).json(),{status:'done',text:'What should we preserve?'});
+    assert.equal((await setup({action:'queue',mode:'draft',messages:[],manuscript,reviewed:true})).status,200);
+    const draftRequest = await waitForSetup();
+    assert.notEqual(queuedSetup.requestId,draftRequest.requestId);
+    assert.equal((await submitSetup(queuedSetup.requestId,{text:'Stale setup reply.'})).isError,true);
+    const draft = {title:'The Harbor',lore:'A port city.',scenario:'',notes:'',cast:[],continuity:'',chapterStarts:[2]};
+    assert.equal(toolData(await submitSetup(draftRequest.requestId,{draft})).status,'saved');
+    assert.deepEqual(await (await setup({action:'status'})).json(),{status:'done',draft:{...draft,chapterStarts:[]}});
+    await setup({action:'cancel'});
+    assert.equal((await waitForSetup()).status,'closed');
+
     let stateResponse = await fetch(origin+'/api/state');
     const state = await stateResponse.json();
     const project = state.projects[0];

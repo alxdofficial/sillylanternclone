@@ -1,5 +1,6 @@
 import { applyTurnGraphUpdates, captureGraphVersion, graphChangesByTurn, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
 import { bookChapters, bookMarkdown, maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
+import { defaultChapterStarts, manuscriptByteLimit, manuscriptPassages, manuscriptTurns, parseManuscript } from './manuscript.js';
 import { mergeLibrary } from './sync.js';
 import { buildMessages, formatMessages, extraFields, getCast, narrator, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
@@ -724,6 +725,7 @@ function renderMessages() {
     row.setAttribute('aria-label',`${fromAuthor ? 'Your input' : 'Story'} · Turn ${turn}`);
     const name = fromAuthor ? 'You' : attributedSpeaker(message);
     const body = el('div','message-body'), head = el('div',name ? 'message-header' : 'message-footer');
+    if (message.sourcePrefix?.trim()) body.append(el('div','manuscript-heading',message.sourcePrefix.trim()));
     if (name) head.append(el('strong',fromAuthor ? 'author-label' : '',name));
     appendTurnContextBadge(row,head,omittedFromMcp);
     if (graphChanges.has(turn) || (!message.excludeFromContext && message.graphSuggestions?.length)) {
@@ -1821,7 +1823,7 @@ function openTurnDetails(index) {
   $('#editDialog').showModal();
 }
 function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return migratePersona({id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(typeof p.storyWriterId==='string'?{storyWriterId:p.storyWriterId}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
-if(m.role==='assistant'&&m.startsChapter===true)result.startsChapter=true;if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})});});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
+if(m.role==='assistant'&&m.startsChapter===true)result.startsChapter=true;if(m.role==='assistant'&&typeof m.sourcePrefix==='string')result.sourcePrefix=m.sourcePrefix;if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})});});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 
 const modelChoice = $('#modelPreset');
 const sceneModelChoice = $('#sceneModel');
@@ -2025,6 +2027,8 @@ $('#editForm').onsubmit = event => {
 const setupDialog = $('#setupDialog');
 const setupChat = $('#setupChat');
 const setupReview = $('#setupReview');
+const setupImport = $('#setupImport');
+const setupProvider = $('#setupProvider');
 const setupModel = $('#setupModel');
 const setupKey = $('#setupKey');
 const setupMessage = $('#setupMessage');
@@ -2035,15 +2039,18 @@ const setupCast = $('#setupCast');
 const setupAddCharacter = $('#setupAddCharacter');
 const maxSetupCast = 8;
 const maxSetupExchanges = 21;
-let setupMessages = [], setupRequest, setupFromChat = false;
+let setupMessages = [], setupRequest, setupReviewBack = 'choice', setupImportBack = 'choice';
+let setupManuscript, setupMcpSession, setupMcpQueued = false, setupSuggestedChapters = [];
 for (const model of models) setupModel.add(new Option(model.name,model.id));
 
 function setupStep(step) {
   $('#setupChoice').hidden = step !== 'choice';
   setupChat.hidden = step !== 'chat';
   setupReview.hidden = step !== 'review';
+  setupImport.hidden = step !== 'import';
   const title = $('#setupHeading');
-  title.textContent = {choice:'New story',chat:'Brainstorm your story',review:setupFromChat ? 'Review your setup' : 'Set up your story'}[step];
+  title.textContent = {choice:'New story',import:'Import an existing story',chat:'Brainstorm your story',
+    review:setupReviewBack === 'chat' ? 'Review your setup' : 'Set up your story'}[step];
   title.focus({preventScroll:true});
 }
 
@@ -2073,15 +2080,48 @@ function addSetupCharacter({name='',description=''} = {}) {
   return nameField;
 }
 
-function fillSetupReview({title='',scenario='',lore='',notes='',cast=[]} = {}) {
+function fillSetupReview({title='',scenario='',lore='',notes='',cast=[],continuity='',chapterStarts=[]} = {}) {
   $('#setupTitle').value = title;
   $('#setupScenario').value = scenario;
   $('#setupLore').value = lore;
   $('#setupNotes').value = notes;
+  $('#setupContinuity').value = continuity;
+  setupSuggestedChapters = chapterStarts.length || !setupManuscript ? chapterStarts : defaultChapterStarts(setupManuscript);
+  $('#setupUseSuggestions').checked = true;
+  $('#setupReviewedAll').checked = false;
+  updateManuscriptReview();
   setupCast.replaceChildren();
   setupAddCharacter.disabled = false;
   cast.forEach(addSetupCharacter);
   $('#setupReviewError').textContent = '';
+}
+
+function updateManuscriptReview() {
+  $('#setupSourceReview').hidden = !setupManuscript;
+  $('#setupContinuityField').hidden = !setupManuscript;
+  $('#setupSuggestionField').hidden = !setupSuggestedChapters.length;
+  if (!setupManuscript) return;
+  const turns = manuscriptTurns(setupManuscript,$('#setupUseSuggestions').checked ? setupSuggestedChapters : []);
+  const chapters = turns.filter(turn => turn.startsChapter).length + 1;
+  $('#setupReviewSummary').textContent = `${turns.length} ${turns.length === 1 ? 'turn' : 'turns'} · ${chapters} ${chapters === 1 ? 'chapter' : 'chapters'}. All imported prose is kept. MCP context requires review.`;
+}
+
+function updateManuscriptSource() {
+  $('#setupSource').hidden = !setupManuscript;
+  $('#setupAttach').hidden = Boolean(setupManuscript);
+  $('#setupReviewLocally').hidden = !setupManuscript;
+  const excerpts = $('#setupExcerpts');
+  excerpts.replaceChildren();
+  $('#setupSource details').open = false;
+  $('#setupShareManuscript').checked = false;
+  if (!setupManuscript) return;
+  const count = setupManuscript.turns.length;
+  $('#setupSourceSummary').textContent = `${setupManuscript.words.toLocaleString()} words · ${count} ${count === 1 ? 'turn' : 'turns'}`;
+  for (const {turn,excerpt} of setupManuscript.passages) {
+    const line = el('li');
+    line.append(el('strong','',`Turn ${turn}`),el('p','',excerpt));
+    excerpts.append(line);
+  }
 }
 
 function renderSetupChat(messages = setupMessages) {
@@ -2092,51 +2132,125 @@ function renderSetupChat(messages = setupMessages) {
     return turn;
   }));
   setupConversation.scrollTop = setupConversation.scrollHeight;
-  $('#setupMessageLabel').textContent = setupMessages.length ? 'Continue brainstorming' : 'What kind of story are you imagining?';
-  setupMessage.placeholder = setupMessages.length ? 'Add an idea or say what you’d change…' : 'A premise, a character, or even just a mood…';
+  $('#setupMessageLabel').textContent = setupManuscript ? 'What should the setup capture?' :
+    setupMessages.length ? 'Continue brainstorming' : 'Do you have a story already, or are you starting fresh?';
+  setupMessage.placeholder = setupManuscript ? 'Add context, or prepare the setup draft…' :
+    setupMessages.length ? 'Add an idea or say what you’d change…' : 'A premise, a character, or even just a mood…';
 }
 
 function syncSetupChat() {
   const pending = Boolean(setupRequest);
-  const full = setupMessages.length >= 2 * maxSetupExchanges ||
+  const turnLimit = setupMessages.length >= 2 * maxSetupExchanges;
+  const full = turnLimit ||
     setupMessages.reduce((length,message) => length + message.content.length,0) + setupMessage.value.length > 36_000;
-  setupModel.disabled = pending || setupMessages.length > 0;
+  const mcp = setupProvider.value === 'mcp';
+  const share = $('#setupShareManuscript');
+  setupProvider.disabled = pending;
+  $('#setupModelField').hidden = mcp;
+  $('#setupKeyField').hidden = mcp || Boolean(openRouterKey);
+  $('#setupShareField').hidden = !mcp;
+  share.disabled = pending;
+  $('#setupProviderNote').textContent = mcp
+    ? 'Queue a request, then use the copied instructions in a connected MCP agent session. The agent receives this chat and any excerpts you approve.'
+    : 'OpenRouter receives this chat' + (setupManuscript ? ' and the previewed excerpts' : '') +
+      '. DeepSeek V4.1 Flash prepares the draft. Both use your OpenRouter credits.';
+  $('#setupAgentInstructions').hidden = !mcp || !setupMcpQueued;
+  setupModel.disabled = pending;
   setupKey.disabled = pending;
-  setupMessage.readOnly = pending;
+  setupMessage.readOnly = pending || turnLimit;
   $('#setupSend').disabled = pending || full || !setupMessage.value.trim();
-  $('#setupDraft').disabled = pending || !setupMessages.length;
+  $('#setupDraft').disabled = pending || (!setupMessages.length && !setupMessage.value.trim() &&
+    (!setupManuscript || (mcp && !share.checked)));
+  $('#setupAttach').disabled = pending;
+  $('#setupReviewLocally').disabled = pending;
   $('#backSetupChat').disabled = pending;
+  $('#setupSend').textContent = mcp ? 'Queue message' : 'Send';
   if (!pending) setupFeedback.textContent = full ? 'Prepare the setup draft to continue.' : '';
 }
 
+function closeMcpSetup() {
+  const sessionId = setupMcpSession;
+  setupMcpSession = undefined;
+  setupMcpQueued = false;
+  $('#setupAgentPrompt').hidden = true;
+  $('#setupAgentPrompt').value = '';
+  if (sessionId) void fetch('/api/setup/mcp',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'cancel',sessionId}),keepalive:true}).catch(() => {});
+}
+
+async function requestMcpSetup(payload,request) {
+  const sessionId = setupMcpSession ||= id();
+  const call = (action,body = {}) => api('/api/setup/mcp',{method:'POST',headers:{'Content-Type':'application/json'},
+    signal:request.signal,body:JSON.stringify({action,sessionId,...body})});
+  await call('queue',payload);
+  if (request.signal.aborted || setupMcpSession !== sessionId) return;
+  setupMcpQueued = true;
+  $('#setupAgentPrompt').value = `Handle Story Studio setup session ${sessionId}. Call wait_for_setup_request with this ID. For each request, follow its prompt and call submit_setup_response, then wait again. Stop when the session is closed.`;
+  syncSetupChat();
+  setupFeedback.textContent = 'Queued for MCP. Copy the instructions to start your agent if needed.';
+  const deadline = Date.now() + 8 * 60_000;
+  while (!request.signal.aborted && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve,1000));
+    if (request.signal.aborted) return;
+    const result = await call('status');
+    if (result.status === 'done') {
+      if (result.error) throw Error(result.error);
+      return result;
+    }
+    if (result.status === 'closed') break;
+    if (result.status === 'working') setupFeedback.textContent = 'Your MCP agent is preparing a response…';
+  }
+  if (request.signal.aborted) return;
+  closeMcpSetup();
+  throw Error('The MCP setup request expired. Queue it again and start a connected agent with the new instructions.');
+}
+
+$('#copySetupAgentPrompt').onclick = async () => {
+  const prompt = $('#setupAgentPrompt');
+  try {
+    await navigator.clipboard.writeText(prompt.value);
+    setupFeedback.textContent = 'Instructions copied. Paste them into a connected MCP agent chat.';
+  } catch {
+    prompt.hidden = false;
+    prompt.select();
+  }
+};
+
 async function requestSetup(mode) {
   if (setupRequest) return;
+  const mcp = setupProvider.value === 'mcp';
   const key = openRouterKey || setupKey.value.trim();
   setupChatError.textContent = '';
-  if (!setupModel.value || !key) {
+  if (!mcp && (!setupModel.value || !key)) {
     setupChatError.textContent = !setupModel.value ? 'Choose an OpenRouter model.' : 'Enter your OpenRouter API key.';
     (!setupModel.value ? setupModel : setupKey).focus();
     return;
   }
   const content = setupMessage.value.trim();
   if (mode === 'chat' && (!content || setupMessages.length >= 2 * maxSetupExchanges)) return;
-  const messages = content ? [...setupMessages,{role:'user',content}] : setupMessages;
+  const messages = content && setupMessages.length < 2 * maxSetupExchanges
+    ? [...setupMessages,{role:'user',content}] : setupMessages;
   if (messages.reduce((length,message) => length + message.content.length,0) > (mode === 'draft' ? 42_000 : 36_000)) {
     setupChatError.textContent = 'This discussion is too long for another message. Shorten the last message or prepare the setup draft.';
     return;
   }
   const request = new AbortController();
+  const reviewed = $('#setupShareManuscript').checked;
+  const manuscript = setupManuscript && {turnCount:setupManuscript.turns.length,hasChapters:setupManuscript.hasChapters,
+    passages:mcp && !reviewed ? [] : setupManuscript.passages};
   setupRequest = request;
   if (mode === 'chat') renderSetupChat(messages);
   try {
     syncSetupChat();
     setupFeedback.textContent = mode === 'chat' ? 'Thinking…' : 'Preparing your setup draft…';
-    const result = await api('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},
-      signal:request.signal,body:JSON.stringify({mode,model:setupModel.value,key,messages})});
+    const payload = {mode,messages,manuscript};
+    const result = mcp ? await requestMcpSetup({...payload,reviewed},request)
+      : await api('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},signal:request.signal,
+        body:JSON.stringify({...payload,model:setupModel.value,key})});
     if (setupRequest !== request || !setupDialog.open) return;
     if (mode === 'draft') {
-      fillSetupReview(result.draft);
-      setupFromChat = true;
+      fillSetupReview({...result.draft,title:setupManuscript?.title || result.draft.title});
+      setupReviewBack = 'chat';
       setupStep('review');
     } else {
       setupMessages = [...messages,{role:'assistant',content:result.text}];
@@ -2146,6 +2260,7 @@ async function requestSetup(mode) {
     }
   } catch (failure) {
     if (!request.signal.aborted && setupDialog.open) {
+      if (mcp) closeMcpSetup();
       renderSetupChat();
       setupChatError.textContent = failure.message;
     }
@@ -2165,8 +2280,11 @@ $('#newProject').onclick = () => {
   }
   setupMessages = [];
   setupChat.reset();
+  setupImport.reset();
+  setupManuscript = undefined;
+  $('#setupImportError').textContent = '';
   setupChatError.textContent = '';
-  $('#setupKeyField').hidden = Boolean(openRouterKey);
+  updateManuscriptSource();
   renderSetupChat();
   syncSetupChat();
   fillSetupReview();
@@ -2178,17 +2296,76 @@ $('#closeSetup').onclick = () => setupDialog.close();
 setupDialog.addEventListener('close',() => {
   setupRequest?.abort();
   setupRequest = undefined;
+  closeMcpSetup();
   setupKey.value = '';
   setupMessage.value = '';
   setupMessages = [];
+  setupManuscript = undefined;
+  setupImport.reset();
+  updateManuscriptSource();
   renderSetupChat();
   if (document.activeElement === document.body) $('#openMenu').focus();
 });
-$('#setupManual').onclick = () => { setupFromChat = false; setupStep('review'); };
-$('#setupBrainstorm').onclick = () => setupStep('chat');
-$('#backSetupChat').onclick = () => setupStep('choice');
-$('#backSetupReview').onclick = () => setupStep(setupFromChat ? 'chat' : 'choice');
+$('#setupManual').onclick = () => {
+  setupManuscript = undefined;
+  updateManuscriptSource();
+  setupReviewBack = 'choice';
+  updateManuscriptReview();
+  setupStep('review');
+};
+$('#setupBrainstorm').onclick = () => { syncSetupChat(); setupStep('chat'); };
+$('#setupExisting').onclick = () => { setupImportBack = 'choice'; setupStep('import'); };
+$('#setupAttach').onclick = () => { setupImportBack = 'chat'; setupStep('import'); };
+$('#backSetupImport').onclick = () => setupStep(setupImportBack);
+$('#backSetupChat').onclick = () => setupStep(setupManuscript ? 'import' : 'choice');
+$('#backSetupReview').onclick = () => setupStep(setupReviewBack);
+setupProvider.onchange = () => { closeMcpSetup(); syncSetupChat(); };
+$('#setupShareManuscript').onchange = syncSetupChat;
+$('#setupUseSuggestions').onchange = updateManuscriptReview;
+
+setupImport.onsubmit = async event => {
+  event.preventDefault();
+  const error = $('#setupImportError');
+  const submit = $('#setupImportContinue');
+  error.textContent = '';
+  const pasted = $('#setupManuscript').value;
+  const file = $('#setupManuscriptFile').files[0];
+  submit.disabled = true;
+  try {
+    if (file && pasted.trim()) throw Error('Choose either the pasted manuscript or a file. Clear the other field to continue.');
+    if (file?.size > manuscriptByteLimit) throw Error('The manuscript exceeds 2 MB.');
+    const text = file ? await file.text() : pasted;
+    if (!setupDialog.open || setupImport.hidden) return;
+    const manuscript = parseManuscript(text);
+    setupManuscript = {...manuscript,passages:manuscriptPassages(manuscript.turns),
+      title:manuscript.title || file?.name.replace(/\.[^.]+$/u,'').slice(0,160) || ''};
+    updateManuscriptSource();
+    renderSetupChat();
+    syncSetupChat();
+    setupStep('chat');
+  } catch (failure) {
+    error.textContent = failure.message;
+  } finally {
+    submit.disabled = false;
+  }
+};
+
+$('#setupReviewLocally').onclick = () => {
+  fillSetupReview({title:setupManuscript.title});
+  setupReviewBack = 'chat';
+  setupStep('review');
+};
 setupMessage.oninput = syncSetupChat;
+setupMessage.onpaste = event => {
+  const text = event.clipboardData?.getData('text/plain');
+  if (setupRequest || !text || text.length <= setupMessage.maxLength) return;
+  event.preventDefault();
+  setupImportBack = 'chat';
+  $('#setupManuscriptFile').value = '';
+  $('#setupManuscript').value = text;
+  $('#setupImportError').textContent = '';
+  setupStep('import');
+};
 setupChat.onsubmit = event => { event.preventDefault(); void requestSetup('chat'); };
 $('#setupDraft').onclick = () => void requestSetup('draft');
 setupAddCharacter.onclick = () => addSetupCharacter().focus();
@@ -2213,10 +2390,14 @@ setupReview.onsubmit = event => {
     cast.push({name,description:card.querySelector('.setup-character-description').value.trim()});
   }
   const [main,...other] = cast;
+  const messages = setupManuscript
+    ? manuscriptTurns(setupManuscript,$('#setupUseSuggestions').checked ? setupSuggestedChapters : [],$('#setupReviewedAll').checked)
+    : [];
   const project = {
     id:id(),title,persona:'',characterName:main?.name || '',character:main?.description || '',
     lore:$('#setupLore').value.trim(),scenario:$('#setupScenario').value.trim(),notes:$('#setupNotes').value.trim(),
-    storyStartAt:localStoryTime(),storyStartSource:'estimate',messages:[],
+    storyStartAt:localStoryTime(),storyStartSource:'estimate',messages,
+    ...(setupManuscript ? {continuity:$('#setupContinuity').value.trim(),nextTurn:messages.length + 1} : {}),
     cast:other.map(character => ({id:id(),...Object.fromEntries(castFields.map(field => [field,''])),...character}))
   };
   captureGraphVersion(project,0);

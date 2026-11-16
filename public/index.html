@@ -252,13 +252,42 @@
       <strong>Brainstorm with a model</strong>
       <span>Explore ideas in a chat, then review the proposed story setup.</span>
     </button>
+    <button type="button" id="setupExisting">
+      <strong>Import an existing story</strong>
+      <span>Paste a manuscript and turn it into a Story Studio project.</span>
+    </button>
   </div>
+  <form id="setupImport" hidden>
+    <div class="dialog-body">
+      <label>Manuscript <textarea id="setupManuscript" rows="9" placeholder="Paste your existing story here…"></textarea></label>
+      <label>Or choose a text or Markdown file <input id="setupManuscriptFile" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown"></label>
+      <p class="form-note">Up to 100,000 words and 2 MB. Put chapter, turn, or scene headings on their own lines to keep those breaks.</p>
+      <p id="setupImportError" class="form-note validation-message" role="alert"></p>
+    </div>
+    <footer class="dialog-actions setup-actions">
+      <button type="button" class="button" id="backSetupImport">Back</button>
+      <button type="submit" class="button primary" id="setupImportContinue">Continue</button>
+    </footer>
+  </form>
   <form id="setupChat" hidden>
     <div class="setup-connection">
-      <label for="setupModel">OpenRouter model <select id="setupModel"><option value="" disabled selected>Choose a model</option></select></label>
+      <label for="setupProvider">Chat with <select id="setupProvider"><option value="openrouter">OpenRouter</option><option value="mcp">MCP agent</option></select></label>
+      <label for="setupModel" id="setupModelField">OpenRouter model <select id="setupModel"><option value="" disabled selected>Choose a model</option></select></label>
       <label for="setupKey" id="setupKeyField">OpenRouter API key <input id="setupKey" type="password" autocomplete="off"></label>
-      <p class="form-note">OpenRouter receives this chat. DeepSeek V4.1 Flash prepares the setup draft. Both calls use your OpenRouter credits.</p>
+      <p class="form-note" id="setupProviderNote"></p>
+      <div class="setup-agent-instructions" id="setupAgentInstructions" hidden>
+        <button type="button" class="button" id="copySetupAgentPrompt">Copy instructions for your agent</button>
+        <textarea id="setupAgentPrompt" rows="3" readonly hidden aria-label="Instructions for your agent"></textarea>
+      </div>
     </div>
+    <section class="setup-source" id="setupSource" hidden aria-label="Manuscript context">
+      <p id="setupSourceSummary"></p>
+      <details>
+        <summary>Preview the manuscript excerpts</summary>
+        <ol class="setup-excerpts" id="setupExcerpts"></ol>
+      </details>
+      <label class="context-toggle" id="setupShareField"><input type="checkbox" id="setupShareManuscript"> Share excerpts I have reviewed as non-explicit with MCP</label>
+    </section>
     <ol id="setupConversation" class="setup-conversation" aria-label="Brainstorm conversation" tabindex="0" hidden></ol>
     <div class="setup-chat-input">
       <label for="setupMessage" id="setupMessageLabel">What kind of story are you imagining?</label>
@@ -268,16 +297,24 @@
     </div>
     <footer class="dialog-actions setup-actions">
       <button id="backSetupChat" type="button" class="button">Back</button>
+      <button id="setupAttach" type="button" class="button">Import a manuscript</button>
+      <button id="setupReviewLocally" type="button" class="button" hidden>Review without AI</button>
       <button id="setupDraft" type="button" class="button">Prepare setup draft</button>
       <button id="setupSend" type="submit" class="button primary">Send</button>
     </footer>
   </form>
   <form id="setupReview" hidden>
     <div class="dialog-body setup-review-body">
+      <section class="setup-source-review" id="setupSourceReview" hidden aria-label="Imported story">
+        <p id="setupReviewSummary"></p>
+        <label class="context-toggle" id="setupSuggestionField"><input type="checkbox" id="setupUseSuggestions" checked> Use suggested chapter breaks</label>
+        <label class="context-toggle"><input type="checkbox" id="setupReviewedAll"> I reviewed the full manuscript as non-explicit. Allow it in future MCP context.</label>
+      </section>
       <label>Story title <input id="setupTitle" maxlength="160" required></label>
       <label>Opening premise <textarea id="setupScenario" rows="2" maxlength="1700" placeholder="What is happening as the story starts?"></textarea></label>
       <label>World &amp; setting <textarea id="setupLore" rows="2" maxlength="4000" placeholder="Where and when does it take place?"></textarea></label>
       <label>Writing notes <textarea id="setupNotes" rows="2" maxlength="1500" placeholder="Tone, point of view, or anything the narrator should know"></textarea></label>
+      <label id="setupContinuityField" hidden>Story continuity <textarea id="setupContinuity" rows="2" maxlength="3600" placeholder="Established events and facts for continuing the story"></textarea></label>
       <fieldset class="setup-cast">
         <legend>Cast</legend>
         <div id="setupCast"></div>

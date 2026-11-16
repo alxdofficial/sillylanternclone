@@ -10,7 +10,8 @@ import { maxLibraryStories, starterStoryId, withoutStarter } from './public/libr
 import { createStarterStory } from './examples/the-late-ferry.mjs';
 import { checkMapUpdates } from './map-updates.mjs';
 import { isWritingRefusal, metadataModel, readStoryMetadata, storyMetadataFormat, stripWritingPreamble } from './openrouter-format.mjs';
-import { readSetupDraft, setupDraftFormat, setupMessages } from './setup-chat.mjs';
+import { manuscriptDraftFormat, readSetupDraft, setupDraftFormat, setupMessages } from './setup-chat.mjs';
+import { setupQueue } from './setup-queue.mjs';
 import { createLogger, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -24,7 +25,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   console.error('Story Studio: PORT must be a number from 1 to 65535.');
   process.exit(1);
 }
-const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/agent','/api/generate','/api/setup','/api/export']);
+const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/agent','/api/generate','/api/setup','/api/setup/mcp','/api/export']);
 const methodNames = new Set(['GET','POST','PUT']);
 const modelIds = new Set(models.map(model => model.id));
 let starter = createStarterStory();
@@ -144,7 +145,7 @@ function reportAgent(report) {
 }
 
 const libraryLimit = 16_000_000;
-function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
+function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.sourcePrefix===undefined || typeof m.sourcePrefix==='string') && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
 const openRouterStatusHints = {
   401:'Check your API key.',
   402:'Check your balance and key spending limit.',
@@ -234,8 +235,8 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
   return {text:text.trim(), truncated:finish === 'length'};
 }
 async function generateSetup(req,res,diagnostics) {
-  const {mode,model,key,messages} = await body(req,250_000) || {};
-  const prompt = ['chat','draft'].includes(mode) ? setupMessages(messages,mode) : null;
+  const {mode,model,key,messages,manuscript} = await body(req,250_000) || {};
+  const prompt = setupMessages(messages,mode,manuscript);
   if (!prompt) {
     diagnostics.code = 'INVALID_SETUP_CONVERSATION';
     return json(res,400,{error:'Enter a setup message or prepare a draft from the discussion so far. The brainstorm allows up to 21 writer messages and 36,000 characters.'});
@@ -260,9 +261,9 @@ async function generateSetup(req,res,diagnostics) {
       stage:drafting ? 'setup-draft' : 'setup-chat',
       maxOutputTokens:drafting ? 4096 : 768,
       signal:request.signal,
-      ...(drafting ? {responseFormat:setupDraftFormat} : {})
+      ...(drafting ? {responseFormat:manuscript ? manuscriptDraftFormat : setupDraftFormat} : {})
     });
-    if (drafting) return json(res,200,{draft:readSetupDraft(output)});
+    if (drafting) return json(res,200,{draft:readSetupDraft(output,manuscript)});
     if (output.truncated || output.text.length > 6000) {
       throw diagnosticError('SETUP_CHAT_TRUNCATED','OpenRouter cut off the brainstorm reply. Try a narrower question.');
     }
@@ -329,7 +330,7 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
       ].filter(Boolean).join(' · '));
     const turns = project.messages.map(message => {
       const label = message.role === 'user' ? writer.name || 'Writer' : message.speakerName || 'Co-writer';
-      return (message.storyTime ? message.storyTime.replace('T',' ') + ' · ' : '') + label + ':\n' + message.content;
+      return (message.storyTime ? message.storyTime.replace('T',' ') + ' · ' : '') + label + ':\n' + (message.sourcePrefix || '') + message.content;
     });
     files['Stories/' + (index + 1) + ' - ' + filename + '.txt'] = strToU8(
       [project.title, ...notes.filter(([,value]) => value).map(([label,value]) => label + ':\n' + value),
@@ -342,6 +343,11 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
   return res.end(Buffer.from(archive));
 }
 if (url.pathname === '/api/setup' && req.method === 'POST') return generateSetup(req,res,diagnostics);
+if (url.pathname === '/api/setup/mcp' && req.method === 'POST') {
+  const request = await body(req,250_000);
+  if (request?.action === 'status' || request?.action === 'claim') diagnostics.readOnly = true;
+  return json(res,200,setupQueue(request));
+}
 if (url.pathname === '/api/generate' && req.method === 'POST') {
   const {project,instruction,provider,model,key,mode='send'} = await body(req);
   if (!validateState({activeId:project?.id,projects:[project]}) || typeof instruction !== 'string') {
@@ -414,7 +420,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     return json(res,e.status || 500,{error:e.diagnosticCode ? e.message : 'Story Studio could not generate a reply.'});
   }
 }
-if(req.method!=='GET')return json(res,404,{error:'Not found.'});if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}const path=url.pathname==='/'?'/index.html':url.pathname;if(!/^\/(index\.html|app\.js|prompt\.js|models\.js|graph-history\.js|library\.js|sync\.js|style\.css)$/.test(path))return json(res,404,{error:'Not found.'});const contents=await readFile(join(root,'public',path));res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"});res.end(contents);
+if(req.method!=='GET')return json(res,404,{error:'Not found.'});if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}const path=url.pathname==='/'?'/index.html':url.pathname;if(!/^\/(index\.html|app\.js|prompt\.js|models\.js|graph-history\.js|library\.js|manuscript\.js|sync\.js|style\.css)$/.test(path))return json(res,404,{error:'Not found.'});const contents=await readFile(join(root,'public',path));res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"});res.end(contents);
 }
 
 const server = http.createServer(async (req,res) => {
@@ -424,7 +430,7 @@ const server = http.createServer(async (req,res) => {
   res.once('finish', () => {
     const status = res.statusCode;
     const mutation = diagnostics.method !== 'GET' && apiEndpoints.has(diagnostics.endpoint) && diagnostics.endpoint !== '/api/agent';
-    if (status < 400 && !mutation) return;
+    if (status < 400 && (!mutation || diagnostics.readOnly)) return;
     const level = status >= 500 ? 'error' : status >= 400 || diagnostics.truncated || diagnostics.unverifiedLabels || diagnostics.invalidMapUpdates ? 'warn' : 'info';
     log(level,status >= 400 ? 'request_failed' : 'request_completed',{...diagnostics,status,durationMs:Date.now()-started});
   });
