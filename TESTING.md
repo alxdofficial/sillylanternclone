@@ -2,6 +2,14 @@
 
 For current setup and controls, use the [README](README.md) and [MCP guide](MCP.md). The archival walkthroughs at the end retain the interface and model behavior observed at the time.
 
+## Shared watcher, starting relationships, and traces
+
+On 16 November 2026, used the in-app browser with disposable libraries. One MCP SDK client connected over stdio and handled a brainstorm reply, a setup draft, a scene, continuity, and an Agent metadata edit. The browser showed ready and working status, saved two cast profiles and a starting relationship at 23:55, then displayed the continuity fact and Agent edit. The first walkthrough caught a save conflict between a new story's first continuity write and a queued edit. The retest initialized the new story with the same defaults as a saved story and finished with both changes present.
+
+A browser run with a simulated OpenRouter provider staged the world, cast and setup edges, then classified a scene with a harmless marker as explicit. The raw provider trace retained the marker. The MCP prompt preview, actual MCP writing handoff and Agent state omitted the marked direction and reply while retaining the setup relationship. Display names appeared in italics in Write and Book view, survived reload, and left the prompt canonical. Verified the chapter-range Markdown and library ZIP downloaded by the browser.
+
+Separate live OpenRouter requests through the current Story Studio server verified the expanded setup draft, Cydonia prose followed by DeepSeek continuity, and a DeepSeek Agent edit that left the manuscript intact. Live setup returned world information, two cast members, two starting relationship facts, and the intended opening minute. The total reported cost was $0.00165. These live probes used non-explicit fiction. The MCP walkthrough exercised the actual tool transport with scripted responses. It did not run a fresh Claude or Codex inference session.
+
 ## Harness and documentation audit
 
 Reviewed the writing, continuity, direct-edit, setup, and watcher paths against the published OpenRouter and MCP tool contracts. Verified that context filtering is app-owned, reads are scoped, and writes are revision-checked. Regression tests cover an abandoned browser request canceling the local upstream fetch, a repeated final tool call being retried as one batch before any edits apply, and bounded metadata previews excluding unknown stored fields. These checks used fixtures and local stdio MCP.

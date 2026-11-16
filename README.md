@@ -12,9 +12,9 @@ Setup needs internet access for the first download. Story Studio runs on Node.js
 
 You can ask your local agent to set it up for you.
 
-> Clone https://github.com/alxdofficial/sillylanternclone on this Mac and follow README.md and MCP.md. Start Story Studio, register its MCP server in my local agent client, and start a signed-in writer session that watches Story Studio and writes each turn I queue. If you need me to sign in, approve the Story Studio tools, or open a fresh session to finish, tell me exactly what to do.
+> Clone https://github.com/alxdofficial/sillylanternclone on this Mac and follow README.md, OPERATIONS.md, and MCP.md. Briefly tell me what you’re setting up. Start Story Studio, register its MCP server in my local agent client, and watch for setup, writing, and story edits. If you need me to sign in, approve the tools, or open a fresh session, tell me what to do.
 
-Set up MCP and start the watcher in a local **Codex or Claude desktop session**. The CLI is optional. After registration, start a fresh local session and say “Watch Story Studio and write each turn I queue.” Keep it open while you write. Claude Code CLI users can also double-click **Start Claude Writer.command** to open a dedicated watcher. [Desktop and CLI setup](MCP.md#register-on-your-mac)
+Set up MCP and start the watcher in a local **Codex or Claude desktop session**. The CLI is optional. After registration, start a fresh local session and paste **Connection → Copy watcher instructions**. Keep that one chat open for setup, writing, continuity, and Agent edits. Claude Code CLI users can also double-click **Start Claude Writer.command** to open a dedicated watcher. [Desktop and CLI setup](MCP.md#register-on-your-mac) · [Start, stop, update, and restart](OPERATIONS.md)
 
 ## Try The Late Ferry
 
@@ -29,7 +29,7 @@ The demo began as a blank story in the browser. The cast and setting were entere
 
 ## Story mode
 
-1. Open **Stories → New story**. Choose **Set up manually** to enter a title, premise, world, writing notes, and cast. Or choose **Brainstorm with a model**, choose OpenRouter or MCP, and chat through your ideas. Click **Prepare setup draft** when you are ready. Review or revise the editable fields, then click **Create story**. You can change the setup later under **Character & lore**.
+1. Open **Stories → New story**. Choose **Set up manually** to enter a title, premise, world, writing notes, cast, and starting relationships. Or choose **Brainstorm with a model**, select OpenRouter or MCP, and chat through your ideas. Click **Prepare setup draft** when you are ready. Review the world, cast, and relationship proposals, then click **Create story**. Starting relationships share the in-story **Story start** date and time. You can change them later under **Character & lore**.
 2. In **Story**, describe what happens next or paste the start of a scene. Directions can be up to **8,000 words**. For example, “Have Noor investigate the beacon from the pier, in close third person.” Set a one-off style in the composer or a standing preference in **Character & lore → Writing → Writing notes**. By default the narrator matches established prose or uses third-person past tense for a new story. **Prompt** previews the writing context for the selected route.
 3. Choose who writes the turn.
 
@@ -59,9 +59,9 @@ Choose **MCP** and click **Queue edit**, or choose a supported **OpenRouter** mo
 
 ## Brainstorm a new story
 
-Under **Stories → New story → Brainstorm with a model**, choose **OpenRouter** or **MCP agent** beside **Chat with**. OpenRouter uses the selected model for chat. If you choose a model from the Agent presets, it also prepares the draft. For other models, the wizard shows that DeepSeek V4.1 Flash prepares the draft. Both steps use OpenRouter credits. For MCP, queue the first request, click **Copy instructions for your agent**, and paste them into a connected agent chat.
+Under **Stories → New story → Brainstorm with a model**, choose **OpenRouter** or **MCP agent** beside **Chat with**. OpenRouter uses the selected model for chat. If you choose a model from the Agent presets, it also prepares the draft. For other models, the wizard shows that DeepSeek V4.1 Flash prepares the draft. Both steps use OpenRouter credits. In MCP, the same watcher handles this wizard and the writing workspace. Use **Copy watcher instructions** if you are starting a new watcher session.
 
-Use the chat to discuss the cast, setting, or premise. Paste references into **Additional context**. The **20,000-word** budget covers your chat messages and additional context together. Click **Prepare setup draft** when ready. The model proposes editable story fields for review. **Create story** saves the project after you have checked those fields.
+Use the chat to discuss the cast, how characters know one another, the setting, or the premise. Paste references into **Additional context**. The **20,000-word** budget covers your chat messages and additional context together. Click **Prepare setup draft** when ready. The model proposes the world, characters, established relationship edges, and an opening date when it can infer one. Review the proposal and click **Create story** to save it.
 
 ## Read and export the book
 
@@ -110,6 +110,10 @@ To continue with a general model after a sensitive scene:
 
 The saved library and exports include the original passages. Story Studio filters its own prompts and MCP tool results. Use a dedicated writing session and keep it within those tools. A general-purpose agent may still have file, shell, or browser access that can reach the original text. The optional Claude Writer starts Claude Code with its built-in tools disabled. Keep character cards, world notes, story memory, and relationship events non-explicit because they can enter model context separately from the transcript. [MCP permissions and context](MCP.md#keep-the-agent-to-what-story-studio-shows-it)
 
+## Display names
+
+On the **Display names** tab, put the original character or place name on the left and the name you want to see on the right. Use the exact capitalization from the story. Save the table, then return to **Write** or **Book view**. Matching names appear in italics. The table belongs to this story in this browser. Editors, copied and exported prose, graph data, and model context use the original names.
+
 ## Back up and move your library
 
 The default library folder is `~/Library/Application Support/Story Studio/` and its main file is `library.json`. Quit Story Studio and copy the whole folder to migrate to another Mac. Or use **Stories → Export history ZIP** to download `library.json` and readable story transcripts. To restore an export, unzip it and select `library.json` with **Import library**. Import replaces the current library after confirmation. If a newer save from another tab causes a conflict, export your local work before reloading.
@@ -118,13 +122,15 @@ The app binds to your Mac’s loopback address and stores the library locally. W
 
 ## Troubleshoot startup and writing
 
-Open **Finder → Go → Go to Folder** and enter `~/Library/Logs/Story Studio`. The launcher also prints the folder in Terminal. Logs are local, one JSON entry per line with a UTC timestamp. Each file rotates at about 1 MiB and keeps one previous copy ending in `.1`.
+Open **Finder → Go → Go to Folder** and enter `~/Library/Logs/Story Studio`. The launcher also prints the folder in Terminal. Logs are local JSON Lines with UTC timestamps. Summary files rotate at about 1 MiB and trace files at about 16 MiB. Each keeps one previous copy ending in `.1`.
 
 | File | What to look for |
 | --- | --- |
 | `setup.log` | The runtime download, dependency install, server readiness, and launcher failures with their stage and exit code. |
 | `server.log` | Startup, saves, exports, and both OpenRouter passes with routing, usage, and classification diagnostics. |
 | `mcp.log` | Watcher activity, tool outcomes, and context counts for each handoff, including what was omitted by reason. |
+| `openrouter-trace.log` | Full provider request and response payloads for every writing, continuity, Agent, and setup round. Find the browser request by `requestId`, then match a request and response by `exchangeId`. |
+| `mcp-trace.log` | Full handled tool arguments, results, and errors, including prompts delivered to the watcher. Filter by `tool` and the connection's `sessionId`. |
 
 For example, this shows the latest server events as they arrive.
 
@@ -138,7 +144,7 @@ For an error with a **Log ID**, match it to `requestId` in `server.log`. The `pr
 
 For an MCP handoff, look for `context_prepared` in `mcp.log`. It reports the queued turn number, how many history turns were included, and how many were omitted for the prompt budget or for each context rule. `recentPolicyOmissions` lists the last 24 turns omitted by the context rules and the reason for each. The same hashed `storyRef` appears in both logs so you can trace a story without putting its title in the logs. If the app never starts, check `setup.log` and the launcher Terminal. If the browser page opens but its controls fail, check the browser's developer console as well.
 
-Story Studio logs omit story text, directions, prompts, provider replies, and API keys. To redirect logs, set `STORY_STUDIO_LOG_DIR` in the server and MCP launcher environments. If you set only `STORY_STUDIO_DATA`, logs go in its `logs` subfolder.
+Trace files include the prose and prompts that were actually sent or received, including explicit content. API keys are redacted and request headers are excluded. The trace files stay local and are separate from story exports. Keep them private. To redirect logs, set `STORY_STUDIO_LOG_DIR` in both the server and MCP launcher environments. If you set only `STORY_STUDIO_DATA`, logs go in its `logs` subfolder. [Trace queries and operations](OPERATIONS.md#find-a-handoff-in-the-traces)
 
 ## Project reference
 

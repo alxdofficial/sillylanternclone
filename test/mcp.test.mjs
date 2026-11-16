@@ -116,6 +116,7 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     const setup = body => fetch(origin+'/api/setup/mcp',{method:'POST',
       headers:{origin,'Content-Type':'application/json'},body:JSON.stringify({sessionId,...body})});
     const waitForSetup = () => client.callTool({name:'wait_for_setup_request',arguments:{sessionId,waitSeconds:1}}).then(toolData);
+    const waitForWork = () => client.callTool({name:'wait_for_queued_turn',arguments:{waitSeconds:1}}).then(toolData);
     const manuscript = {turnCount:2,hasChapters:true,passages:[{turn:2,excerpt:'PREVIEWED SETUP EXCERPT'}]};
     const contextNote = 'SETUP NOTES: The bridge is closed in winter.' + ' bridge-reference-note'.repeat(16_000);
     const request = {action:'queue',mode:'chat',messages:[{role:'user',content:'Help me plan an import.'}],
@@ -123,7 +124,12 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     assert.equal((await setup({...request,context:'note '.repeat(20_001)})).status,400);
     assert.equal(toolData(await client.callTool({name:'wait_for_setup_request',arguments:{sessionId,waitSeconds:1}})).status,'closed');
     assert.equal((await setup(request)).status,200);
-    const queuedSetup = await waitForSetup();
+    const queuedSetup = await waitForWork();
+    assert.equal(queuedSetup.pendingRequest.mode,'setup');
+    assert.equal(queuedSetup.mode,'chat');
+    assert.equal(queuedSetup.sessionId,sessionId);
+    const leased = await setup({action:'claim-next',sessionId:undefined,agentId:randomUUID()});
+    assert.deepEqual(await leased.json(),{status:'idle'});
     assert.match(queuedSetup.prompt[1].content,/PREVIEWED SETUP EXCERPT/);
     assert.ok(queuedSetup.prompt[1].content.includes(contextNote));
     assert.doesNotMatch(JSON.stringify(queuedSetup),/PRIVATE TEST MARKER/);
@@ -131,11 +137,15 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     assert.equal(toolData(await submitSetup(queuedSetup.requestId,{text:'What should we preserve?'})).status,'saved');
     assert.deepEqual(await (await setup({action:'status'})).json(),{status:'done',text:'What should we preserve?'});
     assert.equal((await setup({action:'queue',mode:'draft',messages:[],manuscript,context:contextNote})).status,200);
-    const draftRequest = await waitForSetup();
+    const draftRequest = await waitForWork();
+    assert.equal(draftRequest.pendingRequest.mode,'setup');
+    assert.equal(draftRequest.mode,'draft');
     assert.notEqual(queuedSetup.requestId,draftRequest.requestId);
     assert.ok(draftRequest.prompt[1].content.includes(contextNote));
     assert.equal((await submitSetup(queuedSetup.requestId,{text:'Stale setup reply.'})).isError,true);
-    const draft = {title:'The Harbor',lore:'A port city.',scenario:'',notes:'',cast:[],continuity:'',chapterStarts:[2]};
+    const draft = {title:'The Harbor',lore:'A port city.',scenario:'',notes:'',continuity:'',chapterStarts:[2],
+      cast:[{name:'Mara',description:'An archivist.'},{name:'Iona',description:'A pilot.'}],
+      storyStartAt:'1904-09-23T08:00',relationships:[{from:'Mara',to:'Iona',label:'They share a key to the archive.'}]};
     assert.equal(toolData(await submitSetup(draftRequest.requestId,{draft})).status,'saved');
     assert.deepEqual(await (await setup({action:'status'})).json(),{status:'done',draft:{...draft,chapterStarts:[]}});
     await setup({action:'cancel'});
@@ -186,6 +196,11 @@ test('native MCP handshake, private context, queued replies, alternates and revi
       assert.match(handoff.prompt,/Write their conversation at the café/);
       assert.doesNotMatch(JSON.stringify(handoff),/PROSE MARKER|ALL ROUTES PRIVATE MARKER|WITHHELD DIRECTION MARKER|UNREVIEWED GRAPH MARKER/);
     }
+    const trace = await readFile(join(directory,'logs','mcp-trace.log'),'utf8');
+    const toolRecords = trace.trim().split('\n').map(line=>JSON.parse(line));
+    assert.ok(toolRecords.some(record=>record.tool === 'wait_for_queued_turn' && record.result?.pendingRequest?.mode === 'setup'));
+    assert.match(trace,/They share a key to the archive/);
+    assert.doesNotMatch(trace,/EXPLICIT PROSE MARKER|MISLABELED PROSE MARKER|PRIVATE TEST MARKER/);
     const handoffLog = await readFile(join(directory,'logs','mcp.log'),'utf8');
     const handoffEvents = handoffLog.trim().split('\n').map(line=>JSON.parse(line));
     const prepared = handoffEvents.find(event=>event.event === 'context_prepared' && event.turnNumber === 8);

@@ -23,4 +23,4 @@ fi
 config="{\"mcpServers\":{\"story-studio\":{\"type\":\"stdio\",\"command\":\"${app//\"/\\\"}/bin/story-studio-mcp\",\"env\":{$server_env}}}}"
 
 exec claude --tools= --strict-mcp-config --mcp-config="$config" --allowedTools=mcp__story-studio \
-  "${STORY_STUDIO_PROMPT:-Watch Story Studio and write each turn I queue.}"
+  "${STORY_STUDIO_PROMPT:-Briefly tell me you're connecting to Story Studio and to leave this chat open. Then watch for my setup, writing, continuity, and story edits.}"

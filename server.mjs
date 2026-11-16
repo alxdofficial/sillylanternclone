@@ -13,7 +13,7 @@ import { runContinuity, runStoryEdit } from './continuity.mjs';
 import { validStoryEditInstruction } from './story-edits.mjs';
 import { runSetup, setupMessages } from './setup-chat.mjs';
 import { setupQueue } from './setup-queue.mjs';
-import { createLogger, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
+import { createLogger, createTrace, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root=dirname(fileURLToPath(import.meta.url));
@@ -21,6 +21,7 @@ const dataDir=process.env.STORY_STUDIO_DATA || join(homedir(),'Library','Applica
 const statePath=join(dataDir,'library.json');
 const port=Number(process.env.PORT || 4317);
 const log = createLogger('server');
+const trace = createTrace('openrouter');
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   log('error','startup_failed',{code:'INVALID_PORT'});
   console.error('Story Studio: PORT must be a number from 1 to 65535.');
@@ -172,6 +173,13 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
   const timeout = AbortSignal.timeout(tools ? 45_000 : maxOutputTokens > 2048 ? 240_000 : 120_000);
   const upstreamSignal = signal ? AbortSignal.any([signal,timeout]) : timeout;
   const timedOut = error => errorCode(error) === 'TIMEOUT' || upstreamSignal.reason?.name === 'TimeoutError';
+  const exchange = {requestId:diagnostics.requestId,storyRef:diagnostics.storyRef,stage,exchangeId:randomUUID()};
+  const payload = {
+    model, messages, max_tokens:maxOutputTokens,
+    provider:{data_collection:'deny',...(tools ? {require_parameters:true} : {})},
+    ...(tools ? {tools,tool_choice:'auto',reasoning:agentReasoning(model)} : {})
+  };
+  trace('request',{...exchange,payload},key);
   let response;
   try {
     response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -179,33 +187,34 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
       redirect: 'error',
       headers: {authorization: 'Bearer ' + key, 'content-type': 'application/json'},
       signal:upstreamSignal,
-      body: JSON.stringify({
-        model,
-        messages,
-        max_tokens:maxOutputTokens,
-        provider: {data_collection:'deny',...(tools ? {require_parameters:true} : {})},
-        ...(tools ? {tools,tool_choice:'auto',reasoning:agentReasoning(model)} : {})
-      })
+      body: JSON.stringify(payload)
     });
   } catch (error) {
     details.durationMs = Date.now() - started;
+    trace('transport_error',{...exchange,message:error.message,code:errorCode(error,'OPENROUTER_CONNECTION_FAILED')},key);
     if (timedOut(error)) throw diagnosticError('OPENROUTER_TIMEOUT','OpenRouter took too long to reply.');
     throw diagnosticError('OPENROUTER_CONNECTION_FAILED','Could not connect to OpenRouter.');
   }
   details.durationMs = Date.now() - started;
   diagnostics[metadata ? 'metadataUpstreamStatus' : 'upstreamStatus'] = details.status = response.status;
+  let raw, result, responseFailure;
+  try {
+    raw = await response.text();
+    result = JSON.parse(raw);
+  } catch (error) {
+    responseFailure = error;
+  } finally {
+    details.durationMs = Date.now() - started;
+    trace('response',{...exchange,httpStatus:response.status,payload:result,
+      ...(responseFailure ? {body:raw,readError:responseFailure.message} : {})},key);
+  }
   if (!response.ok) {
     const hint = openRouterStatusHints[response.status] || 'Check the model and try again.';
     throw diagnosticError('OPENROUTER_HTTP_ERROR',`OpenRouter returned ${response.status}. ${hint}`);
   }
-  let result;
-  try {
-    result = await response.json();
-  } catch (error) {
-    if (timedOut(error)) throw diagnosticError('OPENROUTER_TIMEOUT','OpenRouter took too long to finish the reply.');
+  if (responseFailure) {
+    if (timedOut(responseFailure)) throw diagnosticError('OPENROUTER_TIMEOUT','OpenRouter took too long to finish the reply.');
     throw diagnosticError('OPENROUTER_INVALID_RESPONSE','OpenRouter returned an unreadable response.');
-  } finally {
-    details.durationMs = Date.now() - started;
   }
   if (typeof result?.provider === 'string' && /^[A-Za-z0-9][A-Za-z0-9 .+&()/\-]{0,59}$/.test(result.provider)) {
     details.host = result.provider;
@@ -396,7 +405,7 @@ if (url.pathname === '/api/setup' && req.method === 'POST') return generateSetup
 if (url.pathname === '/api/story-edits' && req.method === 'POST') return generateStoryEdits(req,res,diagnostics);
 if (url.pathname === '/api/setup/mcp' && req.method === 'POST') {
   const request = await body(req);
-  if (request?.action === 'status' || request?.action === 'claim') diagnostics.readOnly = true;
+  if (['status','claim','claim-next'].includes(request?.action)) diagnostics.readOnly = true;
   return json(res,200,setupQueue(request));
 }
 if (url.pathname === '/api/generate' && req.method === 'POST') {
@@ -471,7 +480,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     return json(res,e.status || 500,{error:e.diagnosticCode ? e.message : 'Story Studio could not generate a reply.'});
   }
 }
-if(req.method!=='GET')return json(res,404,{error:'Not found.'});if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}const path=url.pathname==='/'?'/index.html':url.pathname;if(!/^\/(index\.html|app\.js|prompt\.js|models\.js|graph-history\.js|library\.js|manuscript\.js|sync\.js|style\.css)$/.test(path))return json(res,404,{error:'Not found.'});const contents=await readFile(join(root,'public',path));res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"});res.end(contents);
+if(req.method!=='GET')return json(res,404,{error:'Not found.'});if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}const path=url.pathname==='/'?'/index.html':url.pathname;if(!/^\/(index\.html|app\.js|prompt\.js|models\.js|graph-history\.js|library\.js|manuscript\.js|display-names\.js|sync\.js|style\.css)$/.test(path))return json(res,404,{error:'Not found.'});const contents=await readFile(join(root,'public',path));res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"});res.end(contents);
 }
 
 const server = http.createServer(async (req,res) => {

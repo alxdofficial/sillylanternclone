@@ -13,6 +13,7 @@ export const maxAdditionalCharacters = 12;
 export const maxWriteWords = 8000;
 export const maxSetupWords = 20_000;
 export const maxSetupReplyCharacters = 6000;
+export const maxSetupRelationships = 24;
 export const countWords = text => text.match(/\S+/gu)?.length ?? 0;
 
 export function setupInputWords(messages, context = '', draft = '') {

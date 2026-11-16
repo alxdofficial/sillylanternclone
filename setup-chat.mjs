@@ -1,18 +1,25 @@
 import { z } from 'zod';
 import { diagnosticError } from './diagnostics.mjs';
-import { maxSetupReplyCharacters, maxSetupWords, setupInputWords } from './public/prompt.js';
+import { isStoryTime, maxSetupRelationships, maxSetupReplyCharacters, maxSetupWords, resolveCastName, setupInputWords } from './public/prompt.js';
 import { agentTool, runAgentTask } from './agent-tools.mjs';
 
 const castMember = z.strictObject({
   name:z.string().trim().min(1).max(100),
   description:z.string().trim().max(1200)
 });
+const setupEdge = z.strictObject({
+  from:castMember.shape.name,
+  to:castMember.shape.name,
+  label:z.string().trim().min(1).max(400)
+});
 const draftSchema = z.strictObject({
   title:z.string().trim().min(1).max(160),
   lore:z.string().trim().max(4000),
   scenario:z.string().trim().max(1700),
   notes:z.string().trim().max(1500),
-  cast:z.array(castMember).max(8)
+  cast:z.array(castMember).max(8),
+  storyStartAt:z.string().refine(isStoryTime).optional(),
+  relationships:z.array(setupEdge).max(maxSetupRelationships).optional()
 });
 const manuscriptDraftSchema = draftSchema.extend({
   continuity:z.string().trim().max(3600),
@@ -27,8 +34,8 @@ const manuscriptContext = z.strictObject({
 }).refine(manuscript => manuscript.passages.every(({turn},index) =>
   turn <= manuscript.turnCount && (!index || turn > manuscript.passages[index - 1].turn)));
 
-const brainstorm = 'You are a fiction brainstorming partner in Story Studio. If it is unclear whether this is a new story or an existing draft, ask the writer. Discuss the story the writer wants to tell. Offer a few distinct ideas and ask one or two useful questions at a time. Build on what the writer chooses, including later revisions. Discuss the title, setting, characters, opening situation, and writing style when useful. Keep replies brief and conversational. Plan the story without drafting scenes or producing a setup object.';
-const prepare = 'Prepare an editable Story Studio setup from this planning conversation. Return only the requested structured fields. The writer’s latest choices take priority over earlier choices and tentative suggestions. Use title for the story name, lore for the world and setting, scenario for the premise and opening situation, and notes for the writer’s point of view, tone, style, and constraints. For cast, use the named characters agreed on and give each a unique name and a short description, with the main character first. Keep each field concise. Propose a working title if none was chosen. Use an empty string or empty array for the remaining undecided fields. Do not write story prose, relationship events, or further questions.';
+const brainstorm = 'You are a fiction brainstorming partner in Story Studio. If it is unclear whether this is a new story or an existing draft, ask the writer. Discuss the story the writer wants to tell. Offer a few distinct ideas and ask one or two useful questions at a time. Build on the writer’s latest choices. As useful, discuss the setting, named cast, how characters know one another, the opening situation, and writing style. Keep replies brief and conversational. Plan the story without drafting scenes or producing a setup object.';
+const prepare = 'Prepare an editable Story Studio setup. The writer’s latest choices take priority. Use title for the story name, lore for the world and setting, scenario for the opening situation, and notes for style and constraints. Give each established character a unique name and useful short description, with the main character first. Include relationships between named cast members that the conversation or manuscript establishes. Use exact cast names in from and to and one non-explicit sentence in label. Treat these as facts at setup. Use one opening in-story minute as storyStartAt in YYYY-MM-DDTHH:mm when the source establishes enough detail to infer it. Leave the start unset if the date is unknown. Return an empty relationships array only when setup establishes no connections. Keep every field non-explicit. Propose a working title if needed. Leave other undecided fields empty. Return setup data without story prose or commentary.';
 
 export function setupMessages(messages, mode, source, context = '', draftTool = 'submit_setup_response') {
   if (mode !== 'chat' && mode !== 'draft') return null;
@@ -72,6 +79,19 @@ export function validateSetupDraft(value,manuscript) {
   if (names.size !== draft.cast.length) {
     throw diagnosticError('SETUP_DRAFT_DUPLICATE_CAST','The setup draft repeats a character name. Ask the model to clarify the cast, then try again.');
   }
+  const cast = draft.cast.map(({name})=>({id:name,name}));
+  const seen = new Set();
+  for (const edge of draft.relationships || []) {
+    const from = resolveCastName(cast,edge.from);
+    const to = resolveCastName(cast,edge.to);
+    if (!from || !to || from === to) {
+      throw diagnosticError('SETUP_DRAFT_BAD_RELATIONSHIP','Use two distinct names from the draft cast for each setup relationship.');
+    }
+    Object.assign(edge,{from,to});
+    const key = JSON.stringify([[from,to].sort(),edge.label.toLowerCase()]);
+    if (seen.has(key)) throw diagnosticError('SETUP_DRAFT_DUPLICATE_RELATIONSHIP','List each setup relationship fact once.');
+    seen.add(key);
+  }
   if (manuscript) {
     const sampledTurns = new Set(manuscript.passages.map(({turn}) => turn));
     draft.chapterStarts = manuscript.hasChapters ? [] : [...new Set(draft.chapterStarts.filter(turn => sampledTurns.has(turn)))].sort((a,b) => a-b);
@@ -86,7 +106,7 @@ export async function runSetup(messages,mode,manuscript,complete) {
     }
     return {text:output.text};
   },code:'SETUP_CHAT_INVALID',failure:'The model returned no brainstorm reply.'});
-  const action = agentTool('prepare_story_setup','Stage an editable proposal for the writer. Use only the setup conversation and supplied references. The writer creates the story after review.',
+  const action = agentTool('prepare_story_setup','Stage the world, cast, established relationships, and opening story time for writer review. Use only the setup conversation and supplied references.',
     setupResultShape(manuscript),value => {
       try { return {value:{draft:validateSetupDraft(value,manuscript)}}; }
       catch (failure) {

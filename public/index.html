@@ -36,6 +36,7 @@
         <div class="story-tabs" role="tablist" aria-label="Story views">
           <button type="button" id="writeTab" role="tab" aria-selected="true" aria-controls="writeView">Write</button>
           <button type="button" id="bookTab" role="tab" aria-selected="false" aria-controls="bookView" tabindex="-1">Book view</button>
+          <button type="button" id="displayNamesTab" role="tab" aria-selected="false" aria-controls="displayNamesView" tabindex="-1">Display names</button>
         </div>
         <div class="story-heading-actions">
           <button type="button" class="button subtle" id="toggleStoryTurns" aria-controls="storyTurnSidebar" aria-expanded="false">Turns</button>
@@ -73,6 +74,7 @@
               <select id="sceneModel" aria-describedby="routeSummary"><option value="" disabled>Pick a model</option></select>
             </div>
             <button id="contextIndicator" type="button" class="text-button context-indicator" aria-haspopup="dialog">Context</button>
+            <span id="composerWatcherStatus" class="watcher-status" data-watcher-status="offline" role="status" hidden>No MCP watcher</span>
             <p id="routeSummary" class="route-hint" role="status"></p>
           </div>
           <p id="composerEditStatus" class="route-hint" role="status" hidden></p>
@@ -112,6 +114,21 @@
           <span id="bookSpreadNumber" role="status"></span>
           <button type="button" class="button" id="bookNext" aria-label="Next spread">Next</button>
         </div>
+      </section>
+      <section class="display-names-view" id="displayNamesView" role="tabpanel" aria-labelledby="displayNamesTab" hidden>
+        <form class="display-names-form" id="displayNamesForm">
+          <p class="form-note" id="displayNamesHint">Match names as written. This browser shows replacements in italics in Write and Book view. Edits, copies, exports, and AI use the original names.</p>
+          <table class="display-names-table" aria-describedby="displayNamesHint">
+            <thead><tr><th scope="col">Original name</th><th scope="col">Display name</th></tr></thead>
+            <tbody id="displayNamesRows"></tbody>
+          </table>
+          <p class="validation-message" id="displayNamesError" role="alert"></p>
+          <div class="display-names-actions">
+            <button type="button" class="button subtle" id="addDisplayName">Add name</button>
+            <button type="submit" class="button primary">Save names</button>
+            <span class="form-note" id="displayNamesStatus" role="status"></span>
+          </div>
+        </form>
       </section>
       <div class="sr-only" id="interactionStatus" role="status"></div>
     </div>
@@ -239,7 +256,14 @@
     <footer class="dialog-actions"><button type="button" class="button subtle" id="cancelEdit">Cancel</button><button class="button primary">Save turn</button></footer>
   </form>
 </dialog>
-<dialog id="providerDialog" class="form-dialog" aria-labelledby="providerHeading"><form id="providerForm"><header class="dialog-top"><div><h2 id="providerHeading">Connection</h2><p>Use MCP with your signed-in Codex or Claude Code session. Configure OpenRouter here when you need it.</p></div><button type="button" id="closeProvider" class="icon" aria-label="Close">×</button></header><div id="routerFields" class="dialog-body"><label>OpenRouter model<select id="modelPreset" aria-describedby="modelPolicy modelPrice"><option value="" disabled>Choose a model</option></select></label>
+<dialog id="providerDialog" class="form-dialog" aria-labelledby="providerHeading"><form id="providerForm"><header class="dialog-top"><div><h2 id="providerHeading">Connection</h2></div><button type="button" id="closeProvider" class="icon" aria-label="Close">×</button></header><div id="routerFields" class="dialog-body">
+<section class="watcher-controls" aria-label="MCP watcher">
+  <div class="watcher-actions"><span class="watcher-status" data-watcher-status="offline" role="status">No MCP watcher</span><button type="button" class="button" data-copy-watcher>Copy watcher instructions</button></div>
+  <p class="form-note">One local Codex or Claude session can handle setup, writing, and Agent edits. Leave that chat open while you work.</p>
+  <p class="form-note copy-watcher-feedback" role="status"></p>
+  <textarea rows="5" readonly hidden aria-label="Watcher instructions"></textarea>
+</section>
+<label>OpenRouter model<select id="modelPreset" aria-describedby="modelPolicy modelPrice"><option value="" disabled>Choose a model</option></select></label>
 <button type="button" id="removeUserModel" class="button danger" hidden>Remove user-added model</button><p id="modelPolicy" class="form-note">Candidates for adult fiction with fictional adults. The model and hosting provider determine what they will generate.</p>
 <div class="model-price" id="modelPrice" aria-live="polite" hidden><p id="modelEstimate"></p><p id="modelRates"></p><p class="form-note"><span id="modelChapterAssumption">A chapter assumes 2,000 input and 5,000 output tokens total. </span><a id="modelSource" rel="noopener noreferrer" target="_blank">OpenRouter listing</a> · rates checked Nov 16, 2026.</p></div>
 <label id="customModel" hidden>Custom model ID<input id="modelInput" placeholder="author/model" autocomplete="off"></label><p id="modelError" class="form-note validation-message" role="alert"></p><label>OpenRouter API key<input id="keyInput" type="password" placeholder="sk-or-…" autocomplete="off"></label><p class="form-note">The key stays in this page’s memory and is forgotten when the page closes or reloads. <span id="modelBilling"></span></p></div><footer class="dialog-actions"><button type="button" class="button subtle" id="cancelProvider">Cancel</button><button class="button primary" type="submit">Save connection</button></footer></form></dialog>
@@ -295,9 +319,10 @@
       <label for="setupModel" id="setupModelField">OpenRouter model <select id="setupModel"><option value="" disabled selected>Choose a model</option></select></label>
       <label for="setupKey" id="setupKeyField">OpenRouter API key <input id="setupKey" type="password" autocomplete="off"></label>
       <p class="form-note" id="setupProviderNote"></p>
-      <div class="setup-agent-instructions" id="setupAgentInstructions" hidden>
-        <button type="button" class="button" id="copySetupAgentPrompt">Copy instructions for your agent</button>
-        <textarea id="setupAgentPrompt" rows="3" readonly hidden aria-label="Instructions for your agent"></textarea>
+      <div class="setup-agent-instructions watcher-controls" id="setupAgentInstructions" hidden>
+        <div class="watcher-actions"><span class="watcher-status" data-watcher-status="offline" role="status">No MCP watcher</span><button type="button" class="button" data-copy-watcher>Copy watcher instructions</button></div>
+        <p class="form-note copy-watcher-feedback" role="status"></p>
+        <textarea rows="5" readonly hidden aria-label="Watcher instructions"></textarea>
       </div>
     </div>
     <section class="setup-source" id="setupSource" hidden aria-label="Manuscript context">
@@ -343,12 +368,19 @@
       <label>Story title <input id="setupTitle" maxlength="160" required></label>
       <label>Opening premise <textarea id="setupScenario" rows="2" maxlength="1700" placeholder="What is happening as the story starts?"></textarea></label>
       <label>World &amp; setting <textarea id="setupLore" rows="2" maxlength="4000" placeholder="Where and when does it take place?"></textarea></label>
+      <label>Story start <input id="setupStartAt" type="datetime-local" aria-describedby="setupStartHint"></label>
+      <p class="form-note" id="setupStartHint">Starting relationships share this in-story date and time.</p>
       <label>Writing notes <textarea id="setupNotes" rows="2" maxlength="1500" placeholder="Tone, point of view, or anything the narrator should know"></textarea></label>
       <label id="setupContinuityField" hidden>Story continuity <textarea id="setupContinuity" rows="2" maxlength="3600" placeholder="Established events and facts for continuing the story"></textarea></label>
       <fieldset class="setup-cast">
         <legend>Cast</legend>
         <div id="setupCast"></div>
         <button id="setupAddCharacter" type="button" class="button">Add character</button>
+      </fieldset>
+      <fieldset class="setup-cast">
+        <legend>Starting relationships</legend>
+        <div id="setupRelationships"></div>
+        <button id="setupAddRelationship" type="button" class="button">Add relationship</button>
       </fieldset>
       <p id="setupReviewError" class="form-note validation-message" role="alert"></p>
     </div>

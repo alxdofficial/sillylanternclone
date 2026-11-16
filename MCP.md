@@ -73,21 +73,39 @@ Open Story Studio first. Use the launcher, or ask the agent “Start Story Studi
 
 ### Brainstorm a new story or import a manuscript
 
-In the browser’s **New story** flow choose **MCP agent** beside **Chat with**. Queue the first message or setup draft, then use **Copy instructions for your agent** in a connected agent chat. The instructions include a temporary setup session ID. The agent handles that session while the browser dialog is open. A regular story watcher handles writing turns. Use a separate agent chat for setup if a watcher is already busy.
+In the browser’s **New story** flow choose **MCP agent** beside **Chat with**. The same watcher you use for writing will pick up queued messages and setup drafts. If Studio shows **No MCP watcher**, use **Copy watcher instructions** in the wizard or **Connection**, then paste the prompt into a local agent chat. Do this once while that chat stays open.
 
 The setup session receives the planning conversation, additional context entered in the form, and manuscript excerpts the writer can preview. The writer's chat messages and additional context share a 20,000-word budget. Setup access is scoped to that session and those excerpts.
 
-Call `wait_for_setup_request` with the session ID. A planning chat request expects conversational text. **Prepare setup draft** expects structured story fields. Return either using `submit_setup_response` and the request ID, then wait again while the wizard remains open. The draft passes the same validation as OpenRouter's `prepare_story_setup` tool. The writer can revise the staged draft before clicking **Create story** in the browser. After updating Story Studio, open a fresh MCP session to discover new tools.
+The setup agent proposes the world, cast profiles, opening premise, writing notes, and any established relationships. Each edge names two distinct members of the cast and describes their connection in one non-explicit sentence. Setup edges share one opening story time. The author can revise profiles or edges before creating the story.
+
+`wait_for_queued_turn` returns `pendingRequest.mode: "setup"` for this work, with `mode: "chat"` or `mode: "draft"` and both IDs. A planning chat expects conversational text. **Prepare setup draft** expects structured story fields. Return either using `submit_setup_response` with the `sessionId` and `requestId`, then call `wait_for_queued_turn` again. The draft passes the same validation as OpenRouter's `prepare_story_setup` tool. The writer can revise the staged draft before clicking **Create story** in the browser. `wait_for_setup_request` is still available for clients that watch a specific setup session by ID.
 
 Saving a revised, MCP-eligible direction can queue a rewrite of the reply immediately after it. The agent receives the eligible transcript up to the revised direction. It rewrites the selected take in place and keeps the reply’s scene time. Existing accepted map changes stay in the story. Pending proposals for the rewritten take are cleared when the replacement is saved.
 
 ### Automatic: the agent watches for queued turns
 
-In your signed-in Codex or Claude desktop session, or in a CLI session with Story Studio connected, say once:
+Use **Connection → Copy watcher instructions** once in your signed-in local Codex or Claude session. The prompt asks the agent to tell you what it is setting up and to leave the chat open. It then starts a native MCP tool loop that also works in other stdio clients that support repeated tool calls.
 
-> Watch Story Studio and write each turn I queue.
+This Python sketch shows how to dispatch the returned jobs. In a desktop chat, the client calls its registered MCP tools directly. `call_tool` and the handlers below stand for the client's own tool adapter and job handling.
 
-The optional **Start Claude Writer.command** launcher starts this loop automatically for Claude Code CLI users. The agent waits for writing, continuity, or metadata work, handles it, and waits again. Keep that agent window open while you write. To stop, interrupt the agent (Esc in Claude Code) or tell it to stop watching.
+```python
+while True:
+    job = call_tool("wait_for_queued_turn")
+    if job["status"] == "idle":
+        continue
+    kind = job["pendingRequest"]["mode"]
+    if kind == "setup":
+        handle_setup(job)       # submit_setup_response
+    elif kind == "edit":
+        handle_edit(job)        # edit_story_state
+    elif kind == "continuity":
+        record_continuity(job)  # record_scene
+    else:
+        write_scene(job)        # submit_reply or decline_turn
+```
+
+The optional **Start Claude Writer.command** launcher starts this loop automatically for Claude Code CLI users. Keep the agent chat open while you write. To stop, interrupt the agent or tell it to stop watching. A closed chat needs a new watcher when you return.
 
 The agent writes as the narrator, using the full cast for dialogue and action. Short follow-ups such as “go into more detail” refer to the latest available narrated passage. Give any style, tense or point-of-view direction in the composer, or set a default in **Character & lore → Writing → Writing notes**. The line above the composer and a placeholder turn show where a queued turn stands:
 
@@ -95,7 +113,7 @@ The agent writes as the narrator, using the full cast for dialogue and action. S
 - **Queued:** an agent is watching and will pick it up within a second or two.
 - **Writing:** the agent has the turn and is writing it, with how long ago it picked it up. The reply replaces the placeholder when it is saved.
 
-Without a queued turn, the line says whether an agent is watching. Agents report this through the MCP server while they wait or write. If an agent stops without saying so, it stops counting as watching after a minute, and a turn it picked up but never saved stops showing as being written after 15 minutes. OpenRouter turns show the same **Writing** placeholder while the request runs.
+The MCP composer, setup wizard, and **Connection** display the agent as **ready** while watching and **working** while handling a job. Agents report this through the MCP server. If an agent stops without saying so, a ready indicator can take up to a minute to clear and an abandoned working indicator can take up to 15 minutes. OpenRouter turns show the same **Writing** placeholder while the request runs.
 
 The default wait is 50 seconds in Codex and other stdio clients and 300 seconds when the client identifies as Claude Code. Set `waitSeconds` up to 600 if your client's tool timeout permits it. Codex defaults to a 60-second tool timeout. Set `tool_timeout_sec` for `story-studio` in `~/.codex/config.toml` before asking a Codex agent to wait longer. Each idle result uses another agent step, so stop watching when you finish a writing session. [Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
 
@@ -135,13 +153,13 @@ For each new scene, the agent may record up to five non-explicit updates coverin
 | --- | --- |
 | `open_studio` | Get the local browser URL. Starts the local server if the writer wants the app started. |
 | `list_stories` | Story IDs and titles, the active story, and any queued request. |
-| `wait_for_queued_turn` | Wait for a writing, continuity, or metadata-edit request, starting with the active story. The default is 50 seconds, or 300 for Claude Code. The result gives the context and revision. An idle result can list invalid requests under `skipped`. |
+| `wait_for_queued_turn` | Wait for setup, writing, continuity, or metadata work. If no setup is queued, check the active story first. The default is 50 seconds, or 300 for Claude Code. An idle result can list invalid requests under `skipped`. |
 | `get_story_context` | The assembled narrator prompt, queued request and library revision. Omit the story ID to use the active story. Pass a fresh `direction` for a chat draft. A queued Studio turn takes precedence in the returned context. |
 | `get_story_state` | Read current world, writing and continuity notes and character profiles, with the library revision. Omit the story ID to use the active story. |
 | `inspect_continuity` | Read one section of story state. Use a cast name to narrow profiles or relationships. Follow the returned offset for the next page of events. |
 | `record_scene` | Finish a pending continuity pass. Provide the story ID, revision, turn number, optional scene time, and an array of non-explicit updates. |
 | `edit_story_state` | Apply a validated batch of metadata changes with the story ID and revision. For a queued edit, include its request ID. For a decline, give a short reason. |
-| `wait_for_setup_request` | Wait for planning chat or draft preparation in the setup session ID the writer provided. Follow the supplied instructions, loop on idle, and stop when the session closes. |
+| `wait_for_setup_request` | Legacy session-specific wait for planning chat and draft preparation when a session ID is already known. |
 | `submit_setup_response` | Return conversational text, a validated setup draft, or a short reason for declining. Use the session and request IDs from the queued result. A draft is staged for browser review. |
 | `submit_reply` | Save narration for a queued turn or an approved chat draft. Pass the story ID, revision, and `reply`. Supply `writerTurn` only for a chat direction that has yet to be saved. For a new scene, follow the returned continuity handoff. |
 | `decline_turn` | Hand a queued turn back with a short reason. `writerTurn: "explicit"` labels the queued writer turn explicit. |

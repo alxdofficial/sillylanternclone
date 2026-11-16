@@ -20,6 +20,7 @@ const requestShape = z.discriminatedUnion('action',[
   z.strictObject({action:z.literal('status'),sessionId:identifier}),
   z.strictObject({action:z.literal('cancel'),sessionId:identifier}),
   z.strictObject({action:z.literal('claim'),sessionId:identifier,agentId:identifier}),
+  z.strictObject({action:z.literal('claim-next'),agentId:identifier}),
   z.strictObject({action:z.literal('submit'),sessionId:identifier,agentId:identifier,requestId:identifier,
     text:z.string().trim().min(1).max(maxSetupReplyCharacters).optional(),draft:z.unknown().optional(),reason:z.string().trim().min(1).max(300).optional()})
 ]);
@@ -34,9 +35,13 @@ export function setupQueue(input) {
   const result = requestShape.safeParse(input);
   if (!result.success) fail('The setup request is invalid.');
   const request = result.data;
-  const {action,sessionId} = request;
+  const {action} = request;
   const now = Date.now();
   for (const [id,session] of sessions) if (session.expires <= now) sessions.delete(id);
+  const canClaim = session => !session.result && !(session.claimUntil > now && session.agentId !== request.agentId);
+  const sessionId = action === 'claim-next'
+    ? [...sessions.keys()].find(id => canClaim(sessions.get(id)))
+    : request.sessionId;
   const session = sessions.get(sessionId);
   if (action === 'queue') {
     if (session && !session.result) fail('This setup session already has a pending request.',409);
@@ -52,12 +57,12 @@ export function setupQueue(input) {
     return {status:'closed'};
   }
   if (action === 'status') return progress(session);
-  if (action === 'claim') {
-    if (!session) return {status:'closed'};
-    if (session.result || (session.claimUntil > now && session.agentId !== request.agentId)) return {status:'idle'};
+  if (action === 'claim' || action === 'claim-next') {
+    if (!session) return {status:action === 'claim' ? 'closed' : 'idle'};
+    if (!canClaim(session)) return {status:'idle'};
     session.agentId = request.agentId;
     session.claimUntil = now + lease;
-    return {status:'queued',requestId:session.requestId,mode:session.mode,hasManuscript:Boolean(session.manuscript),
+    return {status:'queued',sessionId,requestId:session.requestId,mode:session.mode,hasManuscript:Boolean(session.manuscript),
       prompt:session.prompt};
   }
   if (!session || session.result || session.requestId !== request.requestId || session.agentId !== request.agentId) {

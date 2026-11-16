@@ -271,6 +271,18 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     assert.doesNotMatch(contents,new RegExp(fixture));
     assert.doesNotMatch(contents,/PRIVATE_HISTORY|ALL_ROUTE_MARKER/);
     assert.ok(!contents.includes(scene.text));
+    const full = await readFile(join(directory,'logs','openrouter-trace.log'),'utf8');
+    const exchanges = full.trim().split('\n').map(line=>JSON.parse(line));
+    const byRequest = (res, stage, event) => exchanges.find(record=>record.requestId === res.headers.get('x-story-studio-request-id') && record.stage === stage && record.event === event);
+    const proseRequest = byRequest(sensitive,'prose','request');
+    assert.match(JSON.stringify(proseRequest.payload.messages),/PRIVATE_HISTORY/);
+    assert.doesNotMatch(JSON.stringify(byRequest(success,'prose','request').payload.messages),/PRIVATE_HISTORY/);
+    assert.doesNotMatch(full,/ALL_ROUTE_MARKER|PRIVATE_TEST_VALUE/);
+    const proseResponse = byRequest(sensitive,'prose','response');
+    assert.equal(proseResponse.exchangeId,proseRequest.exchangeId);
+    assert.equal(proseResponse.payload.choices[0].message.content,scene.text);
+    assert.match(JSON.stringify(byRequest(sensitive,'metadata','response').payload),/record_scene/);
+    assert.equal(byRequest(response,'prose','response').body,'[REDACTED API KEY]');
   } finally {
     child.kill();
     await done;

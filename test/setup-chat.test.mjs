@@ -20,7 +20,8 @@ const manuscript = {turnCount:2,hasChapters:true,passages:[{turn:2,excerpt:'The 
 const draft = {
   title:'The Morning Map', lore:'The map changes at sunrise.',
   scenario:'A novelist inherits the map.', notes:'Quiet suspense.',
-  cast:[{name:'Sam',description:'A novelist.'}]
+  cast:[{name:'Sam',description:'A novelist.'},{name:'Mira',description:'A cartographer and longtime friend.'}],
+  storyStartAt:'1934-10-12T06:10',relationships:[{from:'Sam',to:'Mira',label:'Mira helps Sam interpret the inherited map.'}]
 };
 const writer = content => ({role:'user',content});
 const assistant = content => ({role:'assistant',content});
@@ -45,6 +46,12 @@ test('setup input and output are bounded and reject invalid roles, fields and du
   assert.throws(() => validateSetupDraft({...draft,postHistory:'Extra'}),{diagnosticCode:'SETUP_DRAFT_INVALID'});
   assert.throws(() => validateSetupDraft({...draft,cast:[draft.cast[0],{name:'sam',description:''}]}),
     {diagnosticCode:'SETUP_DRAFT_DUPLICATE_CAST'});
+  assert.throws(() => validateSetupDraft({...draft,relationships:[{...draft.relationships[0],to:'Unknown'}]}),
+    {diagnosticCode:'SETUP_DRAFT_BAD_RELATIONSHIP'});
+  assert.throws(() => validateSetupDraft({...draft,relationships:[{...draft.relationships[0],to:'sam'}]}),
+    {diagnosticCode:'SETUP_DRAFT_BAD_RELATIONSHIP'});
+  assert.throws(() => validateSetupDraft({...draft,storyStartAt:'1934-02-30T06:10'}),{diagnosticCode:'SETUP_DRAFT_INVALID'});
+  assert.deepEqual(validateSetupDraft({...draft,relationships:[{...draft.relationships[0],to:'mira'}]}),draft);
 
 });
 
@@ -93,7 +100,9 @@ test('setup chat uses the chosen model and stages a validated draft through the 
       assert.equal(setupTool.name,'prepare_story_setup');
       assert.equal(setupTool.parameters.additionalProperties,false);
       assert.equal(setupTool.parameters.properties.cast.maxItems,8);
+      assert.equal(setupTool.parameters.properties.relationships.maxItems,24);
       assert.match(request.messages[0].content,/latest choices/);
+      assert.match(request.messages[0].content,/one non-explicit sentence/);
       assert.match(request.messages[0].content,/prepare_story_setup/);
       assert.match(request.messages.at(-1).content,/Prepare the story setup/);
       const args = importDraft ? {...draft,continuity:'The map changed.',chapterStarts:[]} : draft;

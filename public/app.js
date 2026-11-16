@@ -2,11 +2,12 @@ import { applyTurnGraphUpdates, captureGraphVersion, graphChangesByTurn, normali
 import { bookChapters, bookMarkdown, maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
 import { defaultChapterStarts, manuscriptByteLimit, manuscriptPassages, manuscriptTurns, parseManuscript } from './manuscript.js';
 import { mergeLibrary } from './sync.js';
+import { createDisplayNameMatcher } from './display-names.js';
 import { buildMessages, formatMessages, extraFields, getCast, narrator, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
 import { models, chapterCost, canWriteSensitive, isAgentModel, isModelId, modelLabel, modelContextWindow, proseOutputLimit, setupDraftModel, agentOutputLimit, setupChatOutputLimit, setupDraftOutputLimit } from './models.js';
 import { countWords, writeInputProblem } from './prompt.js';
-import { dateWriterTurn, maxSetupWords, mcpOmissionReason, queuedTurn, replyInput, setupInputWords, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
+import { dateWriterTurn, maxSetupRelationships, maxSetupWords, mcpOmissionReason, queuedTurn, replyInput, setupInputWords, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
 import { continuityRecentTokenCap, estimateContextTokens, storyEditContext, storyOverview, storyPromptUsage, writingHistoryLimit, writingPromptLimit } from './prompt.js';
 
 const settingsFields = ['title', 'character', 'lore', 'notes', ...extraFields.filter(key => key !== 'personaName')];
@@ -25,6 +26,51 @@ let connecting = false, pinnedGraph = null, hoverGraph = null, deletedEvent = nu
 let pendingGraphReview = [];
 // Live activity: local MCP agents (from /api/agent) and an OpenRouter request in progress.
 let agentActivity = [], generatingFor = null;
+const watcherInstructions = `Connect this local session to Story Studio. First tell me briefly what you're doing and that I should leave this chat open while I write. If the story-studio tools are missing, follow README.md and MCP.md in the Story Studio repo and register its stdio server in this client. Tell me if you need me to sign in, approve the tools, or open a fresh session. Use open_studio if Studio is not running.
+
+Use the MCP tools directly. This Python example shows how to recognize each job. You don't need to run a Python script.
+
+while True:
+    job = call_tool("wait_for_queued_turn")
+    if job["status"] == "idle":
+        continue
+    kind = job["pendingRequest"]["mode"]
+    if kind == "setup":
+        handle_setup(job)       # submit_setup_response
+    elif kind == "edit":
+        handle_edit(job)        # edit_story_state
+    elif kind == "continuity":
+        record_continuity(job)  # record_scene
+    else:
+        write_scene(job)        # submit_reply or decline_turn
+
+Follow each job's prompt and use the IDs it provides. When submit_reply leaves continuity pending, record it before waiting again. Handle requests across stories and setup wizards from this same session. Stay quiet while waiting. Stop when I ask, or tell me if Studio becomes unreachable. Use only Story Studio's filtered tools for story data.`;
+
+function syncWatcherStatus() {
+  const ready = agentActivity.find(agent => agent.state === 'watching');
+  const working = agentActivity.find(agent => agent.state === 'writing');
+  const label = ready ? `${ready.client} ready` : working ? `${working.client} working` : 'No MCP watcher';
+  for (const target of document.querySelectorAll('[data-watcher-status]')) {
+    if (target.textContent !== label) target.textContent = label;
+    target.dataset.watcherStatus = ready ? 'ready' : working ? 'working' : 'offline';
+  }
+}
+
+for (const button of document.querySelectorAll('[data-copy-watcher]')) {
+  button.onclick = async () => {
+    const section = button.closest('.watcher-controls');
+    const prompt = section.querySelector('textarea');
+    const feedback = section.querySelector('.copy-watcher-feedback');
+    try {
+      await navigator.clipboard.writeText(watcherInstructions);
+      feedback.textContent = 'Copied. Paste into your local agent chat.';
+    } catch {
+      prompt.value = watcherInstructions;
+      prompt.hidden = false;
+      prompt.select();
+    }
+  };
+}
 const temporarySession = new Map();
 function getSession(key) {
   if (temporarySession.has(key)) return temporarySession.get(key);
@@ -161,6 +207,130 @@ window.addEventListener('beforeunload', event => {
   if (libraryDirty || pendingLibraryWrites) event.preventDefault();
 });
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
+const transientDisplayNames = new Map();
+const displayNameKey = storyId => 'story-display-names:' + storyId;
+const displayNameRows = $('#displayNamesRows');
+let displayNameStoryId;
+
+function readDisplayNames(storyId) {
+  if (transientDisplayNames.has(storyId)) return transientDisplayNames.get(storyId);
+  if (storyId === starterStoryId) return [];
+  try {
+    const saved = JSON.parse(localStorage.getItem(displayNameKey(storyId)) || '[]');
+    return Array.isArray(saved) ? saved.filter(row => Array.isArray(row) && row.length === 2 &&
+      row.every(name => typeof name === 'string' && name.trim())) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDisplayNames(storyId, entries) {
+  if (storyId !== starterStoryId) {
+    try {
+      if (entries.length) localStorage.setItem(displayNameKey(storyId),JSON.stringify(entries));
+      else localStorage.removeItem(displayNameKey(storyId));
+      transientDisplayNames.delete(storyId);
+      return true;
+    } catch {
+      // Display preferences can still work for the current tab.
+    }
+  }
+  transientDisplayNames.set(storyId,entries);
+  return false;
+}
+
+function readerText(tag, cls, text, match) {
+  if (!match) return el(tag,cls,text);
+  const node = el(tag,cls);
+  for (const segment of match(text)) {
+    node.append(segment.displayName ? el('em','display-name',segment.text) : segment.text);
+  }
+  return node;
+}
+
+function labelDisplayNameRows() {
+  Array.from(displayNameRows.rows).forEach((row,index) => {
+    const number = index + 1;
+    row.cells[0].querySelector('input').setAttribute('aria-label',`Original name ${number}`);
+    row.cells[1].querySelector('input').setAttribute('aria-label',`Display name ${number}`);
+    row.querySelector('button').setAttribute('aria-label',`Remove name ${number}`);
+  });
+}
+
+function addDisplayNameRow(original = '', display = '') {
+  const row = el('tr'), originalCell = el('td'), displayCell = el('td');
+  const displayControls = el('div','display-name-controls');
+  const entry = value => {
+    const input = el('input');
+    input.type = 'text';
+    input.value = value;
+    input.autocomplete = 'off';
+    return input;
+  };
+  const originalInput = entry(original), displayInput = entry(display);
+  const remove = el('button','button subtle display-name-remove','Remove');
+  remove.type = 'button';
+  remove.onclick = () => {
+    const neighbor = row.nextElementSibling || row.previousElementSibling;
+    row.remove();
+    labelDisplayNameRows();
+    clearDisplayNameFeedback();
+    (neighbor?.querySelector('input') || $('#addDisplayName')).focus();
+  };
+  originalCell.append(originalInput);
+  displayControls.append(displayInput,remove);
+  displayCell.append(displayControls);
+  row.append(originalCell,displayCell);
+  displayNameRows.append(row);
+  labelDisplayNameRows();
+  return originalInput;
+}
+
+function renderDisplayNames() {
+  const storyId = current().id;
+  if (storyId === displayNameStoryId) return;
+  displayNameStoryId = storyId;
+  displayNameRows.replaceChildren();
+  $('#displayNamesError').textContent = '';
+  $('#displayNamesStatus').textContent = '';
+  const entries = readDisplayNames(storyId);
+  if (!entries.length) addDisplayNameRow();
+  else for (const [original, display] of entries) addDisplayNameRow(original,display);
+}
+
+function clearDisplayNameFeedback() {
+  $('#displayNamesError').textContent = '';
+  $('#displayNamesStatus').textContent = '';
+}
+$('#addDisplayName').onclick = () => {
+  clearDisplayNameFeedback();
+  addDisplayNameRow().focus();
+};
+$('#displayNamesForm').oninput = clearDisplayNameFeedback;
+$('#displayNamesForm').onsubmit = event => {
+  event.preventDefault();
+  if (!state) return;
+  const entries = new Map();
+  for (const row of displayNameRows.rows) {
+    const [originalInput, displayInput] = row.querySelectorAll('input');
+    const original = originalInput.value.trim(), display = displayInput.value.trim();
+    if (!original && !display) continue;
+    const message = !original || !display ? 'Fill in both names or remove the row.'
+      : entries.has(original) ? 'Use each original name once.' : '';
+    if (message) {
+      $('#displayNamesError').textContent = message;
+      (!display ? displayInput : originalInput).focus();
+      return;
+    }
+    entries.set(original,display);
+  }
+  const storyId = current().id;
+  const persisted = saveDisplayNames(storyId,[...entries]);
+  $('#displayNamesStatus').textContent = persisted ? 'Names saved in this browser.'
+    : storyId === starterStoryId ? 'Names saved until the demo resets.' : 'Names saved for this tab.';
+  writeNeedsRender = true;
+};
+
 function render() {
   const project = current();
   if (!project) return;
@@ -422,7 +592,7 @@ $('#latestStoryTurn').onclick = () => {
   $('#instruction').focus({preventScroll:true});
 };
 
-function renderStoryTurns(project, followLatest) {
+function renderStoryTurns(project, followLatest, match) {
   const nav = $('#storyTurns'), scrollTop = nav.scrollTop;
   const fragment = document.createDocumentFragment();
   for (const {selection:{turn},detail,reason} of storyTurns(project)) {
@@ -430,7 +600,7 @@ function renderStoryTurns(project, followLatest) {
     button.type = 'button';
     button.dataset.turnLink = turn;
     button.append(el('strong','',eventTime(turn)));
-    if (detail) button.append(el('span','timeline-detail',detail));
+    if (detail) button.append(readerText('span','timeline-detail',detail,match));
     appendTurnContextBadge(button,button,reason);
     button.onclick = () => {
       const target = selectStoryTurn(turn);
@@ -463,7 +633,8 @@ const bookFirst = $('#bookFirst');
 const bookLast = $('#bookLast');
 const bookPositions = new Map();
 const spreadPositions = new Map();
-let bookStoryId, chapters = [], bookOpen = false, writeNeedsRender = false;
+const storyViews = [['write','writeTab','writeView'],['book','bookTab','bookView'],['names','displayNamesTab','displayNamesView']];
+let bookStoryId, chapters = [], storyView = 'write', writeNeedsRender = false;
 let bookSpreadWanted = false, spreadCount = 1;
 
 function goToSpread(index) {
@@ -477,7 +648,7 @@ function goToSpread(index) {
 }
 
 function updateBookSpread() {
-  if (!bookOpen) return;
+  if (storyView !== 'book') return;
   const available = desktopBook.matches && chapters.length > 0;
   const active = available && bookSpreadWanted;
   const wasActive = bookPages.hasAttribute('data-spread');
@@ -572,6 +743,7 @@ function renderBook() {
   bookChapter.value = '';
   updateBookRange(first,last);
   const manuscript = document.createDocumentFragment();
+  const match = createDisplayNameMatcher(readDisplayNames(project.id));
   manuscript.append(el('h2','book-title',project.title));
   chapters.forEach((excerpts,index) => {
     const section = el('section','book-chapter');
@@ -581,7 +753,7 @@ function renderBook() {
     section.append(heading);
     for (const excerpt of excerpts) {
       for (const paragraph of excerpt.trim().split(/\r?\n(?:[\t ]*\r?\n)+/u)) {
-        section.append(el('p','',paragraph));
+        section.append(readerText('p','',paragraph,match));
       }
     }
     manuscript.append(section);
@@ -591,19 +763,20 @@ function renderBook() {
   if (!bookPages.hasAttribute('data-spread')) bookReader.scrollTop = scrollTop;
 }
 
-function showStoryView(open) {
-  if (bookOpen === open) return;
-  if (bookOpen) rememberBookPosition();
-  bookOpen = open;
+function showStoryView(view) {
+  if (storyView === view) return;
+  if (storyView === 'book') rememberBookPosition();
+  storyView = view;
   closeTurnMenu();
-  for (const [id,selected] of [['bookTab',open],['writeTab',!open]]) {
-    $(`#${id}`).setAttribute('aria-selected',String(selected));
-    $(`#${id}`).tabIndex = selected ? 0 : -1;
+  for (const [name,tab,panel] of storyViews) {
+    const selected = name === storyView;
+    $(`#${tab}`).setAttribute('aria-selected',String(selected));
+    $(`#${tab}`).tabIndex = selected ? 0 : -1;
+    $(`#${panel}`).hidden = !selected;
   }
-  $('#toggleStoryTurns').hidden = open;
-  $('#writeView').hidden = open;
-  $('#bookView').hidden = !open;
-  if (open) renderBook();
+  $('#toggleStoryTurns').hidden = view !== 'write';
+  if (view === 'book') renderBook();
+  else if (view === 'names') renderDisplayNames();
   else if (writeNeedsRender) renderMessages();
 }
 
@@ -612,14 +785,17 @@ function rememberBookPosition() {
     bookPositions.set(bookStoryId,bookReader.scrollTop);
   }
 }
-bookReader.addEventListener('scroll',() => { if (bookOpen) rememberBookPosition(); },{passive:true});
-$('#writeTab').onclick = () => showStoryView(false);
-$('#bookTab').onclick = () => { if (state) showStoryView(true); };
+bookReader.addEventListener('scroll',() => { if (storyView === 'book') rememberBookPosition(); },{passive:true});
+for (const [view,tab] of storyViews) $(`#${tab}`).onclick = () => { if (state) showStoryView(view); };
 $('.story-tabs').addEventListener('keydown',event => {
   if (!state || !['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
   event.preventDefault();
-  showStoryView(event.key === 'End' || event.key !== 'Home' && !bookOpen);
-  $(bookOpen ? '#bookTab' : '#writeTab').focus();
+  const index = storyViews.findIndex(([view])=>view === storyView);
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? storyViews.length - 1
+    : (index + storyViews.length + (event.key === 'ArrowRight' ? 1 : -1)) % storyViews.length;
+  const [view,tab] = storyViews[next];
+  showStoryView(view);
+  $(`#${tab}`).focus();
 });
 bookChapter.onchange = () => {
   const heading = $(`#chapter-${bookChapter.value} h3`);
@@ -668,6 +844,7 @@ function copyProseButton(message, turn, text) {
         button.title = 'Copy prose';
       },1600);
     } catch {
+      if (text.querySelector('.display-name')) return error('Clipboard unavailable. Open Edit to copy the original text.');
       const selection = window.getSelection();
       const range = document.createRange();
       range.selectNodeContents(text);
@@ -680,9 +857,10 @@ function copyProseButton(message, turn, text) {
 }
 
 function renderMessages() {
-  if (bookOpen) {
+  if (storyView !== 'write') {
     writeNeedsRender = true;
-    renderBook();
+    if (storyView === 'book') renderBook();
+    else renderDisplayNames();
     return;
   }
   writeNeedsRender = false;
@@ -711,6 +889,7 @@ function renderMessages() {
     return;
   }
   const graphChanges = graphChangesByTurn(project);
+  const match = createDisplayNameMatcher(readDisplayNames(project.id));
   let previousDirection;
   project.messages.forEach((message,index) => {
     const fromAuthor = message.role === 'user';
@@ -723,8 +902,8 @@ function renderMessages() {
     row.setAttribute('aria-label',`${fromAuthor ? 'Your input' : 'Story'} · Turn ${turn}`);
     const name = fromAuthor ? 'You' : attributedSpeaker(message);
     const body = el('div','message-body'), head = el('div',name ? 'message-header' : 'message-footer');
-    if (message.sourcePrefix?.trim()) body.append(el('div','manuscript-heading',message.sourcePrefix.trim()));
-    if (name) head.append(el('strong',fromAuthor ? 'author-label' : '',name));
+    if (message.sourcePrefix?.trim()) body.append(readerText('div','manuscript-heading',message.sourcePrefix.trim(),match));
+    if (name) head.append(readerText('strong',fromAuthor ? 'author-label' : '',name,fromAuthor ? null : match));
     appendTurnContextBadge(row,head,omittedFromMcp);
     if (graphChanges.has(turn) || (!message.excludeFromContext && message.graphSuggestions?.length)) {
       const changes = el('button','text-button','View graph changes');
@@ -767,7 +946,7 @@ function renderMessages() {
     more.onclick = () => openTurnMenu(more,index);
     actions.append(edit,remove,more);
     head.append(actions);
-    const text = el('div','message-text',message.content);
+    const text = readerText('div','message-text',message.content,match);
     const prose = fromAuthor ? text : el('div','prose-with-copy');
     if (!fromAuthor) prose.append(text,copyProseButton(message,turn,text));
     body.append(...(name ? [head,prose] : [prose,head]));
@@ -786,7 +965,7 @@ function renderMessages() {
   });
   renderPending();
   box.scrollTop = followLatest ? box.scrollHeight : scrollTop;
-  renderStoryTurns(project,followLatest);
+  renderStoryTurns(project,followLatest,match);
 }
 function setSensitivity(message, value) {
   if (validSensitivity(value)) message.contentSensitivity = value;
@@ -887,10 +1066,10 @@ function mcpStatus(project) {
       : project.messages.at(-1)?.role === 'user' && !isAvailableToMcp(project.messages.at(-1))
       ? ' To write it, switch to OpenRouter and click Send & write with an empty box.'
       : ' To try again, click Queue turn with an empty box.')};
-  return {line:watcher ? `${watcher.client} is watching` : 'Ask your agent to watch Story Studio.'};
+  return {line:''};
 }
 function renderPending() {
-  if (bookOpen) return;
+  if (storyView !== 'write') return;
   const box = $('#messages');
   $('#pendingTurn')?.remove();
   const project = current();
@@ -932,6 +1111,7 @@ function syncRoute() {
   $('#sceneProvider').value = route;
   const usesOpenRouter = route === 'openrouter';
   $('#sceneModelControl').hidden = !usesOpenRouter;
+  $('#composerWatcherStatus').hidden = route !== 'mcp';
   sceneModelChoice.disabled = busy || Boolean(composerEdit);
   syncSceneModel(model,mode);
   $('#routeSummary').textContent = !editingStory && project.agentEditRequest ? 'A metadata edit is queued. Open Agent to manage it.'
@@ -2206,10 +2386,12 @@ const setupChatError = $('#setupChatError');
 const setupFeedback = $('#setupFeedback');
 const setupCast = $('#setupCast');
 const setupAddCharacter = $('#setupAddCharacter');
+const setupRelationships = $('#setupRelationships');
+const setupAddRelationship = $('#setupAddRelationship');
 const maxSetupCast = 8;
 let setupMessages = [], setupRequest, setupReviewBack = 'choice', setupImportBack = 'choice';
 let setupImportFromMessage = false;
-let setupManuscript, setupMcpSession, setupMcpQueued = false, setupSuggestedChapters = [];
+let setupManuscript, setupMcpSession, setupSuggestedChapters = [];
 
 function setupStep(step) {
   $('#setupChoice').hidden = step !== 'choice';
@@ -2224,10 +2406,12 @@ function setupStep(step) {
 
 function addSetupCharacter({name='',description=''} = {}) {
   const entry = el('fieldset','setup-character');
+  entry.dataset.castId = id();
   const nameField = el('input','setup-character-name');
   nameField.value = name;
   nameField.maxLength = 100;
   nameField.required = true;
+  nameField.oninput = syncSetupRelationshipChoices;
   const descriptionField = el('textarea','setup-character-description');
   descriptionField.value = description;
   descriptionField.rows = 2;
@@ -2240,27 +2424,74 @@ function addSetupCharacter({name='',description=''} = {}) {
   remove.onclick = () => {
     entry.remove();
     setupAddCharacter.disabled = false;
+    syncSetupRelationshipChoices();
     setupAddCharacter.focus();
   };
   entry.append(el('legend','','Character'),nameLabel,descriptionLabel,remove);
   setupCast.append(entry);
   setupAddCharacter.disabled = setupCast.children.length >= maxSetupCast;
+  syncSetupRelationshipChoices();
   return nameField;
 }
 
-function fillSetupReview({title='',scenario='',lore='',notes='',cast=[],continuity='',chapterStarts=[]} = {}) {
+function syncSetupRelationshipChoices() {
+  const cast = [...setupCast.children].map(entry => [entry.dataset.castId,entry.querySelector('.setup-character-name').value.trim()]);
+  const named = cast.filter(([,name])=>name);
+  for (const select of setupRelationships.querySelectorAll('select')) {
+    const value = select.value;
+    select.replaceChildren(new Option('Choose a character',''),...named.map(([key,name])=>new Option(name,key)));
+    select.value = named.some(([key])=>key === value) ? value : '';
+  }
+  setupAddRelationship.disabled = named.length < 2 || setupRelationships.children.length >= maxSetupRelationships;
+}
+
+function addSetupRelationship({from='',to='',label=''} = {}) {
+  const entry = el('fieldset','setup-character');
+  const fromField = el('select','setup-relationship-from');
+  const toField = el('select','setup-relationship-to');
+  fromField.required = toField.required = true;
+  const note = el('input','setup-relationship-note');
+  note.value = label;
+  note.maxLength = 400;
+  note.required = true;
+  const fields = [['From',fromField],['To',toField],['Relationship',note]].map(([name,field]) => {
+    const wrapper = el('label','',name);
+    wrapper.append(field);
+    return wrapper;
+  });
+  const remove = el('button','text-button','Remove relationship');
+  remove.type = 'button';
+  remove.onclick = () => {
+    entry.remove();
+    syncSetupRelationshipChoices();
+    setupAddRelationship.focus();
+  };
+  entry.append(el('legend','','Relationship'),...fields,remove);
+  setupRelationships.append(entry);
+  syncSetupRelationshipChoices();
+  fromField.value = from;
+  toField.value = to;
+  return fromField;
+}
+
+function fillSetupReview({title='',scenario='',lore='',notes='',cast=[],continuity='',chapterStarts=[],relationships=[],storyStartAt=''} = {}) {
   $('#setupTitle').value = title;
   $('#setupScenario').value = scenario;
   $('#setupLore').value = lore;
   $('#setupNotes').value = notes;
   $('#setupContinuity').value = continuity;
+  $('#setupStartAt').value = storyStartAt;
   setupSuggestedChapters = chapterStarts.length || !setupManuscript ? chapterStarts : defaultChapterStarts(setupManuscript);
   $('#setupUseSuggestions').checked = true;
   $('#setupReviewedAll').checked = false;
   updateManuscriptReview();
   setupCast.replaceChildren();
+  setupRelationships.replaceChildren();
   setupAddCharacter.disabled = false;
   cast.forEach(addSetupCharacter);
+  const castIds = new Map(cast.map(({name},index)=>[name,setupCast.children[index].dataset.castId]));
+  for (const edge of relationships) addSetupRelationship({...edge,from:castIds.get(edge.from),to:castIds.get(edge.to)});
+  syncSetupRelationshipChoices();
   $('#setupReviewError').textContent = '';
 }
 
@@ -2319,9 +2550,9 @@ function syncSetupChat() {
   $('#setupModelField').hidden = mcp;
   $('#setupKeyField').hidden = mcp || Boolean(openRouterKey);
   $('#setupProviderNote').textContent = mcp
-    ? 'Queue a request, then use the copied instructions in a connected MCP agent session. The agent receives this chat, any additional context, and the previewed manuscript excerpts.'
+    ? 'Your MCP watcher handles setup as well as writing. It receives this chat, your additional context, and the previewed manuscript excerpts.'
     : `OpenRouter receives this chat, any additional context, and the previewed manuscript excerpts. ${draftName} prepares the draft. Both use your OpenRouter credits.`;
-  $('#setupAgentInstructions').hidden = !mcp || !setupMcpQueued;
+  $('#setupAgentInstructions').hidden = !mcp;
   setupModel.disabled = pending;
   setupKey.disabled = pending;
   setupMessage.readOnly = pending;
@@ -2343,9 +2574,6 @@ function syncSetupChat() {
 function closeMcpSetup() {
   const sessionId = setupMcpSession;
   setupMcpSession = undefined;
-  setupMcpQueued = false;
-  $('#setupAgentPrompt').hidden = true;
-  $('#setupAgentPrompt').value = '';
   if (sessionId) void fetch('/api/setup/mcp',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'cancel',sessionId}),keepalive:true}).catch(() => {});
 }
@@ -2356,10 +2584,8 @@ async function requestMcpSetup(payload,request) {
     signal:request.signal,body:JSON.stringify({action,sessionId,...body})});
   await call('queue',payload);
   if (request.signal.aborted || setupMcpSession !== sessionId) return;
-  setupMcpQueued = true;
-  $('#setupAgentPrompt').value = `Handle Story Studio setup session ${sessionId}. Call wait_for_setup_request with this ID. For each request, follow its prompt and call submit_setup_response, then wait again. Stop when the session is closed.`;
   syncSetupChat();
-  setupFeedback.textContent = 'Queued for MCP. Copy the instructions to start your agent if needed.';
+  setupFeedback.textContent = 'Queued for your MCP watcher.';
   const deadline = Date.now() + 8 * 60_000;
   while (!request.signal.aborted && Date.now() < deadline) {
     await new Promise(resolve => setTimeout(resolve,1000));
@@ -2374,19 +2600,8 @@ async function requestMcpSetup(payload,request) {
   }
   if (request.signal.aborted) return;
   closeMcpSetup();
-  throw Error('The MCP setup request expired. Queue it again and start a connected agent with the new instructions.');
+  throw Error('The MCP setup request expired. Start a watcher if needed, then queue the request again.');
 }
-
-$('#copySetupAgentPrompt').onclick = async () => {
-  const prompt = $('#setupAgentPrompt');
-  try {
-    await navigator.clipboard.writeText(prompt.value);
-    setupFeedback.textContent = 'Instructions copied. Paste them into a connected MCP agent chat.';
-  } catch {
-    prompt.hidden = false;
-    prompt.select();
-  }
-};
 
 async function requestSetup(mode) {
   if (setupRequest) return;
@@ -2552,6 +2767,7 @@ setupContext.oninput = syncSetupChat;
 setupChat.onsubmit = event => { event.preventDefault(); void requestSetup('chat'); };
 $('#setupDraft').onclick = () => void requestSetup('draft');
 setupAddCharacter.onclick = () => addSetupCharacter().focus();
+setupAddRelationship.onclick = () => addSetupRelationship().focus();
 setupReview.onsubmit = event => {
   event.preventDefault();
   const title = $('#setupTitle').value.trim();
@@ -2570,25 +2786,48 @@ setupReview.onsubmit = event => {
       return;
     }
     names.add(key);
-    cast.push({name,description:card.querySelector('.setup-character-description').value.trim()});
+    cast.push({id:card.dataset.castId,name,description:card.querySelector('.setup-character-description').value.trim()});
   }
   const [main,...other] = cast;
+  const setupStart = $('#setupStartAt').value;
+  if (setupStart && !isStoryTime(setupStart)) {
+    $('#setupReviewError').textContent = 'Use a valid story date and time.';
+    $('#setupStartAt').focus();
+    return;
+  }
+  const storyStartAt = setupStart || localStoryTime();
+  const actualIds = new Map(cast.map((member,index)=>[member.id,index ? member.id : primarySpeaker]));
+  const relationships = [];
+  for (const row of setupRelationships.children) {
+    const fromField = row.querySelector('.setup-relationship-from');
+    const from = actualIds.get(fromField.value);
+    const to = actualIds.get(row.querySelector('.setup-relationship-to').value);
+    const label = row.querySelector('.setup-relationship-note').value.trim();
+    if (!from || !to || from === to || !label) {
+      $('#setupReviewError').textContent = 'Choose two different cast members and describe each starting relationship.';
+      fromField.focus();
+      return;
+    }
+    relationships.push({from,to,label,turn:0,storyTime:storyStartAt});
+  }
   const messages = setupManuscript
     ? manuscriptTurns(setupManuscript,$('#setupUseSuggestions').checked ? setupSuggestedChapters : [],$('#setupReviewedAll').checked)
     : [];
-  const project = {
-    id:id(),title,persona:'',characterName:main?.name || '',character:main?.description || '',
+  const projectId = id();
+  const newStory = {
+    id:projectId,title,persona:'',characterName:main?.name || '',character:main?.description || '',
     lore:$('#setupLore').value.trim(),scenario:$('#setupScenario').value.trim(),notes:$('#setupNotes').value.trim(),
-    storyStartAt:localStoryTime(),storyStartSource:'estimate',messages,
+    storyStartAt,storyStartSource:setupStart ? 'author' : 'estimate',messages,relationships,
     ...(setupManuscript ? {continuity:$('#setupContinuity').value.trim(),nextTurn:messages.length + 1} : {}),
-    cast:other.map(character => ({id:id(),...Object.fromEntries(castFields.map(field => [field,''])),...character}))
+    cast:other.map(member => ({...Object.fromEntries(castFields.map(field => [field,''])),...member}))
   };
+  const [project] = normalize({activeId:projectId,projects:[newStory]}).projects;
   captureGraphVersion(project,0);
   state.projects.unshift(project);
   state.activeId = project.id;
   markDirty();
   setupDialog.close();
-  showStoryView(false);
+  showStoryView('write');
   render();
   $('#instruction').focus();
 };
@@ -2883,6 +3122,7 @@ setInterval(async () => {
   } catch {
     agentActivity = [];
   }
+  syncWatcherStatus();
   const project = current();
   if (!project) return;
   const status = authorMode(project) === 'agent' ? {line:agentEditStatus(project)} : mcpStatus(project);
