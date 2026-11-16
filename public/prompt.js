@@ -1,6 +1,6 @@
 // Conversation assembly follows the block order of SillyTavern's default
 // Chat Completion preset. Implemented independently; see RESEARCH.md.
-import { proseOutputLimit } from './models.js';
+import { models, proseOutputLimit } from './models.js';
 
 export const extraFields = [
   'characterName', 'characterNickname', 'personaName', 'personality', 'scenario', 'examples',
@@ -10,9 +10,15 @@ export const extraFields = [
 export const primarySpeaker = 'primary';
 export const narrator = Object.freeze({id:'story-studio:narrator', name:'Narrator'});
 export const maxAdditionalCharacters = 12;
-export const maxDirectionCharacters = 6000;
-export const maxSetupMessageCharacters = 6000;
-export const maxSetupContextCharacters = 12_000;
+export const maxWriteWords = 8000;
+export const maxSetupWords = 20_000;
+export const maxSetupReplyCharacters = 6000;
+export const countWords = text => text.match(/\S+/gu)?.length ?? 0;
+
+export function setupInputWords(messages, context = '', draft = '') {
+  return messages.reduce((words, {role,content}) => role === 'user' ? words + countWords(content) : words,
+    countWords(context) + countWords(draft));
+}
 export const castFields = ['name', 'nickname', 'description', 'personality', 'scenario', 'examples'];
 
 export function getCast(project) {
@@ -374,6 +380,21 @@ const encoder = new TextEncoder();
 export const recentTokenCap = 16_000;
 const estimate = text => Math.ceil(encoder.encode(text).length / 3) + 8;
 
+function writingPromptLimit(model) {
+  if (model === 'gryphe/mythomax-l2-13b') return 1900;
+  if (model === 'anthracite-org/magnum-v4-72b') return 29_500;
+  if (!model || models.some(item=>item.id === model) || model === 'thedrummer/unslopnemo-12b') return 48_000;
+  return 28_000;
+}
+
+export function writeInputProblem(text, model = '') {
+  if (countWords(text) > maxWriteWords) return 'Write input can be up to 8,000 words.';
+  if (text.trim() && estimate(text.trim()) + 1100 > writingPromptLimit(model)) {
+    return 'This direction is too large for the selected model’s prompt budget. Shorten it or choose a model with more room.';
+  }
+  return '';
+}
+
 function prefixWithin(text, tokens) {
   if (estimate(text) <= tokens) return text;
   let first = 0, last = text.length;
@@ -443,16 +464,14 @@ export function buildMessages(project, instruction = '', mode = 'continue', {mai
     const text = clip(value, limit);
     if (text) context.push({role:'system', content:label + ':\n' + expand(text)});
   };
-  const modelLimit = model === 'gryphe/mythomax-l2-13b' ? 5600
-    : model === 'anthracite-org/magnum-v4-72b' ? 29_500
-    : model && !['thedrummer/cydonia-24b-v4.1','thedrummer/unslopnemo-12b'].includes(model) ? 28_000 : 48_000;
+  const modelLimit = writingPromptLimit(model);
   const history = recentTurns(project.messages, Math.min(recentTokenCap, modelLimit - 2900), {includeSensitive}).map(turn => ({
     role:turn.role,
     content:turn.role === 'assistant' && turn.speakerId !== narrator.id && turn.speakerName
       ? clip(turn.speakerName, 100) + ': ' + turn.content : turn.content
   }));
 
-  const direction = clip(instruction, maxDirectionCharacters);
+  const direction = instruction.trim();
   const scan = expand([...history.slice(-4).map(message => message.content), direction].join('\n'));
   const instructions = [MAIN,continuityInstruction,sceneInstruction];
   if (mode === 'replace') instructions.push('Write the replacement scene from the revised direction and the earlier story. Use the original reply time if given.');
@@ -531,7 +550,7 @@ export function buildMetadataMessages(project, instruction, prose, mode, {trunca
     ...(alternate ? ['Set input to safe because this alternate has no new author direction.'] : [])
   ];
   const source = {
-    authorDirection:clip(instruction,maxDirectionCharacters),
+    authorDirection:instruction.trim(),
     draft:prose,
     recentTurns:latest.map(({role,content})=>({role,content})),
     knownTime:project.replyTime || lastStoryTime(project) || '',

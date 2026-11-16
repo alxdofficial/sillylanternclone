@@ -1,6 +1,6 @@
 # Story Studio
 
-Story Studio is a local fiction-writing workspace for writing one turn at a time. Build a cast and its relationships, keep track of continuity, and choose who writes the next turn. The three writing modes are **MCP**, **OpenRouter**, and **Manual**.
+Story Studio is a local fiction-writing workspace with a cast, relationship timeline, and manuscript. Use **Write** to continue the story and **Agent** to update information about it. Write supports MCP, OpenRouter, and Manual. Agent supports MCP and selected OpenRouter models.
 
 ## Start on your Mac
 
@@ -30,8 +30,8 @@ The demo began as a blank story in the browser. The cast and setting were entere
 ## Write a scene
 
 1. Open **Stories → New story**. Choose **Set up manually** to enter a title, premise, world, writing notes, and cast. Or choose **Brainstorm with a model**, choose OpenRouter or MCP, and chat through your ideas. Click **Prepare setup draft** when you are ready. Review or revise the editable fields, then click **Create story**. You can change the setup later under **Character & lore**.
-2. Write what happens next, paste the start of a scene, or give a direction in the composer. The narrator continues the story using whichever characters the scene needs. Set a one-off style in the composer or a standing preference in **Character & lore → Writing → Writing notes**. With no style direction, the narrator matches established prose or uses third-person past tense for a new story. **Prompt** shows the writing instructions and context for the selected route. Earlier author directions are history. The current direction controls the next reply.
-3. Choose a writing mode.
+2. In **Write**, describe what happens next, paste the start of a scene, or give a direction. Write directions can be up to **8,000 words**. The narrator continues the story using whichever characters the scene needs. Set a one-off style in the composer or a standing preference in **Character & lore → Writing → Writing notes**. With no style direction, the narrator matches established prose or uses third-person past tense for a new story. **Prompt** shows the writing instructions and context for the selected route.
+3. Choose who writes the turn.
 
    - **MCP** gives the next reply to your signed-in Codex, Claude Code, or other local MCP client. Follow [MCP setup](MCP.md) once, then tell the agent “Watch Story Studio and write each turn I queue.” Each time you click **Queue turn**, the watching agent writes and saves the reply, and it appears in the page within a few seconds. Without a watching agent, ask the agent to write the queued reply. The line above the composer, and a placeholder turn in the story, show whether a queued turn is waiting for an agent, has been seen by a watching agent, or is being written. If the agent will not write a turn, for example an explicit scene, it hands the turn back and its reason appears above the composer.
    - **OpenRouter** sends the current scene to the selected model. Open **Connection**, enter your API key, select a model, and save. You can change the model beside **Write with** in the composer. The model list shows USD rates per million input and output tokens and estimated chapter cost at 2,000 input plus 5,000 output tokens. See [model notes and prices](MODELS.md).
@@ -43,11 +43,21 @@ Use the copy icon beside any reply to copy the visible take to your clipboard.
 
 Use **Edit** on an author direction to bring it back into the composer. **Save & rewrite** in OpenRouter or **Save & queue rewrite** in MCP uses the revised direction and the earlier story to replace the paired reply in place. Later turns and accepted graph changes stay where they are. **Edit** on narration saves your revised text directly. Manual mode saves edits without a model call. Deleting an author direction also deletes its paired reply. If a reply already has multiple takes, use **Previous** and **Next** to choose which one appears in the story and future prompts.
 
-**Write with** and the OpenRouter model are remembered per story in the current tab, including through rewind and turn deletion. The OpenRouter key stays in memory and must be entered again after a reload.
+The provider and model are remembered per story and composer mode in the current tab, including through rewind and turn deletion. The OpenRouter key stays in memory and must be entered again after a reload.
 
-For model-assisted setup, choose **OpenRouter** or **MCP agent** beside **Chat with**. OpenRouter brainstorming and draft extraction use your OpenRouter credits. For MCP, queue the first request, click **Copy instructions for your agent**, and paste them into a connected agent chat. The discussion stays in the setup window, and only the fields you approve are saved with the story. After creation, you can use any of the three writing modes.
+To use an OpenRouter model outside the built-in list, switch to **Write** and open **Connection → Add model by ID…**. Enter the exact `author/model` ID and save. It appears as **User-added** in Write and model-assisted setup. To remove it, select it in **Connection** and click **Remove user-added model**. The saved list lives in this browser.
 
 Open **⋯** on a turn to explore a different path. **Branch from here** creates a separate story through that turn, including the selected take, the cast and world notes recorded then, and earlier relationship events. You can branch from the demo to keep writing a regular saved story. **Rewind to here** removes later turns and their events from the current story. Deleting a story or a turn, rewinding, removing a character or relationship event, and replacing your library all ask for confirmation. For older turns without a saved cast or world version, Story Studio uses the current notes.
+
+## Edit story information with an agent
+
+Switch the composer to **Agent** and ask for an edit, such as “Add the old ferry terminal to the world settings” or “Give Noor a nickname.” The agent can add and revise cast profiles, world information, writing notes, and continuity. Prose, chapters, and existing characters are protected from deletion through this workflow.
+
+Choose **MCP** and click **Queue edit** for your connected agent, or choose a supported **OpenRouter** model and click **Apply edits**. The result appears above the composer. Pending MCP edits can be canceled before they save. The model receives the current story metadata and your request. See [MCP tools](MCP.md#edit-story-metadata).
+
+## Brainstorm a new story
+
+Under **Stories → New story → Brainstorm with a model**, choose **OpenRouter** or **MCP agent** beside **Chat with**. OpenRouter brainstorming and draft extraction use your credits. For MCP, queue the first request, click **Copy instructions for your agent**, and paste them into a connected agent chat. Paste references into **Additional context** and use the chat for conversation. The **20,000-word** budget covers all your chat messages and additional context together. Click **Prepare setup draft** when ready, then review the editable fields and create the story.
 
 ## Read and export the book
 
@@ -59,9 +69,9 @@ In **Book view**, use **Go to chapter** to jump between chapters. On a wide wind
 
 ## Import an existing story
 
-1. Choose **Stories → New story → Import an existing story**, or **Import a manuscript** in the setup chat. Chat messages can be up to **6,000 characters**. If you paste more, choose **Use as manuscript** to open the import form with the text filled in. The manuscript limit is **100,000 words and 2 MB**. You can also choose a plain-text or Markdown file.
+1. Choose **Stories → New story → Import an existing story**, or **Import a manuscript** in the setup chat. Paste the manuscript or choose a plain-text or Markdown file. The manuscript has a separate limit of **100,000 words and 2 MB**.
 2. Story Studio turns standalone chapter, turn and scene headings into native breaks. It also recognizes common Markdown scene dividers. Long passages are split locally at nearby paragraph or word boundaries. Existing chapter breaks take priority. For an unmarked story, review the suggested breaks or adjust them later from each turn’s **⋯** menu.
-3. Choose **OpenRouter** or **MCP agent**. Open **Additional context** to add up to 12,000 characters of notes, reference material, or writing preferences alongside the manuscript. When you send a setup request, the selected model receives the chat, that context, and up to 16 previewable manuscript excerpts. The draft includes editable cast, setting, and continuity notes. Additional context is used during setup. The manuscript alone supplies the imported prose. For a completely local import, choose **Review without AI**.
+3. Choose **OpenRouter** or **MCP agent**. Paste notes, other reference material, or writing preferences in **Additional context**. Your chat messages and additional context share a **20,000-word** budget. The setup request contains the chat, additional context, and up to 16 previewable manuscript excerpts. The draft includes editable cast, setting, and continuity notes. The manuscript supplies the imported prose. For a completely local import, choose **Review without AI**.
 4. Review the draft and choose **Create story**. All original prose goes into a new story and appears in **Write** and **Book view**. The source headings are kept in Write and the library backup. Imported prose starts outside future MCP writing context unless you explicitly approve the full manuscript as non-explicit.
 
 ## Character & lore

@@ -75,7 +75,7 @@ Open Story Studio first. Use the launcher, or ask the agent “Start Story Studi
 
 In the browser’s **New story** flow choose **MCP agent** beside **Chat with**. Queue the first message or setup draft, then use **Copy instructions for your agent** in a connected agent chat. The instructions include a temporary setup session ID. The agent handles that session while the browser dialog is open. A regular story watcher handles writing turns. Use a separate agent chat for setup if a watcher is already busy.
 
-When the writer queues a setup request, the tools receive the setup conversation, any additional context entered in the form, and the previewed manuscript excerpts. The full source and existing story library stay outside the setup tools. When a draft is ready, the writer reviews it and creates the project in the browser. After updating Story Studio, open a fresh MCP session to discover the setup tools.
+When the writer queues a setup request, the tools receive the setup conversation, any additional context entered in the form, and the previewed manuscript excerpts. The writer's chat messages and additional context share a 20,000-word budget. The full source and existing story library stay outside the setup tools. When a draft is ready, the writer reviews it and creates the project in the browser. After updating Story Studio, open a fresh MCP session to discover new tools.
 
 Saving a revised, MCP-eligible direction can queue a rewrite of the reply immediately after it. The agent receives the eligible transcript up to the revised direction. It rewrites the selected take in place and keeps the reply’s scene time. Existing accepted map changes stay in the story. Pending proposals for the rewritten take are cleared when the replacement is saved.
 
@@ -85,7 +85,7 @@ In your signed-in Codex or Claude desktop session, or in a CLI session with Stor
 
 > Watch Story Studio and write each turn I queue.
 
-The optional **Start Claude Writer.command** launcher starts this loop automatically for Claude Code CLI users. The agent waits for a queued turn, writes it, saves it, and waits again. Replies appear in the open Story Studio page within a few seconds. Keep that agent window open while you write. To stop, interrupt the agent (Esc in Claude Code) or tell it to stop watching.
+The optional **Start Claude Writer.command** launcher starts this loop automatically for Claude Code CLI users. The agent waits for a queued writing or editing request, handles it, and waits again. Results appear in the open Story Studio page within a few seconds. Keep that agent window open while you write. To stop, interrupt the agent (Esc in Claude Code) or tell it to stop watching.
 
 The agent writes as the narrator, using the full cast for dialogue and action. Short follow-ups such as “go into more detail” refer to the latest available narrated passage. Give any style, tense or point-of-view direction in the composer, or set a default in **Character & lore → Writing → Writing notes**. The line above the composer and a placeholder turn show where a queued turn stands:
 
@@ -109,6 +109,12 @@ An agent can decline a queued turn, for example when the direction asks for expl
 
 **MCP context** excludes turns manually kept out of AI context and OpenRouter turns labeled explicit or unverified. A native agent still remembers anything shared earlier in its own conversation. Start a fresh session when handing off a story after editing its context labels or removing sensitive prose.
 
+### Edit story metadata
+
+In the browser, choose **Agent → MCP**, enter an instruction, and click **Queue edit**. The watcher receives a request with `pendingRequest.mode: "edit"`, the request ID, the library revision, the current metadata, and the writer's instruction. Apply metadata changes with `edit_story_state` using those IDs and revision. If the request needs clarification, send a short `reason` instead. Do not call `submit_reply` for an edit. When the revision changes, reread the story and confirm that the same edit is pending before retrying.
+
+For an edit requested directly in a connected chat, first read `get_story_state`, then use `edit_story_state` with the revision it returns. The operations are adding a character, appending or replacing an allowed profile field, and appending or replacing world, writing, or continuity notes. Keep text safe for work and use exact cast names. These tools work with metadata. They have no access to manuscript prose and no operations that remove characters, chapters, or turns.
+
 ## Suggested map updates
 
 With each reply, the agent may send up to five non-explicit updates: a new character, a profile fact, a world fact, a story memory fact, or a relationship event between two cast members with its in-story time. Story Studio checks the cast names and applies valid updates with the reply. **View graph changes** shows what was applied. Updates the app cannot apply and older proposals remain under **Review updates**. To maintain the map yourself, clear **Update the story graph while writing** under **Character & lore** for that story.
@@ -119,8 +125,10 @@ With each reply, the agent may send up to five non-explicit updates: a new chara
 | --- | --- |
 | `open_studio` | Get the local browser URL. Starts the local server if the writer wants the app started. |
 | `list_stories` | Story IDs and titles, the active story, and any queued request. |
-| `wait_for_queued_turn` | Wait for a request, starting with the active story. The default is 50 seconds, or 300 for Claude Code. A queued result includes the writing context and revision. An idle result can list invalid requests under `skipped`. |
+| `wait_for_queued_turn` | Wait for a writing or metadata-edit request, starting with the active story. The default is 50 seconds, or 300 for Claude Code. The result gives the relevant context and revision. An idle result can list invalid requests under `skipped`. |
 | `get_story_context` | The assembled narrator prompt, queued request and library revision. Omit the story ID to use the active story. Pass a fresh `direction` for a chat draft. A queued Studio turn takes precedence in the returned context. |
+| `get_story_state` | Read current world, writing and continuity notes and character profiles, with the library revision. Omit the story ID to use the active story. |
+| `edit_story_state` | Apply a validated batch of metadata changes with the story ID and revision. For a queued edit, include its request ID. For a decline, give a short reason. |
 | `wait_for_setup_request` | Wait for chat or structured draft work for the setup session ID the writer provided. Follow the prompt, loop on idle, and stop when the session closes. |
 | `submit_setup_response` | Return setup chat text, a structured draft, or a short reason for declining. Pass the session and request IDs from the queued result. The result stays in the review flow until the writer creates a story. |
 | `submit_reply` | Save narrated prose for a queued turn or a chat draft the writer asked to save. Pass the story ID and revision from the context, `storyTime` as `YYYY-MM-DDTHH:mm`, and optional `updates`. Omit `storyTime` and `updates` for an alternate or replacement. Supply `writerTurn` only for a chat direction that has not been saved. An alternate adds a take. A replacement rewrites the selected take. |

@@ -98,6 +98,8 @@ export function storyAtTurn(project, index) {
   story.nextTurn = turn + 1;
   delete story.agentRequest;
   delete story.agentNotice;
+  delete story.agentEditRequest;
+  delete story.agentEditNotice;
 
   const version = readGraphVersion(story,turn);
   if (version) {

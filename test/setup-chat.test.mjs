@@ -15,6 +15,7 @@ const seed = 'PRIVATE_SETUP_TEST_IDEA. A novelist inherits a map.';
 const question = 'What happens if the map changes overnight?';
 const clarification = 'It should change every day at sunrise.';
 const contextNote = 'PRIVATE_SETUP_TEST_CONTEXT. Maps are printed on blue paper.';
+const longContextNote = contextNote + ' map-reference-note'.repeat(16_000);
 const manuscript = {turnCount:2,hasChapters:true,passages:[{turn:2,excerpt:'The map changed at sunrise.'}]};
 const draft = {
   title:'The Morning Map', lore:'The map changes at sunrise.',
@@ -27,13 +28,20 @@ const assistant = content => ({role:'assistant',content});
 test('setup input and output are bounded and reject invalid roles, fields and duplicate names', () => {
   assert.equal(setupMessages([{role:'system',content:seed}],'chat'),null);
   assert.equal(setupMessages([writer(seed),assistant(question)],'chat'),null);
-  assert.equal(setupMessages([writer('x'.repeat(6001))],'chat'),null);
-  assert.ok(setupMessages([writer('x'.repeat(6000))],'chat'));
-  assert.equal(setupMessages([],'draft',undefined,'x'.repeat(12_001)),null);
+  assert.equal(setupMessages([writer('note '.repeat(20_001))],'chat'),null);
+  assert.ok(setupMessages([writer('note '.repeat(20_000))],'chat'));
+  assert.equal(setupMessages([],'draft',undefined,'note '.repeat(20_001)),null);
+  const previous = [writer('first '.repeat(5000)),assistant(question)];
+  const atLimit = [...previous,writer('second '.repeat(9000))];
+  const context = 'reference '.repeat(6000);
+  assert.ok(setupMessages(atLimit,'chat',manuscript,context));
+  assert.ok(setupMessages(atLimit,'draft',manuscript,context));
+  assert.equal(setupMessages(atLimit,'chat',manuscript,context + ' extra'),null);
+  assert.equal(setupMessages(atLimit,'draft',manuscript,context + ' extra'),null);
   assert.match(setupMessages([],'draft',undefined,contextNote)[1].content,/Maps are printed on blue paper/);
-  const roles = Array.from({length:42},(_,i) => i % 2 ? assistant(question) : writer(seed));
-  assert.equal(setupMessages(roles,'chat'),null);
-  assert.ok(setupMessages(roles,'draft'));
+  const roles = Array.from({length:43},(_,i) => i % 2 ? assistant(question) : writer(seed));
+  assert.ok(setupMessages(roles,'chat'));
+  assert.ok(setupMessages(roles.slice(0,-1),'draft'));
   assert.throws(() => readSetupDraft({text:JSON.stringify({...draft,postHistory:'Extra'})}),{diagnosticCode:'SETUP_DRAFT_INVALID'});
   assert.throws(() => readSetupDraft({text:JSON.stringify({...draft,cast:[draft.cast[0],{name:'sam',description:''}]})}),
     {diagnosticCode:'SETUP_DRAFT_DUPLICATE_CAST'});
@@ -59,6 +67,7 @@ test('setup chat uses the chosen model and extracts an unsaved draft with the st
       if (request.messages[1].content.includes(contextNote)) {
         assert.ok(request.messages[1].content.includes('Additional setup context'));
         assert.ok(request.messages[1].content.includes(JSON.stringify(manuscript)));
+        assert.ok(request.messages[1].content.includes(contextNote + ' map-reference-note'.repeat(16_000)));
         assert.equal(request.model,'deepseek/deepseek-v4.1-flash');
         assert.ok(request.response_format.json_schema.schema.required.includes('continuity'));
         const content = JSON.stringify({...draft,continuity:'The map changed.',chapterStarts:[]});
@@ -115,9 +124,10 @@ test('setup chat uses the chosen model and extracts an unsaved draft with the st
     const prepared = await send('draft',[...conversation,assistant(question)]);
     assert.equal(prepared.status,200);
     assert.deepEqual(await prepared.json(),{draft});
-    const imported = await send('draft',[],origin,{manuscript,context:contextNote});
+    const imported = await send('draft',[],origin,{manuscript,context:longContextNote});
     assert.equal(imported.status,200);
     assert.deepEqual(await imported.json(),{draft:{...draft,continuity:'The map changed.',chapterStarts:[]}});
+    assert.equal((await send('draft',[],origin,{manuscript,context:'note '.repeat(20_001)})).status,400);
     assert.equal((await send('chat',[assistant(question)])).status,400);
     assert.equal((await send('chat',[writer(seed)],'https://example.com')).status,403);
     await assert.rejects(readFile(join(directory,'library.json')),{code:'ENOENT'});

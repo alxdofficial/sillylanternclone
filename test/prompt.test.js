@@ -101,7 +101,7 @@ test('known small model gets a tighter budget without losing the latest directio
   const small = buildMessages(project,'Board the ferry','send',{model:'gryphe/mythomax-l2-13b'});
   assert.ok(large.length > small.length);
   assert.equal(small.at(-1).content,'Board the ferry');
-  assert.ok(small.reduce((n,m)=> n + Math.ceil(Buffer.byteLength(m.content)/3) + 8,0) <= 5600);
+  assert.ok(small.reduce((n,m)=> n + Math.ceil(Buffer.byteLength(m.content)/3) + 8,0) <= 1900);
 });
 
 test('the prompt fits relationship history around the recent prose', () => {
@@ -119,8 +119,8 @@ test('the prompt fits relationship history around the recent prose', () => {
   const small = buildMessages(project,'Ren takes the watch.','send',{model:'gryphe/mythomax-l2-13b',openRouter:true});
   assert.ok(events(small).length < 300);
   assert.equal(events(small)[0],0);
-  assert.deepEqual(small.slice(1),large.slice(1));
-  assert.ok(small.reduce((n,m)=> n + Math.ceil(Buffer.byteLength(m.content)/3) + 8,0) <= 5600);
+  assert.deepEqual(small.at(-1),large.at(-1));
+  assert.ok(small.reduce((n,m)=> n + Math.ceil(Buffer.byteLength(m.content)/3) + 8,0) <= 1900);
 });
 
 test('auto-flagged turns stop at the MCP boundary while OpenRouter keeps scene continuity', () => {

@@ -25,7 +25,7 @@ const story = (id, title, extra = {}) => ({
   nextTurn:2, ...extra
 });
 
-test('agents watch for queued turns, decline them, and get checked map updates', async () => {
+test('agents watch for writing and metadata edits, decline requests, and get checked map updates', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'story-studio-watch-'));
   const port = await freePort();
   await writeFile(join(directory, 'library.json'), JSON.stringify({activeId:'first', projects:[
@@ -62,10 +62,22 @@ test('agents watch for queued turns, decline them, and get checked map updates',
     assert.match(instructions, /decline_turn/);
     const {tools} = await client.listTools();
     assert.deepEqual(tools.map(item => item.name).sort(),
-      ['decline_turn', 'get_story_context', 'list_stories', 'open_studio', 'submit_reply',
+      ['decline_turn', 'edit_story_state', 'get_story_context', 'get_story_state', 'list_stories', 'open_studio', 'submit_reply',
         'submit_setup_response', 'wait_for_queued_turn', 'wait_for_setup_request']);
     const opened = toolData(await client.callTool({name:'open_studio', arguments:{}}));
     childPid = opened.pid;
+
+    const directionLimit = `${'brief '.repeat(7999)}ending`;
+    const longContext = toolData(await client.callTool({name:'get_story_context',arguments:{storyId:'first',direction:directionLimit}}));
+    assert.ok(longContext.prompt.includes(directionLimit));
+    const excessDirection = await client.callTool({name:'get_story_context',arguments:{storyId:'first',direction:`${directionLimit} more`}});
+    assert.equal(excessDirection.isError,true);
+    assert.match(excessDirection.content[0].text,/8,000 words/);
+    const excessWriterTurn = await client.callTool({name:'submit_reply',arguments:{
+      storyId:'first',revision:longContext.revision,writerTurn:`${directionLimit} more`,reply:'A fixture reply.'
+    }});
+    assert.equal(excessWriterTurn.isError,true);
+    assert.match(excessWriterTurn.content[0].text,/8,000 words/);
 
     const idle = toolData(await client.callTool({name:'wait_for_queued_turn', arguments:{waitSeconds:1}}));
     assert.equal(idle.status, 'idle');
@@ -207,6 +219,84 @@ test('agents watch for queued turns, decline them, and get checked map updates',
     const blockedReplacement = await client.callTool({name:'get_story_context',arguments:{storyId:'first'}});
     assert.equal(blockedReplacement.isError,true);
     assert.match(blockedReplacement.content[0].text,/outside MCP context/);
+
+    const queueEdit = async (id,instruction) => {
+      const response = await fetch(origin + '/api/state');
+      const library = await response.json();
+      const target = library.projects.find(item => item.id === 'first');
+      target.agentEditRequest = {id,instruction};
+      target.agentRequest = {mode:'send',speakerId:'story-studio:narrator',turnNumber:4};
+      target.messages[2].startsChapter = true;
+      const saved = await fetch(origin + '/api/state',{method:'PUT',
+        headers:{...jsonHeaders,'if-match':response.headers.get('etag')},body:JSON.stringify(library)});
+      assert.equal(saved.status,200);
+      return target;
+    };
+    const before = await queueEdit('edit-the-world','Add more world information and revise Iona’s profile.');
+    const editing = toolData(await client.callTool({name:'wait_for_queued_turn',arguments:{waitSeconds:1}}));
+    assert.equal(editing.status,'queued');
+    assert.deepEqual(editing.pendingRequest,{mode:'edit',id:'edit-the-world'});
+    assert.match(editing.instruction,/world information/);
+    assert.match(editing.save,/edit_story_state/);
+    assert.match(editing.state.world,/hidden tunnel/);
+    assert.doesNotMatch(JSON.stringify(editing),/Mara unlocks the archive|Later writer direction|Other take/);
+    const read = toolData(await client.callTool({name:'get_story_state',arguments:{storyId:'first'}}));
+    assert.deepEqual(read.state,editing.state);
+    assert.deepEqual(read.pendingRequest,editing.pendingRequest);
+
+    const edit = (arguments_) => client.callTool({name:'edit_story_state',arguments:{
+      storyId:'first',revision:editing.revision,requestId:editing.pendingRequest.id,...arguments_
+    }});
+    const changes = [
+      {kind:'world',action:'append',text:'The lighthouse bell sounds at noon.'},
+      {kind:'profile',name:'Iona',field:'description',action:'replace',text:'Pilots the early ferry and charts the shallows.'}
+    ];
+    const wrongRequest = await edit({requestId:'stale-request',changes});
+    assert.equal(wrongRequest.isError,true);
+    assert.match(wrongRequest.content[0].text,/requestId/);
+    const erroneous = await edit({changes:[changes[0],{...changes[1],name:'Unknown cast member'}]});
+    assert.equal(erroneous.isError,true);
+    assert.equal((await project('first')).lore,before.lore,'invalid batches leave earlier changes unapplied');
+    const badNarration = await client.callTool({name:'submit_reply',arguments:{
+      storyId:'first',revision:editing.revision,reply:'Prose accidentally sent to Agent mode.'
+    }});
+    assert.equal(badNarration.isError,true);
+    assert.match(badNarration.content[0].text,/queued Agent edit/);
+
+    const applied = toolData(await edit({changes}));
+    assert.equal(applied.appliedEdits,2);
+    const edited = await project('first');
+    assert.equal(edited.agentEditRequest,undefined);
+    assert.deepEqual(edited.agentEditNotice,{message:'Applied 2 story edits.'});
+    assert.deepEqual(edited.messages,before.messages);
+    assert.deepEqual(edited.agentRequest,before.agentRequest);
+    assert.match(edited.lore,/hidden tunnel\.[\s\S]*bell sounds at noon/);
+    assert.match(edited.cast.find(member=>member.name === 'Iona').description,/charts the shallows/);
+    const staleEdit = await edit({changes});
+    assert.equal(staleEdit.isError,true);
+    assert.match(staleEdit.content[0].text,/library changed/);
+
+    const later = await queueEdit('unsupported-edit','Delete the chapter.');
+    const decline = toolData(await client.callTool({name:'get_story_state',arguments:{storyId:'first'}}));
+    const rejected = toolData(await client.callTool({name:'edit_story_state',arguments:{
+      storyId:'first',revision:decline.revision,requestId:'unsupported-edit',reason:'Agent mode only edits metadata.'
+    }}));
+    assert.equal(rejected.declined,true);
+    const declinedEdit = await project('first');
+    assert.equal(declinedEdit.agentEditRequest,undefined);
+    assert.deepEqual(declinedEdit.agentEditNotice,{message:'Agent mode only edits metadata.'});
+    assert.deepEqual(declinedEdit.messages,later.messages);
+    const directRead = toolData(await client.callTool({name:'get_story_state',arguments:{storyId:'first'}}));
+    assert.equal(directRead.pendingRequest,null);
+    assert.equal(directRead.instruction,undefined);
+    const direct = toolData(await client.callTool({name:'edit_story_state',arguments:{
+      storyId:'first',revision:directRead.revision,changes:[{kind:'notes',action:'append',text:'Use past tense.'}]
+    }}));
+    assert.equal(direct.appliedEdits,1);
+    assert.equal((await project('first')).notes,'Use past tense.');
+    const nextWriting = toolData(await client.callTool({name:'wait_for_queued_turn',arguments:{waitSeconds:1}}));
+    assert.equal(nextWriting.pendingRequest.mode,'send');
+    assert.equal(nextWriting.storyId,'first');
   } finally {
     await client.close();
     if (childPid) process.kill(childPid);

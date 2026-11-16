@@ -60,8 +60,12 @@
           <div class="composer-content">
           <div class="route-bar">
             <div class="route-control">
-              <label for="sceneProvider">Write with</label>
-              <select id="sceneProvider"><option value="mcp">MCP</option><option value="openrouter">OpenRouter</option><option value="manual">Manual</option></select>
+              <label for="authorMode">Mode</label>
+              <select id="authorMode"><option value="write">Write</option><option value="agent">Agent</option></select>
+            </div>
+            <div class="route-control">
+              <label for="sceneProvider" id="sceneProviderLabel">Write with</label>
+              <select id="sceneProvider"><option value="mcp">MCP</option><option value="openrouter">OpenRouter</option><option id="manualWriteOption" value="manual">Manual</option></select>
             </div>
             <div class="route-control" id="sceneModelControl" hidden>
               <label for="sceneModel">Model</label>
@@ -74,6 +78,7 @@
           <textarea id="instruction" rows="2" placeholder="Write the next beat or tell the narrator what happens…"></textarea>
           <div class="composer-bottom">
             <button class="button subtle" id="pasteReply">Add reply</button>
+            <button class="button subtle" id="cancelAgentEdit" hidden>Cancel request</button>
             <button class="button subtle" id="cancelComposerEdit" hidden>Cancel edit</button>
             <p class="shortcut" id="composeShortcut">⌘/Ctrl + Enter to send</p>
             <button class="button primary" id="sendButton">Send &amp; write ↗</button>
@@ -232,10 +237,10 @@
     <footer class="dialog-actions"><button type="button" class="button subtle" id="cancelEdit">Cancel</button><button class="button primary">Save turn</button></footer>
   </form>
 </dialog>
-<dialog id="providerDialog" class="form-dialog" aria-labelledby="providerHeading"><form id="providerForm"><header class="dialog-top"><div><h2 id="providerHeading">Connection</h2><p>Use MCP with your signed-in Codex or Claude Code session. Configure OpenRouter here when you need it.</p></div><button type="button" id="closeProvider" class="icon" aria-label="Close">×</button></header><div id="routerFields" class="dialog-body"><label>Writing model<select id="modelPreset" aria-describedby="modelPolicy modelPrice"><option value="" disabled>Choose a model</option></select></label>
-<p id="modelPolicy" class="form-note">Candidates for adult fiction with fictional adults. The model and hosting provider determine what they will generate.</p>
-<div class="model-price" id="modelPrice" aria-live="polite" hidden><p id="modelEstimate"></p><p id="modelRates"></p><p class="form-note">USD. A chapter assumes 2,000 input and 5,000 output tokens total. Extra context or rewrites can increase the cost. <a id="modelSource" rel="noopener noreferrer" target="_blank">OpenRouter listing</a> · rates checked Nov 15, 2026.</p></div>
-<label id="customModel" hidden>Custom model ID<input id="modelInput" placeholder="author/model" autocomplete="off"></label><p id="modelError" class="form-note validation-message" role="alert"></p><label>OpenRouter API key<input id="keyInput" type="password" placeholder="sk-or-…" autocomplete="off"></label><p class="form-note">The key stays in this page's memory and is forgotten when the page closes or reloads. The selected model writes the prose. A separate DeepSeek V4.1 Flash call reads the draft for labels, story time, and map updates. Both calls are billed through OpenRouter.</p></div><footer class="dialog-actions"><button type="button" class="button subtle" id="cancelProvider">Cancel</button><button class="button primary" type="submit">Save connection</button></footer></form></dialog>
+<dialog id="providerDialog" class="form-dialog" aria-labelledby="providerHeading"><form id="providerForm"><header class="dialog-top"><div><h2 id="providerHeading">Connection</h2><p>Use MCP with your signed-in Codex or Claude Code session. Configure OpenRouter here when you need it.</p></div><button type="button" id="closeProvider" class="icon" aria-label="Close">×</button></header><div id="routerFields" class="dialog-body"><label>OpenRouter model<select id="modelPreset" aria-describedby="modelPolicy modelPrice"><option value="" disabled>Choose a model</option></select></label>
+<button type="button" id="removeUserModel" class="button danger" hidden>Remove user-added model</button><p id="modelPolicy" class="form-note">Candidates for adult fiction with fictional adults. The model and hosting provider determine what they will generate.</p>
+<div class="model-price" id="modelPrice" aria-live="polite" hidden><p id="modelEstimate"></p><p id="modelRates"></p><p class="form-note"><span id="modelChapterAssumption">A chapter assumes 2,000 input and 5,000 output tokens total. </span><a id="modelSource" rel="noopener noreferrer" target="_blank">OpenRouter listing</a> · rates checked Nov 16, 2026.</p></div>
+<label id="customModel" hidden>Custom model ID<input id="modelInput" placeholder="author/model" autocomplete="off"></label><p id="modelError" class="form-note validation-message" role="alert"></p><label>OpenRouter API key<input id="keyInput" type="password" placeholder="sk-or-…" autocomplete="off"></label><p class="form-note">The key stays in this page’s memory and is forgotten when the page closes or reloads. <span id="modelBilling"></span></p></div><footer class="dialog-actions"><button type="button" class="button subtle" id="cancelProvider">Cancel</button><button class="button primary" type="submit">Save connection</button></footer></form></dialog>
 <dialog id="pasteDialog" class="form-dialog" aria-labelledby="pasteHeading"><form id="pasteForm"><header class="dialog-top"><div><h2 id="pasteHeading">Add a co-writer reply</h2><p>Add text without calling a model.</p></div><button type="button" id="closePaste" class="icon" aria-label="Close">×</button></header><div class="dialog-body"><textarea id="pasteText" aria-label="Co-writer reply" rows="10" required placeholder="Paste the response here…"></textarea></div><footer class="dialog-actions"><button type="button" class="button subtle" id="cancelPaste">Cancel</button><button class="button primary" type="submit">Add to scene</button></footer></form></dialog>
 <dialog id="promptDialog" class="form-dialog" aria-labelledby="promptHeading"><header class="dialog-top"><h2 id="promptHeading">Prompt preview</h2><button type="button" id="closePrompt" class="icon" aria-label="Close">×</button></header><pre id="promptContents" class="dialog-body" tabindex="0"></pre></dialog>
 <dialog id="setupDialog" class="form-dialog" aria-labelledby="setupHeading">
@@ -289,13 +294,14 @@
     </section>
     <details class="setup-source" id="setupContextDetails">
       <summary>Additional context</summary>
-      <label for="setupContext">Notes or reference text <span>Up to 12,000 characters</span></label>
+      <label for="setupContext">Notes or reference text <span>Shares the chat’s 20,000-word limit</span></label>
       <textarea id="setupContext" rows="3" placeholder="Character notes, background, or writing preferences…"></textarea>
     </details>
     <ol id="setupConversation" class="setup-conversation" aria-label="Brainstorm conversation" tabindex="0" hidden></ol>
     <div class="setup-chat-input">
       <label for="setupMessage" id="setupMessageLabel">What kind of story are you imagining?</label>
-      <textarea id="setupMessage" rows="2" aria-describedby="setupFeedback" placeholder="A premise, a character, or even just a mood…"></textarea>
+      <textarea id="setupMessage" rows="2" aria-describedby="setupWordCount setupFeedback" placeholder="A premise, a character, or even just a mood…"></textarea>
+      <p id="setupWordCount" class="form-note"></p>
       <p id="setupFeedback" class="form-note" role="status"></p>
       <p id="setupChatError" class="form-note validation-message" role="alert"></p>
     </div>

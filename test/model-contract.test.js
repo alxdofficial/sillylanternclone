@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildMessages, buildMetadataMessages, clipEnds, dateWriterTurn, formatMessages, narrator, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from '../public/prompt.js';
+import { agentReasoning, isAgentModel, modelLabel, models } from '../public/models.js';
 import { checkMapUpdates } from '../map-updates.mjs';
 import { isWritingRefusal, readStoryMetadata, stripWritingPreamble } from '../openrouter-format.mjs';
 
@@ -8,6 +9,29 @@ const story = (messages, agentRequest) => ({
   id:'s', title:'T', characterName:'Mara', character:'An archivist.', persona:'', lore:'', notes:'',
   cast:[{id:'iona', name:'Iona', nickname:'', description:'A pilot.', personality:'', scenario:'', examples:''}],
   messages, agentRequest
+});
+
+test('Agent mode allows only its listed structured-edit presets', () => {
+  assert.deepEqual(models.filter(model => isAgentModel(model.id)).map(model => model.id), [
+    'deepseek/deepseek-v4.1-flash', 'anthropic/claude-sonnet-5.5', 'openai/gpt-6.1-terra',
+    'z-ai/glm-5.3', 'moonshotai/kimi-k3.1-pro', 'google/gemini-4-carbon'
+  ]);
+  assert.equal(isAgentModel('openrouter/auto'), false);
+  assert.equal(isAgentModel('someone/custom'), false);
+  for (const id of ['anthropic/claude-sonnet-5.5', 'z-ai/glm-5.3', 'google/gemini-4-carbon']) {
+    assert.deepEqual(agentReasoning(id), {effort:'low'});
+  }
+  assert.deepEqual(agentReasoning('deepseek/deepseek-v4.1-flash'), {enabled:false});
+});
+
+test('Write labels identify the recorded 18+ results without labeling the new presets', () => {
+  assert.deepEqual(models.map(modelLabel).filter(label => label.includes('18+')), [
+    'Cydonia 24B v4.1 · 18+ tested',
+    'DeepSeek V4.1 Flash · 18+ tested (mixed)'
+  ]);
+  assert.equal(isAgentModel('thedrummer/cydonia-24b-v4.1'), false);
+  assert.equal(isAgentModel('gryphe/mythomax-l2-13b'), false);
+  assert.equal(models.some(model => model.id === 'gryphe/mythomax-l2-13b'), false);
 });
 
 test('OpenRouter strips a specific assignment aside and preserves narration and quoted dialogue', () => {

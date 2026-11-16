@@ -1,5 +1,15 @@
 # Browser walkthrough, 15 November 2026
 
+## Write, Agent, and model setup
+
+Using an isolated browser and library, added an OpenRouter ID, confirmed its **User-added** label, reloaded, removed the ID, and reloaded again. The selector cleared the removed choice. Verified that Write keeps all 8,000 words, rejects 8,001 without changing the draft, and restores its provider selection after switching back from Agent.
+
+Pasted long input into both **Brainstorm with a model** and **Import an existing story**. The wizard kept the pasted text where it was entered and enforced the 20,000-word combined budget. An MCP setup request carried 14,000 chat words and 6,000 reference words intact.
+
+In Agent mode, a simulated OpenRouter reply added world information through the strict edit schema while the transcript remained intact. The app rejected a batch containing a deletion without applying its other changes. Native MCP protocol tests cover metadata reads, queued edits, invalid edits, and revision conflicts. No paid OpenRouter calls were made for these checks.
+
+## Original walkthrough
+
 Tested on the development Mac with an isolated library. The production library was not used.
 
 1. Opened **Stories**, created **The Midnight Signal**, and entered Iona's character, Ren's persona name, scenario, examples, author's note, post-history instructions, and two lore rules.

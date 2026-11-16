@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { diagnosticError } from './diagnostics.mjs';
 import { readSetupDraft, setupMessages } from './setup-chat.mjs';
-import { maxSetupContextCharacters } from './public/prompt.js';
+import { maxSetupReplyCharacters } from './public/prompt.js';
 
 const sessions = new Map();
 const lifetime = 15 * 60_000;
@@ -15,13 +15,13 @@ const fail = (message,status = 400) => {
 const identifier = z.uuid();
 const requestShape = z.discriminatedUnion('action',[
   z.strictObject({action:z.literal('queue'),sessionId:identifier,mode:z.enum(['chat','draft']),
-    messages:z.array(z.unknown()).max(42),manuscript:z.unknown().optional(),reviewed:z.boolean().optional(),
-    context:z.string().max(maxSetupContextCharacters).optional()}),
+    messages:z.array(z.unknown()),manuscript:z.unknown().optional(),reviewed:z.boolean().optional(),
+    context:z.string().optional()}),
   z.strictObject({action:z.literal('status'),sessionId:identifier}),
   z.strictObject({action:z.literal('cancel'),sessionId:identifier}),
   z.strictObject({action:z.literal('claim'),sessionId:identifier,agentId:identifier}),
   z.strictObject({action:z.literal('submit'),sessionId:identifier,agentId:identifier,requestId:identifier,
-    text:z.string().trim().min(1).max(6000).optional(),draft:z.unknown().optional(),reason:z.string().trim().min(1).max(300).optional()})
+    text:z.string().trim().min(1).max(maxSetupReplyCharacters).optional(),draft:z.unknown().optional(),reason:z.string().trim().min(1).max(300).optional()})
 ]);
 
 function progress(session) {
@@ -43,7 +43,7 @@ export function setupQueue(input) {
     if (!session && sessions.size >= 12) fail('Too many setup sessions are open. Close one before continuing.',429);
     const {mode,messages,manuscript,context} = request;
     const prompt = setupMessages(messages,mode,manuscript,context);
-    if (!prompt) fail('Check the setup discussion, additional context, and manuscript excerpt lengths.');
+    if (!prompt) fail('Check the setup discussion and manuscript excerpts. Your chat messages and additional context share a 20,000-word limit.');
     sessions.set(sessionId,{requestId:randomUUID(),mode,manuscript,prompt,expires:now + lifetime});
     return {status:'waiting'};
   }

@@ -4,14 +4,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
-import { isModelId, models, proseOutputLimit } from './public/models.js';
-import { buildMessages, buildMetadataMessages, extraFields, getCast, getWriter, validCast, validRelationships, validSensitivity, isStoryTime, maxDirectionCharacters } from './public/prompt.js';
+import { agentReasoning, isAgentModel, isModelId, models, proseOutputLimit } from './public/models.js';
+import { buildMessages, buildMetadataMessages, extraFields, getCast, getWriter, validCast, validRelationships, validSensitivity, isStoryTime, writeInputProblem } from './public/prompt.js';
 import { maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory } from './examples/the-late-ferry.mjs';
 import { checkMapUpdates } from './map-updates.mjs';
 import { isWritingRefusal, metadataModel, readStoryMetadata, storyMetadataFormat, stripWritingPreamble } from './openrouter-format.mjs';
 import { manuscriptDraftFormat, readSetupDraft, setupDraftFormat, setupMessages } from './setup-chat.mjs';
 import { setupQueue } from './setup-queue.mjs';
+import { applyStoryEdits, readStoryEdits, storyEditFormat, storyEditMessages, validStoryEditInstruction } from './story-edits.mjs';
 import { createLogger, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -25,7 +26,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   console.error('Story Studio: PORT must be a number from 1 to 65535.');
   process.exit(1);
 }
-const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/agent','/api/generate','/api/setup','/api/setup/mcp','/api/export']);
+const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/agent','/api/generate','/api/story-edits','/api/setup','/api/setup/mcp','/api/export']);
 const methodNames = new Set(['GET','POST','PUT']);
 const modelIds = new Set(models.map(model => model.id));
 let starter = createStarterStory();
@@ -164,7 +165,7 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
     provider:'openrouter',stage,...details});
   let response;
   try {
-    const timeout = AbortSignal.timeout(responseFormat ? 45_000 : maxOutputTokens > 2048 ? 240_000 : 120_000);
+    const timeout = AbortSignal.timeout(stage === 'story-edit' ? 120_000 : responseFormat ? 45_000 : maxOutputTokens > 2048 ? 240_000 : 120_000);
     response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       redirect: 'error',
@@ -175,7 +176,7 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
         messages,
         max_tokens:maxOutputTokens,
         provider: {data_collection:'deny',...(responseFormat ? {require_parameters:true} : {})},
-        ...(responseFormat ? {response_format:responseFormat,reasoning:{enabled:false}} : {})
+        ...(responseFormat ? {response_format:responseFormat,reasoning:agentReasoning(model)} : {})
       })
     });
   } catch (error) {
@@ -235,11 +236,11 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
   return {text:text.trim(), truncated:finish === 'length'};
 }
 async function generateSetup(req,res,diagnostics) {
-  const {mode,model,key,messages,manuscript,context} = await body(req,250_000) || {};
+  const {mode,model,key,messages,manuscript,context} = await body(req) || {};
   const prompt = setupMessages(messages,mode,manuscript,context);
   if (!prompt) {
     diagnostics.code = 'INVALID_SETUP_CONVERSATION';
-    return json(res,400,{error:'Check the setup messages, manuscript excerpts, and additional context. Each chat message can be up to 6,000 characters, and additional context can be up to 12,000.'});
+    return json(res,400,{error:'Check the setup messages and manuscript excerpts. Your chat messages and additional context share a 20,000-word limit.'});
   }
   if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
     diagnostics.code = 'OPENROUTER_KEY_REQUIRED';
@@ -275,6 +276,41 @@ async function generateSetup(req,res,diagnostics) {
   }
 }
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml'};
+async function generateStoryEdits(req,res,diagnostics) {
+  const {storyId,revision,model,key,instruction} = await body(req) || {};
+  if (typeof storyId !== 'string' || typeof revision !== 'string' || !validStoryEditInstruction(instruction)) {
+    return json(res,400,{error:'Enter a story edit request of up to 20,000 words.'});
+  }
+  if (!isAgentModel(model)) return json(res,400,{error:'Choose a supported model for Agent mode.'});
+  if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) return json(res,400,{error:'Enter an OpenRouter API key in Connection.'});
+  const library = await getState();
+  if (liveRevision(library) !== revision) return json(res,409,{error:'The story changed. Reload its latest metadata and try again.'});
+  const index = library.projects.findIndex(item => item.id === storyId);
+  if (index < 0) return json(res,404,{error:'Story not found.'});
+  const project = structuredClone(library.projects[index]);
+  if (project.agentEditRequest) return json(res,409,{error:'Cancel the queued MCP edit before sending another request.'});
+  Object.assign(diagnostics,{provider:'openrouter',mode:'story-edit',storyRef:storyReference(storyId),model});
+  const request = new AbortController();
+  res.once('close',() => { if (!res.writableFinished) request.abort(); });
+  try {
+    const output = await generateOpenRouter(storyEditMessages(project,instruction),model,key,diagnostics,{
+      stage:'story-edit',maxOutputTokens:4096,responseFormat:storyEditFormat,signal:request.signal
+    });
+    const {changes,message} = readStoryEdits(output);
+    const count = applyStoryEdits(project,changes);
+    project.agentEditNotice = {message};
+    if (request.signal.aborted) return;
+    library.projects[index] = project;
+    if (!await saveState(library,revision,false)) return json(res,409,{error:'The story changed before saving the edit. Try again from the latest version.'});
+    diagnostics.appliedEdits = count;
+    return json(res,200,{count,message});
+  } catch (failure) {
+    if (request.signal.aborted) return;
+    diagnostics.code = errorCode(failure,'STORY_EDIT_FAILED');
+    return json(res,failure.status || 502,{error:failure.diagnosticCode ? failure.message : 'Story Studio could not edit the story metadata.'});
+  }
+}
+
 async function routeRequest(req,res,url,diagnostics) {
 if (url.pathname === '/api/state' && req.method === 'GET') {
   return sendLibrary(req,res,await getState());
@@ -343,8 +379,9 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
   return res.end(Buffer.from(archive));
 }
 if (url.pathname === '/api/setup' && req.method === 'POST') return generateSetup(req,res,diagnostics);
+if (url.pathname === '/api/story-edits' && req.method === 'POST') return generateStoryEdits(req,res,diagnostics);
 if (url.pathname === '/api/setup/mcp' && req.method === 'POST') {
-  const request = await body(req,250_000);
+  const request = await body(req);
   if (request?.action === 'status' || request?.action === 'claim') diagnostics.readOnly = true;
   return json(res,200,setupQueue(request));
 }
@@ -369,6 +406,11 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     if (typeof model !== 'string' || !isModelId(model)) {
       diagnostics.code = 'OPENROUTER_MODEL_INVALID';
       return json(res,400,{error:'Enter a specific OpenRouter model ID (author/model).'});
+    }
+    const inputProblem = mode !== 'alternate' && writeInputProblem(instruction,model);
+    if (inputProblem) {
+      diagnostics.code = 'WRITE_INPUT_TOO_LONG';
+      return json(res,400,{error:inputProblem});
     }
     diagnostics.model = modelIds.has(model) ? model : 'custom';
     diagnostics.outputFormat = 'text';
@@ -401,10 +443,6 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     } catch (e) {
       diagnostics.metadataCode = errorCode(e,'OPENROUTER_METADATA_FAILED');
       draft.metadataFailed = true;
-    }
-    if (mode !== 'alternate' && instruction.trim().length > maxDirectionCharacters) {
-      diagnostics.inputTruncated = draft.inputTruncated = true;
-      if (draft.input !== 'explicit') draft.input = 'unclassified';
     }
     diagnostics.inputSensitivity = draft.input;
     diagnostics.replySensitivity = draft.reply;

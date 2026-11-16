@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { diagnosticError } from './diagnostics.mjs';
-import { maxSetupContextCharacters, maxSetupMessageCharacters } from './public/prompt.js';
+import { maxSetupReplyCharacters, maxSetupWords, setupInputWords } from './public/prompt.js';
 
 const castMember = z.strictObject({
   name:z.string().trim().min(1).max(100),
@@ -37,19 +37,17 @@ const prepare = 'Prepare an editable Story Studio setup from this planning conve
 
 export function setupMessages(messages, mode, source, context = '') {
   if (mode !== 'chat' && mode !== 'draft') return null;
-  if (typeof context !== 'string' || context.length > maxSetupContextCharacters) return null;
+  if (typeof context !== 'string') return null;
   context = context.trim();
   const imported = source === undefined ? null : manuscriptContext.safeParse(source);
   if (imported && !imported.success) return null;
-  if (!Array.isArray(messages) || messages.length > 42 || (!messages.length && (mode === 'chat' || (!imported && !context)))) return null;
+  if (!Array.isArray(messages) || (!messages.length && (mode === 'chat' || (!imported && !context)))) return null;
   if (mode === 'chat' && messages.length % 2 === 0) return null;
-  let length = 0;
   for (const [index, turn] of messages.entries()) {
     if (turn?.role !== (index % 2 ? 'assistant' : 'user') || typeof turn.content !== 'string'
-      || !turn.content.trim() || turn.content.length > maxSetupMessageCharacters) return null;
-    length += turn.content.length;
+      || !turn.content.trim() || (turn.role === 'assistant' && turn.content.length > maxSetupReplyCharacters)) return null;
   }
-  if (length > (mode === 'draft' ? 42_000 : 36_000)) return null;
+  if (setupInputWords(messages, context) > maxSetupWords) return null;
   const history = messages.map(({role,content}) => ({role,content:content.trim()}));
   if (mode === 'draft') {
     const request = 'Prepare the story setup from our planning conversation now.';
