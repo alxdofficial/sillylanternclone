@@ -22,10 +22,10 @@
   </dialog>
   <main class="main">
     <header class="topbar">
-      <button id="openMenu" class="tool" aria-haspopup="dialog"><span aria-hidden="true" class="tool-mark">☰</span> Stories</button>
-      <button id="providerButton" class="tool" aria-haspopup="dialog"><span aria-hidden="true" class="tool-mark">⚙</span> Connection</button>
-      <button id="settingsButton" class="tool" aria-haspopup="dialog"><span aria-hidden="true" class="tool-mark">♙</span> Character &amp; lore</button>
-      <button id="promptPreview" class="tool" aria-haspopup="dialog"><span aria-hidden="true" class="tool-mark">▤</span> Prompt</button>
+      <button id="openMenu" class="tool" aria-haspopup="dialog"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM9 5v14M6.5 9h.01m-.01 3h.01"/></svg> Stories</button>
+      <button id="providerButton" class="tool" aria-haspopup="dialog"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v5m6-5v5M7 8h10v4a5 5 0 0 1-10 0zm5 9v4"/></svg> Connection</button>
+      <button id="settingsButton" class="tool" aria-haspopup="dialog"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 20v-2a7 7 0 0 1 14 0v2"/></svg> Character &amp; lore</button>
+      <button id="promptPreview" class="tool" aria-haspopup="dialog"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l3 3v15H6zm3 8h6m-6 4h6"/></svg> Prompt</button>
     </header>
     <div class="workspace">
       <div class="story-heading">
@@ -33,10 +33,20 @@
           <h1 id="storyTitle">Your story</h1>
           <div id="saveStatus" class="save-status" role="status">Loading…</div>
         </div>
-        <button type="button" class="button subtle" id="toggleStoryTurns" aria-controls="storyTurnSidebar" aria-expanded="false">Turns</button>
-        <button class="button subtle danger" id="deleteProject">Delete story</button>
+        <div class="story-tabs" role="tablist" aria-label="Story views">
+          <button type="button" id="writeTab" role="tab" aria-selected="true" aria-controls="writeView">Write</button>
+          <button type="button" id="bookTab" role="tab" aria-selected="false" aria-controls="bookView" tabindex="-1">Book view</button>
+        </div>
+        <div class="story-heading-actions">
+          <button type="button" class="button subtle" id="toggleStoryTurns" aria-controls="storyTurnSidebar" aria-expanded="false">Turns</button>
+          <details class="story-actions" id="storyActions" hidden>
+            <summary class="icon" aria-label="Story options" title="Story options">…</summary>
+            <div class="story-action-menu"><button type="button" class="button danger" id="deleteProject">Delete story</button></div>
+          </details>
+        </div>
       </div>
-      <div class="story-layout">
+      <div id="error" class="error" role="alert" hidden></div>
+      <div class="story-layout" id="writeView" role="tabpanel" aria-labelledby="writeTab">
         <aside class="story-turn-sidebar" id="storyTurnSidebar" aria-labelledby="storyTurnsHeading">
           <div class="story-turn-heading">
             <h2 id="storyTurnsHeading">Turns</h2>
@@ -45,9 +55,9 @@
           <nav id="storyTurns" aria-label="Jump to a turn"></nav>
         </aside>
       <section class="story-panel" aria-label="Story conversation">
-        <div id="messages" class="messages" aria-live="polite"></div>
-        <div id="error" class="error" role="alert" hidden></div>
+        <div id="messages" class="messages"></div>
         <div class="composer">
+          <div class="composer-content">
           <div class="route-bar">
             <div class="route-control">
               <label for="sceneProvider">Write with</label>
@@ -57,25 +67,52 @@
               <label for="sceneModel">Model</label>
               <select id="sceneModel" aria-describedby="routeSummary"><option value="" disabled>Pick a model</option></select>
             </div>
+            <p id="routeSummary" class="route-hint" role="status"></p>
           </div>
-          <p id="routeSummary" class="route-hint" role="status"></p>
           <p id="composerEditStatus" class="route-hint" role="status" hidden></p>
           <label id="instructionLabel" for="instruction" class="sr-only">What happens next?</label>
-          <textarea id="instruction" rows="3" placeholder="Write the next beat or tell the narrator what happens…"></textarea>
+          <textarea id="instruction" rows="2" placeholder="Write the next beat or tell the narrator what happens…"></textarea>
           <div class="composer-bottom">
             <button class="button subtle" id="pasteReply">Add reply</button>
             <button class="button subtle" id="cancelComposerEdit" hidden>Cancel edit</button>
             <p class="shortcut" id="composeShortcut">⌘/Ctrl + Enter to send</p>
             <button class="button primary" id="sendButton">Send &amp; write ↗</button>
           </div>
+          </div>
         </div>
       </section>
       </div>
+      <section class="book-view" id="bookView" role="tabpanel" aria-labelledby="bookTab" hidden>
+        <div class="book-toolbar" id="bookToolbar" hidden>
+          <label for="bookChapter">Go to chapter</label>
+          <select id="bookChapter"></select>
+          <button type="button" id="bookSpreadToggle" class="button" aria-pressed="false" hidden>Two pages</button>
+          <button type="button" id="bookExportToggle" class="button" aria-controls="bookExport" aria-expanded="false">Export Markdown</button>
+        </div>
+        <form class="book-export" id="bookExport" hidden>
+          <label for="bookFirst">From chapter <select id="bookFirst"></select></label>
+          <label for="bookLast">Through chapter <select id="bookLast"></select></label>
+          <button type="submit" class="button primary">Download .md</button>
+        </form>
+        <div class="book-pages" id="bookPages">
+          <div class="book-reader" id="bookReader">
+            <article class="book-paper" id="bookPaper" aria-label="Manuscript"></article>
+            <div id="bookSpreadExtent" aria-hidden="true" hidden></div>
+          </div>
+        </div>
+        <div class="book-pagination" id="bookPagination" hidden>
+          <button type="button" class="button" id="bookPrevious" aria-label="Previous spread">Previous</button>
+          <span id="bookSpreadNumber" role="status"></span>
+          <button type="button" class="button" id="bookNext" aria-label="Next spread">Next</button>
+        </div>
+      </section>
+      <div class="sr-only" id="interactionStatus" role="status"></div>
     </div>
   </main>
 </div>
 <div id="turnMenu" class="turn-menu" role="group" aria-label="Turn actions" hidden>
   <button type="button" id="turnDetails">Time and context</button>
+  <button type="button" id="chapterBreak" hidden>Start new chapter here</button>
   <button type="button" id="branchTurn">Branch from here</button>
   <button type="button" class="danger" id="rewindTurn">Rewind to here</button>
 </div>
@@ -201,4 +238,57 @@
 <label id="customModel" hidden>Custom model ID<input id="modelInput" placeholder="author/model" autocomplete="off"></label><p id="modelError" class="form-note validation-message" role="alert"></p><label>OpenRouter API key<input id="keyInput" type="password" placeholder="sk-or-…" autocomplete="off"></label><p class="form-note">The key stays in this page's memory and is forgotten when the page closes or reloads. The selected model writes the prose. A separate DeepSeek V4.1 Flash call reads the draft for labels, story time, and map updates. Both calls are billed through OpenRouter.</p></div><footer class="dialog-actions"><button type="button" class="button subtle" id="cancelProvider">Cancel</button><button class="button primary" type="submit">Save connection</button></footer></form></dialog>
 <dialog id="pasteDialog" class="form-dialog" aria-labelledby="pasteHeading"><form id="pasteForm"><header class="dialog-top"><div><h2 id="pasteHeading">Add a co-writer reply</h2><p>Add text without calling a model.</p></div><button type="button" id="closePaste" class="icon" aria-label="Close">×</button></header><div class="dialog-body"><textarea id="pasteText" aria-label="Co-writer reply" rows="10" required placeholder="Paste the response here…"></textarea></div><footer class="dialog-actions"><button type="button" class="button subtle" id="cancelPaste">Cancel</button><button class="button primary" type="submit">Add to scene</button></footer></form></dialog>
 <dialog id="promptDialog" class="form-dialog" aria-labelledby="promptHeading"><header class="dialog-top"><h2 id="promptHeading">Prompt preview</h2><button type="button" id="closePrompt" class="icon" aria-label="Close">×</button></header><pre id="promptContents" class="dialog-body" tabindex="0"></pre></dialog>
+<dialog id="setupDialog" class="form-dialog" aria-labelledby="setupHeading">
+  <header class="dialog-top">
+    <h2 id="setupHeading" tabindex="-1">New story</h2>
+    <button type="button" class="icon" id="closeSetup" aria-label="Close story setup">×</button>
+  </header>
+  <div class="dialog-body setup-choice" id="setupChoice">
+    <button type="button" id="setupManual">
+      <strong>Set up manually</strong>
+      <span>Enter a title, setting, and cast. Start with as little as you like.</span>
+    </button>
+    <button type="button" id="setupBrainstorm">
+      <strong>Brainstorm with a model</strong>
+      <span>Explore ideas in a chat, then review the proposed story setup.</span>
+    </button>
+  </div>
+  <form id="setupChat" hidden>
+    <div class="setup-connection">
+      <label for="setupModel">OpenRouter model <select id="setupModel"><option value="" disabled selected>Choose a model</option></select></label>
+      <label for="setupKey" id="setupKeyField">OpenRouter API key <input id="setupKey" type="password" autocomplete="off"></label>
+      <p class="form-note">OpenRouter receives this chat. DeepSeek V4.1 Flash prepares the setup draft. Both calls use your OpenRouter credits.</p>
+    </div>
+    <ol id="setupConversation" class="setup-conversation" aria-label="Brainstorm conversation" tabindex="0" hidden></ol>
+    <div class="setup-chat-input">
+      <label for="setupMessage" id="setupMessageLabel">What kind of story are you imagining?</label>
+      <textarea id="setupMessage" rows="2" maxlength="3000" placeholder="A premise, a character, or even just a mood…"></textarea>
+      <p id="setupFeedback" class="form-note" role="status"></p>
+      <p id="setupChatError" class="form-note validation-message" role="alert"></p>
+    </div>
+    <footer class="dialog-actions setup-actions">
+      <button id="backSetupChat" type="button" class="button">Back</button>
+      <button id="setupDraft" type="button" class="button">Prepare setup draft</button>
+      <button id="setupSend" type="submit" class="button primary">Send</button>
+    </footer>
+  </form>
+  <form id="setupReview" hidden>
+    <div class="dialog-body setup-review-body">
+      <label>Story title <input id="setupTitle" maxlength="160" required></label>
+      <label>Opening premise <textarea id="setupScenario" rows="2" maxlength="1700" placeholder="What is happening as the story starts?"></textarea></label>
+      <label>World &amp; setting <textarea id="setupLore" rows="2" maxlength="4000" placeholder="Where and when does it take place?"></textarea></label>
+      <label>Writing notes <textarea id="setupNotes" rows="2" maxlength="1500" placeholder="Tone, point of view, or anything the narrator should know"></textarea></label>
+      <fieldset class="setup-cast">
+        <legend>Cast</legend>
+        <div id="setupCast"></div>
+        <button id="setupAddCharacter" type="button" class="button">Add character</button>
+      </fieldset>
+      <p id="setupReviewError" class="form-note validation-message" role="alert"></p>
+    </div>
+    <footer class="dialog-actions setup-actions">
+      <button id="backSetupReview" type="button" class="button">Back</button>
+      <button type="submit" class="button primary">Create story</button>
+    </footer>
+  </form>
+</dialog>
 <script src="/app.js" type="module"></script></body></html>

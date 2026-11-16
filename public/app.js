@@ -1,5 +1,5 @@
 import { applyTurnGraphUpdates, captureGraphVersion, graphChangesByTurn, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
-import { maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
+import { bookChapters, bookMarkdown, maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
 import { mergeLibrary } from './sync.js';
 import { buildMessages, formatMessages, extraFields, getCast, narrator, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
@@ -169,7 +169,7 @@ function render() {
   $('#instruction').value = composerEdit?.draft ?? (getSession(draftKey(project.id)) || '');
   syncRoute();
   $('#storyTitle').textContent = project.title;
-  $('#deleteProject').hidden = project.id === starterStoryId;
+  $('#storyActions').hidden = project.id === starterStoryId;
   document.title = project.title + ' · Story Studio';
   const list = $('#projectList');
   list.replaceChildren();
@@ -190,6 +190,19 @@ function render() {
   }
   renderMessages();
 }
+const storyActions = $('#storyActions');
+document.addEventListener('pointerdown',event => {
+  if (storyActions.open && !storyActions.contains(event.target)) storyActions.open = false;
+});
+storyActions.addEventListener('focusout',event => {
+  if (event.relatedTarget && !storyActions.contains(event.relatedTarget)) storyActions.open = false;
+});
+storyActions.addEventListener('keydown',event => {
+  if (event.key === 'Escape' && storyActions.open) {
+    storyActions.open = false;
+    storyActions.querySelector('summary').focus();
+  }
+});
 const turnMenu = $('#turnMenu');
 let turnMenuTrigger, turnMenuIndex;
 
@@ -223,11 +236,28 @@ function openTurnMenu(trigger, index) {
   turnMenuTrigger = trigger;
   turnMenuIndex = index;
   trigger.setAttribute('aria-expanded','true');
-  $('#rewindTurn').disabled = index === current().messages.length - 1;
+  const messages = current().messages;
+  const message = messages[index];
+  const chapterBreak = $('#chapterBreak');
+  chapterBreak.hidden = message.role !== 'assistant' || (!message.startsChapter &&
+    (!message.content.trim() || !messages.slice(0,index).some(turn => turn.role === 'assistant' && turn.content.trim())));
+  chapterBreak.textContent = message.startsChapter ? 'Remove chapter break' : 'Start new chapter here';
+  $('#rewindTurn').disabled = index === messages.length - 1;
   turnMenu.hidden = false;
   positionTurnMenu();
   $('#turnDetails').focus({preventScroll:true});
 }
+
+$('#chapterBreak').onclick = () => {
+  const message = current().messages[turnMenuIndex];
+  closeTurnMenu(true);
+  if (message?.role !== 'assistant' || busy) return;
+  if (message.startsChapter) delete message.startsChapter;
+  else message.startsChapter = true;
+  const notice = $('#interactionStatus');
+  notice.textContent = message.startsChapter ? 'Chapter break added.' : 'Chapter break removed.';
+  markDirty();
+};
 
 $('#turnDetails').onclick = () => {
   const index = turnMenuIndex;
@@ -352,7 +382,7 @@ function appendTurnContextBadge(container, badgeGroup, reason) {
   badgeGroup.append(el('span','context-badge',labels[status]));
 }
 
-let renderedStoryId, activeStoryTurn;
+let renderedStoryId, activeStoryTurn, lastRenderedTurn;
 function setStoryTurnsOpen(open) {
   $('#storyTurnSidebar').toggleAttribute('data-open',open);
   $('#toggleStoryTurns').setAttribute('aria-expanded',String(open));
@@ -420,12 +450,253 @@ function renderStoryTurns(project, followLatest) {
   nav.scrollTop = followLatest ? nav.scrollHeight : scrollTop;
 }
 
+const bookReader = $('#bookReader');
+const bookPages = $('#bookPages');
+const bookPaper = $('#bookPaper');
+const bookSpreadToggle = $('#bookSpreadToggle');
+const bookSpreadExtent = $('#bookSpreadExtent');
+const bookPagination = $('#bookPagination');
+const desktopBook = matchMedia('(min-width: 1100px) and (min-height: 640px)');
+const bookExport = $('#bookExport');
+const bookExportToggle = $('#bookExportToggle');
+const bookChapter = $('#bookChapter');
+const bookFirst = $('#bookFirst');
+const bookLast = $('#bookLast');
+const bookPositions = new Map();
+const spreadPositions = new Map();
+let bookStoryId, chapters = [], bookOpen = false, writeNeedsRender = false;
+let bookSpreadWanted = false, spreadCount = 1;
+
+function goToSpread(index) {
+  const page = Math.min(Math.max(0,index),spreadCount - 1);
+  const label = `Spread ${page + 1} of ${spreadCount}`;
+  bookReader.scrollLeft = page * bookReader.clientWidth;
+  spreadPositions.set(bookStoryId,page);
+  $('#bookPrevious').disabled = page === 0;
+  $('#bookNext').disabled = page === spreadCount - 1;
+  if ($('#bookSpreadNumber').textContent !== label) $('#bookSpreadNumber').textContent = label;
+}
+
+function updateBookSpread() {
+  if (!bookOpen) return;
+  const available = desktopBook.matches && chapters.length > 0;
+  const active = available && bookSpreadWanted;
+  const wasActive = bookPages.hasAttribute('data-spread');
+  bookSpreadToggle.hidden = !available;
+  bookSpreadToggle.setAttribute('aria-pressed',String(active));
+  bookPages.toggleAttribute('data-spread',active);
+  bookPagination.hidden = !active;
+  bookSpreadExtent.hidden = !active;
+  if (!active) {
+    if (wasActive) {
+      bookReader.scrollLeft = 0;
+      bookReader.scrollTop = bookPositions.get(bookStoryId) || 0;
+    }
+    return;
+  }
+  const lastParagraph = bookPaper.lastElementChild.lastElementChild;
+  const lastFragment = Array.from(lastParagraph.getClientRects()).at(-1);
+  const width = bookReader.clientWidth;
+  const endColumnLeft = lastFragment.left + bookReader.scrollLeft - bookReader.getBoundingClientRect().left;
+  spreadCount = Math.max(1,Math.floor(endColumnLeft / width) + 1);
+  bookSpreadExtent.style.left = (spreadCount * width - 1) + 'px';
+  goToSpread(spreadPositions.get(bookStoryId) || 0);
+}
+
+function jumpToChapter(heading) {
+  const target = heading.getBoundingClientRect();
+  const reader = bookReader.getBoundingClientRect();
+  if (bookPages.hasAttribute('data-spread')) {
+    goToSpread(Math.floor((target.left - reader.left + bookReader.scrollLeft) / bookReader.clientWidth));
+  } else {
+    bookReader.scrollTop += target.top - reader.top - 18;
+    rememberBookPosition();
+  }
+}
+
+bookSpreadToggle.onclick = () => {
+  const inSpread = bookPages.hasAttribute('data-spread');
+  const reader = bookReader.getBoundingClientRect();
+  const headings = [...bookPaper.querySelectorAll('h3')];
+  const coordinates = heading => heading.getBoundingClientRect();
+  const chapter = headings.findLast(heading => inSpread
+    ? coordinates(heading).left < reader.left + reader.width
+    : coordinates(heading).top <= reader.top + 24);
+  bookSpreadWanted = !inSpread;
+  updateBookSpread();
+  if (chapter) jumpToChapter(chapter);
+};
+$('#bookPrevious').onclick = () => goToSpread((spreadPositions.get(bookStoryId) || 0) - 1);
+$('#bookNext').onclick = () => goToSpread((spreadPositions.get(bookStoryId) || 0) + 1);
+desktopBook.addEventListener('change',updateBookSpread);
+new ResizeObserver(updateBookSpread).observe(bookPages);
+
+function setBookExport(open) {
+  bookExport.hidden = !open;
+  bookExportToggle.setAttribute('aria-expanded',String(open));
+}
+
+function updateBookRange(first, last) {
+  bookFirst.value = String(first);
+  bookLast.value = String(last);
+  for (const option of bookLast.options) option.disabled = Number(option.value) < first;
+}
+
+function renderBook() {
+  const project = current();
+  const sameStory = bookStoryId === project.id;
+  const scrollTop = bookPositions.get(project.id) || 0;
+  const oldCount = chapters.length;
+  if (!sameStory) setBookExport(false);
+  bookStoryId = project.id;
+  chapters = bookChapters(project.messages);
+  const count = chapters.length;
+  $('#bookToolbar').hidden = !count;
+  if (!count) {
+    setBookExport(false);
+    bookPaper.replaceChildren(el('h2','book-title',project.title),
+      el('p','book-empty','Story replies appear here. In Write, use Add reply to add your own prose.'));
+    updateBookSpread();
+    return;
+  }
+  const first = sameStory ? Math.min(Number(bookFirst.value) || 1,count) : 1;
+  const last = sameStory && Number(bookLast.value) < oldCount
+    ? Math.max(first,Math.min(Number(bookLast.value),count)) : count;
+  if (!sameStory || oldCount !== count) {
+    const options = () => chapters.map((_,index) => new Option(String(index + 1),String(index + 1)));
+    const choose = new Option('Choose…','');
+    choose.disabled = true;
+    bookChapter.replaceChildren(choose,...options());
+    bookFirst.replaceChildren(...options());
+    bookLast.replaceChildren(...options());
+  }
+  bookChapter.value = '';
+  updateBookRange(first,last);
+  const manuscript = document.createDocumentFragment();
+  manuscript.append(el('h2','book-title',project.title));
+  chapters.forEach((excerpts,index) => {
+    const section = el('section','book-chapter');
+    section.id = 'chapter-' + (index + 1);
+    const heading = el('h3','',`Chapter ${index + 1}`);
+    heading.tabIndex = -1;
+    section.append(heading);
+    for (const excerpt of excerpts) {
+      for (const paragraph of excerpt.trim().split(/\r?\n(?:[\t ]*\r?\n)+/u)) {
+        section.append(el('p','',paragraph));
+      }
+    }
+    manuscript.append(section);
+  });
+  bookPaper.replaceChildren(manuscript);
+  updateBookSpread();
+  if (!bookPages.hasAttribute('data-spread')) bookReader.scrollTop = scrollTop;
+}
+
+function showStoryView(open) {
+  if (bookOpen === open) return;
+  if (bookOpen) rememberBookPosition();
+  bookOpen = open;
+  closeTurnMenu();
+  for (const [id,selected] of [['bookTab',open],['writeTab',!open]]) {
+    $(`#${id}`).setAttribute('aria-selected',String(selected));
+    $(`#${id}`).tabIndex = selected ? 0 : -1;
+  }
+  $('#toggleStoryTurns').hidden = open;
+  $('#writeView').hidden = open;
+  $('#bookView').hidden = !open;
+  if (open) renderBook();
+  else if (writeNeedsRender) renderMessages();
+}
+
+function rememberBookPosition() {
+  if (bookStoryId && chapters.length && !bookPages.hasAttribute('data-spread')) {
+    bookPositions.set(bookStoryId,bookReader.scrollTop);
+  }
+}
+bookReader.addEventListener('scroll',() => { if (bookOpen) rememberBookPosition(); },{passive:true});
+$('#writeTab').onclick = () => showStoryView(false);
+$('#bookTab').onclick = () => { if (state) showStoryView(true); };
+$('.story-tabs').addEventListener('keydown',event => {
+  if (!state || !['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+  event.preventDefault();
+  showStoryView(event.key === 'End' || event.key !== 'Home' && !bookOpen);
+  $(bookOpen ? '#bookTab' : '#writeTab').focus();
+});
+bookChapter.onchange = () => {
+  const heading = $(`#chapter-${bookChapter.value} h3`);
+  bookChapter.value = '';
+  if (!heading) return;
+  jumpToChapter(heading);
+  heading.focus({preventScroll:true});
+};
+bookExportToggle.onclick = () => setBookExport(bookExport.hidden);
+bookFirst.onchange = () => updateBookRange(Number(bookFirst.value),Math.max(Number(bookFirst.value),Number(bookLast.value)));
+bookExport.onsubmit = event => {
+  event.preventDefault();
+  const title = current().title;
+  const first = Number(bookFirst.value), last = Number(bookLast.value);
+  const fileTitle = title.replace(/[^\p{L}\p{N} -]/gu,'').replace(/\s+/gu,' ').trim().slice(0,80) || 'story';
+  download(new Blob([bookMarkdown(title,chapters,first,last)],{type:'text/markdown;charset=utf-8'}),
+    `${fileTitle} - Chapter ${first}${first === last ? '' : `-${last}`}.md`);
+};
+
+function copyProseButton(message, turn, text) {
+  const button = el('button','copy-prose');
+  button.type = 'button';
+  const label = `Copy prose from turn ${turn}`;
+  button.setAttribute('aria-label',label);
+  button.title = 'Copy prose';
+  const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('viewBox','0 0 24 24');
+  svg.setAttribute('aria-hidden','true');
+  const path = document.createElementNS(svg.namespaceURI,'path');
+  const copy = 'M8 8h12v12H8z M16 4H4v12';
+  path.setAttribute('d',copy);
+  svg.append(path);
+  button.append(svg);
+  let reset;
+  button.onclick = async () => {
+    const status = $('#interactionStatus');
+    status.textContent = '';
+    try {
+      await navigator.clipboard.writeText(message.content);
+      status.textContent = 'Prose copied.';
+      path.setAttribute('d','m5 12 4 4L19 6');
+      button.title = 'Copied';
+      clearTimeout(reset);
+      reset = setTimeout(() => {
+        path.setAttribute('d',copy);
+        button.title = 'Copy prose';
+      },1600);
+    } catch {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      error('Prose selected. Use your device’s Copy command.');
+    }
+  };
+  return button;
+}
+
 function renderMessages() {
+  if (bookOpen) {
+    writeNeedsRender = true;
+    renderBook();
+    return;
+  }
+  writeNeedsRender = false;
   closeTurnMenu();
   const project = current(), box = $('#messages');
   const sameStory = renderedStoryId === project.id;
   const scrollTop = box.scrollTop;
   const followLatest = !sameStory || box.scrollHeight - scrollTop - box.clientHeight < 40;
+  const latest = project.messages.at(-1);
+  if (sameStory && latest?.role === 'assistant' && latest.turnNumber !== lastRenderedTurn) {
+    $('#interactionStatus').textContent = 'A new reply is ready.';
+  }
+  lastRenderedTurn = latest?.turnNumber;
   if (!sameStory) {
     renderedStoryId = project.id;
     activeStoryTurn = undefined;
@@ -434,7 +705,7 @@ function renderMessages() {
   box.replaceChildren();
   if (!project.messages.length) {
     const empty = el('div','empty');
-    empty.append(el('div','empty-mark','✳'),el('strong','','Every story starts somewhere.'),
+    empty.append(el('strong','','Start your story'),
       el('p','','Set the scene below, or ask your co-writer to begin.'));
     box.append(empty);
     renderStoryTurns(project,followLatest);
@@ -497,7 +768,9 @@ function renderMessages() {
     actions.append(edit,remove,more);
     head.append(actions);
     const text = el('div','message-text',message.content);
-    body.append(...(name ? [head,text] : [text,head]));
+    const prose = fromAuthor ? text : el('div','prose-with-copy');
+    if (!fromAuthor) prose.append(text,copyProseButton(message,turn,text));
+    body.append(...(name ? [head,prose] : [prose,head]));
     if (message.role === 'assistant' && message.alternatives?.length > 1) {
       const nav = el('div','alternatives');
       const prev = el('button','','← Previous'), next = el('button','','Next →');
@@ -586,10 +859,6 @@ function selectAlternative(message, index) {
   markDirty();
   renderMessages();
 }
-function ago(since) {
-  const minutes = Math.floor((Date.now() - since) / 60_000);
-  return minutes < 1 ? 'just now' : minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
-}
 // What the writer should know about MCP for this story: a status line, and
 // a placeholder turn while a queued turn waits for or is being written by an agent.
 function mcpStatus(project) {
@@ -598,15 +867,15 @@ function mcpStatus(project) {
   if (queue) {
     const writer = agentActivity.find(agent => agent.state === 'writing' && agent.storyId === project.id && agent.turnNumber === queue.turnNumber);
     if (writer) return {
-      line:`${writer.client} picked up your turn ${ago(writer.since)} and is writing the continuation.`,
+      line:`${writer.client} is writing…`,
       pending:{state:'Writing via MCP', active:true}
     };
     if (watcher) return {
-      line:`Turn queued. ${watcher.client} is watching and will pick it up in a moment.`,
+      line:`Queued · ${watcher.client} is watching`,
       pending:{state:'Queued for MCP', active:true}
     };
     return {
-      line:'Turn queued, but no agent is watching. Open Start Claude Writer, or ask your agent to write the queued turn.',
+      line:'Queued · ask your agent to write the queued turn.',
       pending:{state:'Waiting for an agent', active:false}
     };
   }
@@ -616,10 +885,10 @@ function mcpStatus(project) {
       : project.messages.at(-1)?.role === 'user' && !isAvailableToMcp(project.messages.at(-1))
       ? ' To write it, switch to OpenRouter and click Send & write with an empty box.'
       : ' To try again, click Queue turn with an empty box.')};
-  return {line:watcher ? `${watcher.client} is watching. Queue a turn and it writes the reply.`
-    : 'No agent is watching. Open Start Claude Writer, or ask your agent to watch Story Studio.'};
+  return {line:watcher ? `${watcher.client} is watching` : 'Ask your agent to watch Story Studio.'};
 }
 function renderPending() {
+  if (bookOpen) return;
   const box = $('#messages');
   $('#pendingTurn')?.remove();
   const project = current();
@@ -1552,7 +1821,7 @@ function openTurnDetails(index) {
   $('#editDialog').showModal();
 }
 function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return migratePersona({id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(typeof p.storyWriterId==='string'?{storyWriterId:p.storyWriterId}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
-if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})});});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
+if(m.role==='assistant'&&m.startsChapter===true)result.startsChapter=true;if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})});});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 
 const modelChoice = $('#modelPreset');
 const sceneModelChoice = $('#sceneModel');
@@ -1753,24 +2022,217 @@ $('#editForm').onsubmit = event => {
   $('#editDialog').close();
   renderMessages();
 };
+const setupDialog = $('#setupDialog');
+const setupChat = $('#setupChat');
+const setupReview = $('#setupReview');
+const setupModel = $('#setupModel');
+const setupKey = $('#setupKey');
+const setupMessage = $('#setupMessage');
+const setupConversation = $('#setupConversation');
+const setupChatError = $('#setupChatError');
+const setupFeedback = $('#setupFeedback');
+const setupCast = $('#setupCast');
+const setupAddCharacter = $('#setupAddCharacter');
+const maxSetupCast = 8;
+const maxSetupExchanges = 21;
+let setupMessages = [], setupRequest, setupFromChat = false;
+for (const model of models) setupModel.add(new Option(model.name,model.id));
+
+function setupStep(step) {
+  $('#setupChoice').hidden = step !== 'choice';
+  setupChat.hidden = step !== 'chat';
+  setupReview.hidden = step !== 'review';
+  const title = $('#setupHeading');
+  title.textContent = {choice:'New story',chat:'Brainstorm your story',review:setupFromChat ? 'Review your setup' : 'Set up your story'}[step];
+  title.focus({preventScroll:true});
+}
+
+function addSetupCharacter({name='',description=''} = {}) {
+  const entry = el('fieldset','setup-character');
+  const nameField = el('input','setup-character-name');
+  nameField.value = name;
+  nameField.maxLength = 100;
+  nameField.required = true;
+  const descriptionField = el('textarea','setup-character-description');
+  descriptionField.value = description;
+  descriptionField.rows = 2;
+  descriptionField.maxLength = 1200;
+  const nameLabel = el('label','','Name'), descriptionLabel = el('label','','Description');
+  nameLabel.append(nameField);
+  descriptionLabel.append(descriptionField);
+  const remove = el('button','text-button','Remove character');
+  remove.type = 'button';
+  remove.onclick = () => {
+    entry.remove();
+    setupAddCharacter.disabled = false;
+    setupAddCharacter.focus();
+  };
+  entry.append(el('legend','','Character'),nameLabel,descriptionLabel,remove);
+  setupCast.append(entry);
+  setupAddCharacter.disabled = setupCast.children.length >= maxSetupCast;
+  return nameField;
+}
+
+function fillSetupReview({title='',scenario='',lore='',notes='',cast=[]} = {}) {
+  $('#setupTitle').value = title;
+  $('#setupScenario').value = scenario;
+  $('#setupLore').value = lore;
+  $('#setupNotes').value = notes;
+  setupCast.replaceChildren();
+  setupAddCharacter.disabled = false;
+  cast.forEach(addSetupCharacter);
+  $('#setupReviewError').textContent = '';
+}
+
+function renderSetupChat(messages = setupMessages) {
+  setupConversation.hidden = !messages.length;
+  setupConversation.replaceChildren(...messages.map(({role,content}) => {
+    const turn = el('li',role === 'user' ? 'setup-user' : 'setup-assistant');
+    turn.append(el('strong','',role === 'user' ? 'You' : 'Writing assistant'),el('p','',content));
+    return turn;
+  }));
+  setupConversation.scrollTop = setupConversation.scrollHeight;
+  $('#setupMessageLabel').textContent = setupMessages.length ? 'Continue brainstorming' : 'What kind of story are you imagining?';
+  setupMessage.placeholder = setupMessages.length ? 'Add an idea or say what you’d change…' : 'A premise, a character, or even just a mood…';
+}
+
+function syncSetupChat() {
+  const pending = Boolean(setupRequest);
+  const full = setupMessages.length >= 2 * maxSetupExchanges ||
+    setupMessages.reduce((length,message) => length + message.content.length,0) + setupMessage.value.length > 36_000;
+  setupModel.disabled = pending || setupMessages.length > 0;
+  setupKey.disabled = pending;
+  setupMessage.readOnly = pending;
+  $('#setupSend').disabled = pending || full || !setupMessage.value.trim();
+  $('#setupDraft').disabled = pending || !setupMessages.length;
+  $('#backSetupChat').disabled = pending;
+  if (!pending) setupFeedback.textContent = full ? 'Prepare the setup draft to continue.' : '';
+}
+
+async function requestSetup(mode) {
+  if (setupRequest) return;
+  const key = openRouterKey || setupKey.value.trim();
+  setupChatError.textContent = '';
+  if (!setupModel.value || !key) {
+    setupChatError.textContent = !setupModel.value ? 'Choose an OpenRouter model.' : 'Enter your OpenRouter API key.';
+    (!setupModel.value ? setupModel : setupKey).focus();
+    return;
+  }
+  const content = setupMessage.value.trim();
+  if (mode === 'chat' && (!content || setupMessages.length >= 2 * maxSetupExchanges)) return;
+  const messages = content ? [...setupMessages,{role:'user',content}] : setupMessages;
+  if (messages.reduce((length,message) => length + message.content.length,0) > (mode === 'draft' ? 42_000 : 36_000)) {
+    setupChatError.textContent = 'This discussion is too long for another message. Shorten the last message or prepare the setup draft.';
+    return;
+  }
+  const request = new AbortController();
+  setupRequest = request;
+  if (mode === 'chat') renderSetupChat(messages);
+  try {
+    syncSetupChat();
+    setupFeedback.textContent = mode === 'chat' ? 'Thinking…' : 'Preparing your setup draft…';
+    const result = await api('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},
+      signal:request.signal,body:JSON.stringify({mode,model:setupModel.value,key,messages})});
+    if (setupRequest !== request || !setupDialog.open) return;
+    if (mode === 'draft') {
+      fillSetupReview(result.draft);
+      setupFromChat = true;
+      setupStep('review');
+    } else {
+      setupMessages = [...messages,{role:'assistant',content:result.text}];
+      setupMessage.value = '';
+      renderSetupChat();
+      setupMessage.focus({preventScroll:true});
+    }
+  } catch (failure) {
+    if (!request.signal.aborted && setupDialog.open) {
+      renderSetupChat();
+      setupChatError.textContent = failure.message;
+    }
+  } finally {
+    if (setupRequest === request) {
+      setupRequest = undefined;
+      syncSetupChat();
+    }
+  }
+}
+
 $('#newProject').onclick = () => {
   if (!state) return;
   if (state.projects.length - 1 >= maxLibraryStories) {
     alert('Your library has reached its story limit.');
     return;
   }
-  const project = {id:id(),title:'Untitled story',character:'',persona:'',lore:'',notes:'',
-    storyStartAt:localStoryTime(),storyStartSource:'estimate',messages:[]};
+  setupMessages = [];
+  setupChat.reset();
+  setupChatError.textContent = '';
+  $('#setupKeyField').hidden = Boolean(openRouterKey);
+  renderSetupChat();
+  syncSetupChat();
+  fillSetupReview();
+  $('#sidebar').close();
+  setupDialog.showModal();
+  setupStep('choice');
+};
+$('#closeSetup').onclick = () => setupDialog.close();
+setupDialog.addEventListener('close',() => {
+  setupRequest?.abort();
+  setupRequest = undefined;
+  setupKey.value = '';
+  setupMessage.value = '';
+  setupMessages = [];
+  renderSetupChat();
+  if (document.activeElement === document.body) $('#openMenu').focus();
+});
+$('#setupManual').onclick = () => { setupFromChat = false; setupStep('review'); };
+$('#setupBrainstorm').onclick = () => setupStep('chat');
+$('#backSetupChat').onclick = () => setupStep('choice');
+$('#backSetupReview').onclick = () => setupStep(setupFromChat ? 'chat' : 'choice');
+setupMessage.oninput = syncSetupChat;
+setupChat.onsubmit = event => { event.preventDefault(); void requestSetup('chat'); };
+$('#setupDraft').onclick = () => void requestSetup('draft');
+setupAddCharacter.onclick = () => addSetupCharacter().focus();
+setupReview.onsubmit = event => {
+  event.preventDefault();
+  const title = $('#setupTitle').value.trim();
+  if (!title) {
+    $('#setupReviewError').textContent = 'Enter a story title.';
+    $('#setupTitle').focus();
+    return;
+  }
+  const cast = [], names = new Set();
+  for (const card of setupCast.children) {
+    const field = card.querySelector('.setup-character-name');
+    const name = field.value.trim(), key = name.toLowerCase();
+    if (!name || names.has(key)) {
+      $('#setupReviewError').textContent = 'Enter a different, non-empty name for each character.';
+      field.focus();
+      return;
+    }
+    names.add(key);
+    cast.push({name,description:card.querySelector('.setup-character-description').value.trim()});
+  }
+  const [main,...other] = cast;
+  const project = {
+    id:id(),title,persona:'',characterName:main?.name || '',character:main?.description || '',
+    lore:$('#setupLore').value.trim(),scenario:$('#setupScenario').value.trim(),notes:$('#setupNotes').value.trim(),
+    storyStartAt:localStoryTime(),storyStartSource:'estimate',messages:[],
+    cast:other.map(character => ({id:id(),...Object.fromEntries(castFields.map(field => [field,''])),...character}))
+  };
+  captureGraphVersion(project,0);
   state.projects.unshift(project);
   state.activeId = project.id;
   markDirty();
+  setupDialog.close();
+  showStoryView(false);
   render();
-  $('#sidebar').close();
-  openSettings();
+  $('#instruction').focus();
 };
 $('#deleteProject').onclick = async () => {
   if (!state) return;
   const project = current();
+  storyActions.open = false;
+  storyActions.querySelector('summary').focus();
   if (project.id === starterStoryId || !await confirmDanger(`Delete “${project.title}”?`,
     'This permanently removes the story, its turns, and its character and relationship history from the library.', 'Delete story')) return;
   state.projects = state.projects.filter(item => item.id !== project.id);
@@ -1778,6 +2240,7 @@ $('#deleteProject').onclick = async () => {
   state.activeId = state.projects[0].id;
   markDirty(project);
   render();
+  $('#openMenu').focus();
 };
 $('#sendButton').onclick = () => generate();
 $('#cancelComposerEdit').onclick = closeComposerEdit;

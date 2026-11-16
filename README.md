@@ -29,7 +29,7 @@ The demo began as a blank story in the browser. The cast and setting were entere
 
 ## Write a scene
 
-1. Open **Stories** and choose **New story**. You can add a cast under **Character & lore → Cast** and a setting under **World**.
+1. Open **Stories → New story**. Choose **Set up manually** to enter a title, premise, world, writing notes, and cast. Or choose **Brainstorm with a model**, pick an OpenRouter model, and chat through your ideas. Click **Prepare setup draft** when you are ready. DeepSeek V4.1 Flash turns the discussion into editable setup fields. Review or revise them, then click **Create story**. You can change the setup later under **Character & lore**.
 2. Write what happens next, paste the start of a scene, or give a direction in the composer. The narrator continues the story using whichever characters the scene needs. Set a one-off style in the composer or a standing preference in **Character & lore → Writing → Writing notes**. With no style direction, the narrator matches established prose or uses third-person past tense for a new story. **Prompt** shows the writing instructions and context for the selected route. Earlier author directions are history. The current direction controls the next reply.
 3. Choose a writing mode.
 
@@ -39,11 +39,23 @@ The demo began as a blank story in the browser. The cast and setting were entere
 
 Select a turn in **Turns** to jump directly to it. On a narrow screen, open **Turns** beside the story title. **Latest** jumps back to the end. The list uses one short preview per direction and reply pair, with standalone and unanswered turns listed separately.
 
+Use the copy icon beside any reply to copy the visible take to your clipboard.
+
 Use **Edit** on an author direction to bring it back into the composer. **Save & rewrite** in OpenRouter or **Save & queue rewrite** in MCP uses the revised direction and the earlier story to replace the paired reply in place. Later turns and accepted graph changes stay where they are. **Edit** on narration saves your revised text directly. Manual mode saves edits without a model call. Deleting an author direction also deletes its paired reply. If a reply already has multiple takes, use **Previous** and **Next** to choose which one appears in the story and future prompts.
 
 **Write with** and the OpenRouter model are remembered per story in the current tab, including through rewind and turn deletion. The OpenRouter key stays in memory and must be entered again after a reload.
 
+Model-assisted setup sends only the new brainstorming conversation to OpenRouter. Brainstorming and draft extraction both use your OpenRouter credits. The discussion stays in the setup window, and only the fields you approve are saved with the story. After creation, you can use any of the three writing modes.
+
 Open **⋯** on a turn to explore a different path. **Branch from here** creates a separate story through that turn, including the selected take, the cast and world notes recorded then, and earlier relationship events. You can branch from the demo to keep writing a regular saved story. **Rewind to here** removes later turns and their events from the current story. Deleting a story or a turn, rewinding, removing a character or relationship event, and replacing your library all ask for confirmation. For older turns without a saved cast or world version, Story Studio uses the current notes.
+
+## Read and export the book
+
+Open **Book view** to read the story as a manuscript. It includes replies, including prose you enter through **Add reply**, and uses the selected take for every reply. Author directions stay in **Write**.
+
+The first reply starts Chapter 1. To start another chapter at a later reply, open its **⋯** menu in **Write** and choose **Start new chapter here**. Use **Remove chapter break** in the same menu to join it to the preceding chapter. Chapter numbers update automatically.
+
+In **Book view**, use **Go to chapter** to jump between chapters. On a wide window, choose **Two pages** to read facing pages with **Previous** and **Next**. Choose **Export Markdown**, select the first and last chapters to include, and click **Download .md**. The file uses the story’s chapter numbers and is generated locally in the browser. Use **Export history ZIP** separately to make a restorable library backup.
 
 ## Character & lore
 
