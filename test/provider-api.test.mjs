@@ -122,7 +122,7 @@ test('direct providers draft and exchange native tool results without crossing c
       instruction:'Local-only example.'},'/api/story-edits');
     assert.equal(privateEdit.status,200);
     const afterPrivate = (await (await fetch(origin+'/api/state')).json()).projects.find(story=>story.id === activeId);
-    assert.deepEqual(afterPrivate.agentHistory.at(-1),{afterTurn:6,request:'Local-only example.',
+    assert.deepEqual(afterPrivate.agentHistory.at(-1),{afterTurn:original.messages.at(-1)?.turnNumber ?? original.messages.length,request:'Local-only example.',
       message:'No story changes.',count:0,historySafe:false});
     assert.deepEqual(afterPrivate.messages,original.messages);
     const mismatched = await send({project,instruction:'Ring the bell.',...openai,model:claude.model});

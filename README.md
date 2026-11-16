@@ -18,14 +18,14 @@ You can ask your local agent to set it up for you.
 
 ## Try The Late Ferry
 
-New libraries open on **The Late Ferry**, a late-night harbor mystery with six characters and six turns. Find it later under **Menu → Open demo**. Changes to the demo stay in memory. Reload the page to put everything back, including the cast and manuscript. Your own stories save normally and are the ones included in backups.
+New libraries open on **The Late Ferry**, a two-chapter harbor mystery with five characters and four scenes. An altered log keeps the last ferry at the dock with a medical courier waiting to cross. Find it under **Menu → Open demo**. Changes to the demo stay in memory and reset when you reload.
 
-1. Open **Graph** and click through the cast. Select the line between Sam and Ellis to see their starting relationship and the later radio call. The timeline shows the scene times across midnight.
-2. Back in the transcript, use **View graph changes** on turn 4 to see what carried forward from the gate check. Open **Book view** to read the two chapters without the author directions.
-3. With a writing model selected, click the context ring in the lower left of the composer to see the beacon, incident book, and cast in context. Click the plus at the end of the manuscript to add your own prose, or send a direction such as having Mae inspect the impression on the next page. Use **⋯ → Branch from here** to keep an alternate storyline.
-4. For a story you want to keep or export, choose **Menu → New story**.
+1. Open **Book view** to read the two chapters. In **Write**, the same scenes sit alongside their author directions and an Editor agent exchange that added a standing writing note.
+2. In **Graph**, select the line between Mae and Noor to see how their relationship changes when they compare records. Use **View graph changes** on the last prose turn in **Write** to see what the signed correction changed.
+3. In **Revision**, compare the four scenes in **Pacing**, read the pinned passages in **Themes**, and follow the open and resolved threads in **Setups & payoffs**. Try **Graph → Check continuity** with an Editor or continuity model to compare when Lina first handles the log with when Mae obtains the key.
+4. Back in **Write**, preview one of the saved **Story Flow** choices. Click **Use direction** to put it in the composer. Pick your model before sending. To keep a version of the demo as your own story, use **⋯ → Branch from here** on a prose turn.
 
-The demo was built and exported through the current Story Studio browser workflow. DeepSeek V4.1 Flash brainstormed and proposed the setup, including the starting relationships. Cydonia 24B v4.1 drafted the scenes, and DeepSeek recorded their times and continuity changes. The prose was lightly copyedited and reviewed in Story Studio. [See the verification notes](TESTING.md#the-late-ferry-starter).
+Claude Sonnet 5.5 built the setup, drafted all four scenes, and ran the continuity, Editor, Story Flow, and Revision passes through the direct Claude API in the browser. [See the verification notes](TESTING.md#the-late-ferry-starter).
 
 ## Progress the story
 

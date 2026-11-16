@@ -40,9 +40,11 @@ Separate live OpenRouter requests through the current Story Studio server verifi
 
 ## The Late Ferry starter
 
-Regenerated from a blank story in the built-in browser on 16 November 2026. Live DeepSeek V4.1 Flash brainstormed the plot and staged the world, six cast profiles, four opening relationships, and the 23:40 start time. Reviewed and created the story, then used Agent mode to update Sam's profile. Live Cydonia 24B v4.1 wrote three scenes from three author directions. The current DeepSeek continuity tools classified all three pairs as non-explicit and applied updates on each scene, giving the demo eight dated relationship entries and four cast and world snapshots.
+Regenerated from a blank story in the built-in browser on 17 November 2026. All live model calls used the direct Claude API with Sonnet 5.5. The setup chat and review generated five cast profiles and five initial relationships. Four prose and continuity passes recorded all author directions and replies as non-explicit. The exported graph has ten relationship entries and ten plot events. A live Editor exchange saved a radio style note in Writing notes. Chapter 2 begins with the first scene after midnight.
 
-The first brainstorm request exhausted its 768-token budget on reasoning. The app now applies its existing reasoning settings to known Agent models during setup chat, and the live DeepSeek retry returned a visible reply. Lightly copyedited the scenes in the composer, approved the edited prose for shared context, and placed a chapter break at the third scene. Exported through the browser and packaged the saved story, excluding the original library ID and transient Agent status. The regeneration cost about half a cent including the initial retry.
+Previewed and used a live Story Flow direction for scene 4, then checked that three new directions were saved. Pinned two of five live theme findings and kept two of seven AI thread suggestions. Added one manual setup-and-payoff pair. The live continuity check cited two real passages about how Lina accessed the log before Sam found the cabinet key. That question remains open in the sample. A connection error on the first thread review cleared on retry. Studio estimated about US$0.47 for the live run.
+
+Exported through the browser, compared the export with the isolated saved library, and checked that all pinned and tracked references resolved after replacing the project's local identifier with the bundled demo identifier.
 
 ## Harness and documentation audit
 

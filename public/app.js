@@ -339,9 +339,9 @@ function render() {
     const open = el('button','button primary','Open demo');
     open.onclick = () => openStory(demo);
     summary.append(el('h3','',demo.title),
-      el('p','','A late ferry, an unreliable beacon, and a gap in the harbor log.'),
+      el('p','','A held ferry, an unreliable beacon, and an altered harbor log.'),
       el('p','library-counts',`${demo.cast.length} characters · ${demo.messages.length} turns`),open);
-    feature.append(cover,summary,el('p','library-demo-note','Explore the manuscript, cast, and relationships. The demo resets when you reload.'));
+    feature.append(cover,summary,el('p','library-demo-note','Explore the chapters, graph, and saved Revision examples. The demo resets when you reload.'));
     list.append(feature);
   }
   const yours = el('section','library-collection');
