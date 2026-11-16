@@ -270,6 +270,7 @@ function addDisplayNameRow(original = '', display = '') {
     row.remove();
     labelDisplayNameRows();
     clearDisplayNameFeedback();
+    renderDisplayPreview();
     (neighbor?.querySelector('input') || $('#addDisplayName')).focus();
   };
   originalCell.append(originalInput);
@@ -283,14 +284,34 @@ function addDisplayNameRow(original = '', display = '') {
 
 function renderDisplayNames() {
   const storyId = current().id;
-  if (storyId === displayNameStoryId) return;
-  displayNameStoryId = storyId;
-  displayNameRows.replaceChildren();
-  $('#displayNamesError').textContent = '';
-  $('#displayNamesStatus').textContent = '';
-  const entries = readDisplayNames(storyId);
-  if (!entries.length) addDisplayNameRow();
-  else for (const [original, display] of entries) addDisplayNameRow(original,display);
+  if (storyId !== displayNameStoryId) {
+    displayNameStoryId = storyId;
+    displayNameRows.replaceChildren();
+    clearDisplayNameFeedback();
+    const entries = readDisplayNames(storyId);
+    if (!entries.length) addDisplayNameRow();
+    else for (const [original, display] of entries) addDisplayNameRow(original,display);
+  }
+  renderDisplayPreview();
+}
+
+function renderDisplayPreview() {
+  const preview = $('#displayNamesPreview');
+  const project = current();
+  const prose = project?.messages.find(turn=>turn.role === 'assistant' && isAvailableToMcp(turn))?.content;
+  preview.replaceChildren();
+  if (!prose) {
+    preview.append(el('p','','Story prose will appear here as you write.'));
+    return;
+  }
+  const entries = new Map();
+  for (const row of displayNameRows.rows) {
+    const [original, display] = Array.from(row.querySelectorAll('input'),input=>input.value.trim());
+    if (original && display && !entries.has(original)) entries.set(original,display);
+  }
+  const match = createDisplayNameMatcher(entries);
+  preview.append(el('h4','',project.title),
+    readerText('p','',shortExcerpt(prose.split(/\n\s*\n/u)[0],460),match));
 }
 
 function clearDisplayNameFeedback() {
@@ -301,7 +322,10 @@ $('#addDisplayName').onclick = () => {
   clearDisplayNameFeedback();
   addDisplayNameRow().focus();
 };
-$('#displayNamesForm').oninput = clearDisplayNameFeedback;
+$('#displayNamesForm').oninput = () => {
+  clearDisplayNameFeedback();
+  renderDisplayPreview();
+};
 $('#displayNamesForm').onsubmit = event => {
   event.preventDefault();
   if (!state) return;
@@ -337,21 +361,43 @@ function render() {
   document.title = project.title + ' · Story Studio';
   const list = $('#projectList');
   list.replaceChildren();
-  for (const story of state.projects) {
-    const button = el('button','project-item' + (story.id === project.id ? ' active' : ''));
-    const label = story.id === starterStoryId ? `${story.title} · Demo` : story.title;
-    button.title = label;
-    button.append(el('span', 'project-title', label));
-    if (story.id === project.id) button.setAttribute('aria-current', 'true');
-    button.onclick = () => {
-      state.activeId = story.id;
-      markDirty();
-      error();
-      render();
-      $('#sidebar').close();
-    };
-    list.append(button);
+  const demo = state.projects.find(story=>story.id === starterStoryId);
+  const openStory = story => {
+    state.activeId = story.id;
+    markDirty();
+    error();
+    showStoryView('write');
+    render();
+    $('#sidebar').close();
+  };
+  if (demo) {
+    const feature = el('section','library-feature');
+    const cover = el('div','library-cover');
+    cover.setAttribute('aria-hidden','true');
+    cover.append(el('span','','Story Studio'),el('strong','',demo.title),el('span','','Bellwether Harbor'));
+    const summary = el('div','library-demo-summary');
+    const open = el('button','button primary','Open demo');
+    open.onclick = () => openStory(demo);
+    summary.append(el('h3','',demo.title),
+      el('p','','A late ferry, an unreliable beacon, and a gap in the harbor log.'),
+      el('p','library-counts',`${demo.cast.length} characters · ${demo.messages.length} turns`),open);
+    feature.append(cover,summary,el('p','library-demo-note','Explore the manuscript, cast, and relationships. The demo resets when you reload.'));
+    list.append(feature);
   }
+  const yours = el('section','library-collection');
+  yours.append(el('h3','','Your own stories'));
+  for (const story of state.projects.filter(story=>story.id !== starterStoryId)) {
+    const button = el('button','project-item' + (story.id === project.id ? ' active' : ''));
+    button.title = story.title;
+    const chapters = bookChapters(story.messages).length;
+    button.append(el('span','project-title',story.title),
+      el('span','library-counts',`${chapters} ${chapters === 1 ? 'chapter' : 'chapters'} · ${story.messages.length} ${story.messages.length === 1 ? 'turn' : 'turns'}`));
+    if (story.id === project.id) button.setAttribute('aria-current', 'true');
+    button.onclick = () => openStory(story);
+    yours.append(button);
+  }
+  if (yours.childElementCount === 1) yours.append(el('p','form-note','Start with a premise or import a manuscript from New story.'));
+  list.append(yours);
   renderMessages();
 }
 const storyActions = $('#storyActions');
@@ -517,6 +563,14 @@ function turnPreview(text) {
   return characters.length > 64 ? characters.slice(0,63).join('').trimEnd() + '…' : characters.join('');
 }
 
+function shortExcerpt(text, limit) {
+  const clean = text.trim().replace(/\s+/gu,' ');
+  if (clean.length <= limit) return clean;
+  const prefix = clean.slice(0,limit);
+  const breakAt = prefix.lastIndexOf(' ');
+  return (breakAt > limit * .75 ? prefix.slice(0,breakAt) : prefix) + '…';
+}
+
 function* storyTurns(project) {
   let previousDirection;
   for (let index = 0; index < project.messages.length; index++) {
@@ -528,7 +582,8 @@ function* storyTurns(project) {
     const preview = reply && !replyReason ? reply.content : !messageReason ? message.content : '';
     yield {
       selection:{kind:'turn',turn:message.turnNumber || index + 1,...(reply ? {replyTurn:reply.turnNumber || index + 2} : {})},
-      time:timelineTime(message,reply), detail:turnPreview(preview), reason:messageReason || replyReason
+      time:timelineTime(message,reply), detail:turnPreview(preview), reason:messageReason || replyReason,
+      startsChapter:message.startsChapter || reply?.startsChapter, preview
     };
     if (reply) index++;
   }
@@ -546,7 +601,37 @@ function appendTurnContextBadge(container, badgeGroup, reason) {
   badgeGroup.append(el('span','context-badge',labels[status]));
 }
 
-let renderedStoryId, activeStoryTurn, lastRenderedTurn;
+let renderedStoryId, activeStoryTurn, lastRenderedTurn, outlineScenes = new Map();
+$('#focusWriting').onclick = event => {
+  const enabled = $('#writeView').toggleAttribute('data-focus');
+  event.currentTarget.setAttribute('aria-pressed',String(enabled));
+  event.currentTarget.textContent = enabled ? 'Exit focus' : 'Focus';
+};
+$('#inspectSceneLore').onclick = () => openSettings();
+
+function renderSceneInspector(turn) {
+  const project = current();
+  const scene = outlineScenes.get(turn) || Array.from(outlineScenes.values()).at(-1);
+  $('#documentLocation').textContent = scene ? `Chapter ${scene.chapter} / Turn ${scene.selection.turn}` : 'Manuscript';
+  const content = $('#sceneInspectorContent');
+  const match = createDisplayNameMatcher(readDisplayNames(project.id));
+  content.replaceChildren();
+  if (scene?.time) {
+    content.append(el('p','scene-clock',scene.time.slice(11)),
+      el('p','scene-date',timelineDate.format(new Date(scene.time + 'Z'))));
+  }
+  const sceneText = scene?.preview.toLowerCase() || '';
+  const present = (project.cast || []).filter(member=>[member.name,...(member.nickname || '').split(',')]
+    .some(name=>name.trim() && sceneText.includes(name.trim().toLowerCase())));
+  if (present.length) {
+    const list = el('ul','scene-cast');
+    for (const member of present) list.append(readerText('li','',member.name,match));
+    content.append(el('h3','','On the page'),list);
+  }
+  if (project.lore.trim()) content.append(el('h3','','World setting'),el('p','',shortExcerpt(project.lore,150)));
+  if (project.notes.trim()) content.append(el('h3','','Writing notes'),el('p','scene-writing-notes',shortExcerpt(project.notes,150)));
+  if (!content.childElementCount) content.append(el('p','form-note','Scene times and story notes appear here.'));
+}
 function setStoryTurnsOpen(open) {
   $('#storyTurnSidebar').toggleAttribute('data-open',open);
   $('#toggleStoryTurns').setAttribute('aria-expanded',String(open));
@@ -565,6 +650,7 @@ function selectStoryTurn(turn) {
   const nav = $('#storyTurns');
   nav.querySelector('[aria-current]')?.removeAttribute('aria-current');
   $('#messages .story-turn-target')?.classList.remove('story-turn-target');
+  renderSceneInspector(turn);
   const target = turn && $('#messages').querySelector(`[data-story-turn="${turn}"]`);
   if (!target) {
     activeStoryTurn = undefined;
@@ -590,7 +676,12 @@ $('#latestStoryTurn').onclick = () => {
 function renderStoryTurns(project, followLatest, match) {
   const nav = $('#storyTurns'), scrollTop = nav.scrollTop;
   const fragment = document.createDocumentFragment();
-  for (const {selection:{turn},detail,reason} of storyTurns(project)) {
+  outlineScenes = new Map();
+  let chapter = 0;
+  for (const scene of storyTurns(project)) {
+    const {selection:{turn},detail,reason,startsChapter} = scene;
+    if (!chapter || startsChapter) fragment.append(el('h3','outline-chapter',`Chapter ${++chapter}`));
+    outlineScenes.set(turn,{...scene,chapter});
     const button = el('button','graph-turn');
     button.type = 'button';
     button.dataset.turnLink = turn;
@@ -716,6 +807,18 @@ function renderBook() {
   bookStoryId = project.id;
   chapters = bookChapters(project.messages);
   const count = chapters.length;
+  const outline = $('#bookOutline');
+  outline.replaceChildren();
+  chapters.forEach((_,index) => {
+    const number = index + 1;
+    const button = el('button','graph-turn',`Chapter ${number}`);
+    button.type = 'button';
+    button.onclick = () => {
+      bookChapter.value = String(number);
+      bookChapter.dispatchEvent(new Event('change'));
+    };
+    outline.append(button);
+  });
   $('#bookToolbar').hidden = !count;
   if (!count) {
     setBookExport(false);
@@ -1112,7 +1215,7 @@ function syncRoute() {
   $('#composerWatcherStatus').hidden = route !== 'mcp';
   sceneModelChoice.disabled = busy || Boolean(composerEdit);
   syncSceneModel(model,mode);
-  $('#routeSummary').textContent = !editingStory && project.agentEditRequest ? 'A metadata edit is queued. Open Agent to manage it.'
+  $('#routeSummary').textContent = !editingStory && project.agentEditRequest ? 'A metadata edit is queued. Open Editor agent to manage it.'
     : !editingStory && sensitiveDraft(project) && route !== 'manual' && (!usesOpenRouter || !canWriteSensitive(model))
       ? 'Choose Cydonia to generate a sensitive scene.'
     : composerEdit ? '' : usesOpenRouter
@@ -1180,7 +1283,7 @@ async function generateAgentEdit(project) {
   }
   if (!model || !key) {
     openConnection();
-    return error('Choose an Agent model and enter your OpenRouter key.');
+    return error('Choose an Editor agent model and enter your OpenRouter key.');
   }
   setBusy(true);
   try {
@@ -1506,6 +1609,15 @@ function refreshCastGraph() {
     });
     graph.append(node);
   }
+  const castList = $('#graphCastList');
+  castList.replaceChildren();
+  for (const editor of editors) {
+    const button = el('button','graph-turn',editorName(editor));
+    button.type = 'button';
+    button.onclick = () => selectCastEditor(editor.dataset.id,true);
+    castList.append(button);
+  }
+  if (!editors.length) castList.append(el('p','form-note','No cast members yet.'));
   const empty = $('#emptyCast');
   empty.hidden = editors.length !== 0;
   graph.hidden = editors.length === 0;
@@ -1588,7 +1700,19 @@ function showTimeline(expanded) {
   $('#toggleTimeline').setAttribute('aria-expanded',String(expanded));
   $('#toggleTimeline').textContent = expanded ? 'Hide timeline' : 'Show timeline';
 }
-$('#toggleTimeline').onclick = () => showTimeline($('#toggleTimeline').getAttribute('aria-expanded') === 'false');
+$('#toggleTimeline').onclick = event => {
+  const expanded = event.currentTarget.getAttribute('aria-expanded') === 'false';
+  if (expanded) selectGraphRail(false);
+  showTimeline(expanded);
+};
+function selectGraphRail(cast) {
+  $('#showGraphTurns').setAttribute('aria-pressed',String(!cast));
+  $('#showGraphCast').setAttribute('aria-pressed',String(cast));
+  $('#graphTurns').hidden = cast;
+  $('#graphCastList').hidden = !cast;
+}
+$('#showGraphTurns').onclick = () => selectGraphRail(false);
+$('#showGraphCast').onclick = () => selectGraphRail(true);
 
 function pinGraph(selection) {
   pinnedGraph = selection;
@@ -2179,6 +2303,9 @@ function openConnection(addModel = false) {
   if (!state || busy) return;
   const mode = authorMode(current());
   const model = writingModel(current(),mode);
+  const connectionRoute = $('#connectionRoute');
+  connectionRoute.querySelector('[value="manual"]').disabled = mode === 'agent';
+  connectionRoute.value = addModel === true ? 'openrouter' : writingRoute(current(),mode);
   modelChoice.replaceChildren(...modelOptions(mode,{priced:true,addModel:true}));
   modelChoice.value = addModel === true ? 'custom' : model;
   $('#modelPolicy').textContent = mode === 'agent' ? 'These models can use the story-state editing tools.'
@@ -2204,11 +2331,12 @@ $('#providerForm').onsubmit = event => {
   event.preventDefault();
   const project = current();
   const mode = authorMode(project);
+  const route = $('#connectionRoute').value;
   const custom = modelChoice.value === 'custom';
   const modelInput = $('#modelInput');
   const model = custom ? modelInput.value.trim().toLowerCase() : modelChoice.value;
-  if (mode === 'agent' ? !isAgentModel(model) : !isModelId(model)) {
-    $('#modelError').textContent = mode === 'agent' ? 'Choose a model supported in Agent mode.' : custom
+  if ((route === 'openrouter' || custom) && (mode === 'agent' ? !isAgentModel(model) : !isModelId(model))) {
+    $('#modelError').textContent = mode === 'agent' ? 'Choose a model supported by Editor agent.' : custom
       ? 'Enter a specific model ID in author/model format.'
       : 'Choose an OpenRouter model.';
     (custom ? modelInput : modelChoice).focus();
@@ -2216,8 +2344,8 @@ $('#providerForm').onsubmit = event => {
   }
   if (custom && !isPreset(model) && !userModels.includes(model)) saveUserModels([...userModels,model]);
   openRouterKey = $('#keyInput').value.trim();
-  setSession(modelKey(project.id,mode),model);
-  setSession(routeKey(project.id,mode),'openrouter');
+  if (model) setSession(modelKey(project.id,mode),model);
+  setSession(routeKey(project.id,mode),route);
   syncRoute();
   renderMessages();
   $('#providerDialog').close();
@@ -2418,6 +2546,13 @@ function setupStep(step) {
   setupChat.hidden = step !== 'chat';
   setupReview.hidden = step !== 'review';
   setupImport.hidden = step !== 'import';
+  setupDialog.dataset.step = step;
+  $('#setupProgress').hidden = step === 'choice' || (step === 'review' && setupReviewBack === 'choice');
+  for (const item of $('#setupProgress').children) {
+    item.hidden = item.dataset.stage === 'import' && step !== 'import' && !setupManuscript;
+    if (item.dataset.stage === step) item.setAttribute('aria-current','step');
+    else item.removeAttribute('aria-current');
+  }
   const title = $('#setupHeading');
   title.textContent = {choice:'New story',import:'Import an existing story',chat:'Brainstorm your story',
     review:setupReviewBack === 'chat' ? 'Review your setup' : 'Set up your story'}[step];
@@ -3026,7 +3161,7 @@ function composerContext() {
     limits = `${windowNote} Studio budgets ${contextNumber.format(writingPromptLimit(model))} input tokens, including up to ${contextNumber.format(writingHistoryLimit(model))} for recent turns.${output} Story state includes world, characters, notes, and graph. ${continuity}`;
   }
   const tokens = parts.reduce((sum,part)=>sum + part.tokens,0);
-  return {heading:messages ? 'Prompt preview' : 'Agent context',summary:`Context · ${contextEstimate(tokens)} · ${windowLabel(route,model)}`,
+  return {heading:messages ? 'Prompt preview' : 'Editor agent context',summary:`Context · ${contextEstimate(tokens)} · ${windowLabel(route,model)}`,
     parts,messages,limits};
 }
 
@@ -3035,6 +3170,11 @@ $('#promptPreview').onclick = $('#contextIndicator').onclick = () => {
   const {heading,summary,parts,messages,limits} = updateContextIndicator();
   $('#promptHeading').textContent = heading;
   $('#contextTotal').textContent = summary;
+  $('#contextBar').replaceChildren(...parts.filter(part=>part.tokens > 0).map(({tokens})=>{
+    const segment = el('span');
+    segment.style.flexGrow = tokens;
+    return segment;
+  }));
   $('#contextParts').replaceChildren(...parts.flatMap(({label,tokens})=>[
     el('dt','',label),el('dd','',contextNumber.format(tokens) + ' tokens')
   ]));

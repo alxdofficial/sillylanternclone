@@ -297,7 +297,12 @@ async function generateSetup(req,res,diagnostics) {
     return json(res,502,{error:error.diagnosticCode ? error.message : 'Story Studio could not prepare a setup reply.'});
   }
 }
-const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml'};
+const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.ttf':'font/ttf'};
+const staticAssets = new Set([
+  '/index.html','/app.js','/prompt.js','/models.js','/graph-history.js','/library.js',
+  '/manuscript.js','/display-names.js','/sync.js','/style.css',
+  '/fonts/inter-regular.ttf','/fonts/inter-semibold.ttf','/fonts/instrument-serif.ttf','/fonts/source-serif.ttf'
+]);
 function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens = agentOutputLimit) {
   const budget = AbortSignal.timeout(60_000);
   const combined = signal ? AbortSignal.any([signal,budget]) : budget;
@@ -486,7 +491,18 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     return json(res,e.status || 500,{error:e.diagnosticCode ? e.message : 'Story Studio could not generate a reply.'});
   }
 }
-if(req.method!=='GET')return json(res,404,{error:'Not found.'});if(url.pathname==='/favicon.ico'){res.writeHead(204);return res.end();}const path=url.pathname==='/'?'/index.html':url.pathname;if(!/^\/(index\.html|app\.js|prompt\.js|models\.js|graph-history\.js|library\.js|manuscript\.js|display-names\.js|sync\.js|style\.css)$/.test(path))return json(res,404,{error:'Not found.'});const contents=await readFile(join(root,'public',path));res.writeHead(200,{'content-type':types[extname(path)]||'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'"});res.end(contents);
+if (req.method !== 'GET') return json(res,404,{error:'Not found.'});
+if (url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
+const path = url.pathname === '/' ? '/index.html' : url.pathname;
+if (!staticAssets.has(path)) return json(res,404,{error:'Not found.'});
+const contents = await readFile(join(root,'public',path));
+res.writeHead(200,{
+  'content-type':types[extname(path)],
+  'cache-control':'no-store',
+  'x-content-type-options':'nosniff',
+  'content-security-policy':"default-src 'self'; base-uri 'none'; frame-ancestors 'none'"
+});
+res.end(contents);
 }
 
 const server = http.createServer(async (req,res) => {

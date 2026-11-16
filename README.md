@@ -1,6 +1,6 @@
 # Story Studio
 
-Story Studio is a local fiction-writing workspace with a cast, relationship timeline, and manuscript. The composer starts in **Story** mode. Use it to write the next scene and let Story Studio maintain continuity. Choose **Agent** to edit the cast, setting, or story notes directly.
+Story Studio is a local fiction-writing workspace with a cast, relationship timeline, and manuscript. The composer starts in **Progress the story**. Use it to write the next scene and let Story Studio maintain continuity. Choose **Editor agent** to edit the cast, setting, or story notes directly.
 
 ## Start on your Mac
 
@@ -27,10 +27,10 @@ New libraries open on **The Late Ferry**, a late-night harbor mystery with six c
 
 The demo was built and exported through the current Story Studio browser workflow. DeepSeek V4.1 Flash brainstormed and proposed the setup, including the starting relationships. Cydonia 24B v4.1 drafted the scenes, and DeepSeek recorded their times and continuity changes. The prose was lightly copyedited and reviewed in Story Studio. [See the verification notes](TESTING.md#the-late-ferry-starter).
 
-## Story mode
+## Progress the story
 
 1. Open **Stories → New story**. Choose **Set up manually** to enter a title, premise, world, writing notes, cast, and starting relationships. Or choose **Brainstorm with a model**, select OpenRouter or MCP, and chat through your ideas. Click **Prepare setup draft** when you are ready. Review the world, cast, and relationship proposals, then click **Create story**. Starting relationships share the in-story **Story start** date and time. You can change them later under **Character & lore**.
-2. In **Story**, describe what happens next or paste the start of a scene. Directions can be up to **8,000 words**. For example, “Have Noor investigate the beacon from the pier, in close third person.” Set a one-off style in the composer or a standing preference in **Character & lore → Writing → Writing notes**. By default the narrator matches established prose or uses third-person past tense for a new story. **Prompt** previews the writing context for the selected route.
+2. In **Progress the story**, describe what happens next or paste the start of a scene. Directions can be up to **8,000 words**. For example, “Have Noor investigate the beacon from the pier, in close third person.” Set a one-off style in the composer or a standing preference in **Character & lore → Writing → Writing notes**. By default the narrator matches established prose or uses third-person past tense for a new story. **Prompt** previews the writing context for the selected route.
 3. Choose who writes the turn.
 
    - **MCP** gives the turn to your signed-in Codex, Claude Code, or other local MCP client. Click **Queue turn**. The agent writes and saves the narration, then records the scene's continuity. The status above the composer shows where the request stands. If you have no watcher running, ask your agent to handle the queued turn. [MCP setup](MCP.md)
@@ -47,13 +47,13 @@ Use **Edit** on an author direction to bring it back into the composer. **Save &
 
 The provider and model are remembered per story and composer mode in the current tab, including through rewind and turn deletion. The OpenRouter key stays in memory and must be entered again after a reload.
 
-To use an OpenRouter artist outside the built-in list, choose **Story → Connection → Add model by ID…**. Enter the exact `author/model` ID and save. It appears as **User-added** in Story mode and setup chat. To remove it, select it in **Connection** and click **Remove user-added model**. The saved list lives in this browser.
+To use an OpenRouter artist outside the built-in list, choose **Progress the story → Connection → OpenRouter model → Add model by ID…**. Enter the exact `author/model` ID and save. It appears as **User-added** for Progress the story and setup chat. To remove it, select it in **Connection** and click **Remove user-added model**. The saved list lives in this browser.
 
 Open **⋯** on a turn to explore a different path. **Branch from here** creates a separate story through that turn, including the selected take, the cast and world notes recorded then, and earlier relationship events. You can branch from the demo to keep writing a regular saved story. **Rewind to here** removes later turns and their events from the current story. Deleting a story or a turn, rewinding, removing a character or relationship event, and replacing your library all ask for confirmation. For older turns without a saved cast or world version, Story Studio uses the current notes.
 
-## Agent mode
+## Editor agent
 
-Switch to **Agent** for a request like “Add the old ferry terminal to the setting” or “Give Noor a nickname.” The agent goes straight to the story-state tools and edits the information you requested. Use **Story** when you want new prose. Agent can add or revise cast profiles, world information, writing notes, and continuity. It leaves the manuscript and chapters intact.
+Switch to **Editor agent** for a request like “Add the old ferry terminal to the setting” or “Give Noor a nickname.” The agent goes straight to the story-state tools and edits the information you requested. Use **Progress the story** when you want new prose. Editor agent can add or revise cast profiles, world information, writing notes, and continuity. It leaves the manuscript and chapters intact.
 
 Choose **MCP** and click **Queue edit**, or choose a supported **OpenRouter** model and click **Apply edits**. The result appears above the composer. Pending MCP edits can be canceled before they save. The agent can inspect the relevant story state and use eligible context to resolve references in your request. [MCP tools](MCP.md#edit-story-metadata)
 
@@ -94,11 +94,11 @@ The continuity pass can update characters, world details, relationships, and sto
 
 ## Context and sensitive scenes
 
-The composer’s **Context** indicator shows an estimated input-token total and the selected model’s published window when available. Open it for the breakdown, the app’s history budget, and in Story mode the exact assembled prompt. Agent shows its initial context before any tool lookups. In the setup wizard, the estimate covers chat, additional context, and previewed manuscript excerpts, alongside the separate word limit. MCP clients control their own model window. For a user-added model, the window is unknown until independently verified.
+The composer’s **Context** indicator shows an estimated input-token total and the selected model’s published window when available. Open it for the breakdown, the app’s history budget, and the exact assembled prompt in Progress the story. Editor agent shows its initial context before any tool lookups. In the setup wizard, the estimate covers chat, additional context, and previewed manuscript excerpts, alongside the separate word limit. MCP clients control their own model window. For a user-added model, the window is unknown until independently verified.
 
 The narrator prompt includes the cast, setting, applicable lore, and recent eligible prose. It limits recent prose to an estimated 16,000 tokens, with a smaller allowance on models with shorter budgets. Older prose stays in the transcript. The prompt uses the remaining budget for relationship events. When the full timeline exceeds that budget, Story Studio favors events involving characters mentioned in the current scene, then newer events, and presents the selected events chronologically. Saved story-memory facts also carry forward.
 
-For a sensitive scene, choose **Story → OpenRouter → Cydonia 24B v4.1** and check **Sensitive scene** before sending. Story Studio marks that direction explicit and allows Cydonia to see eligible sensitive history for that request. DeepSeek V4.1 Flash sees the new direction and draft for classification and continuity. General models and MCP receive eligible prose plus approved, non-explicit graph facts. Use the checkbox before sending because automatic classification happens after the artist receives your direction. [OpenRouter context and tools](MODELS.md#what-story-studio-sends-and-expects)
+For a sensitive scene, choose **Progress the story → OpenRouter → Cydonia 24B v4.1** and check **Sensitive scene** before sending. Story Studio marks that direction explicit and allows Cydonia to see eligible sensitive history for that request. DeepSeek V4.1 Flash sees the new direction and draft for classification and continuity. General models and MCP receive eligible prose plus approved, non-explicit graph facts. Use the checkbox before sending because automatic classification happens after the artist receives your direction. [OpenRouter context and tools](MODELS.md#what-story-studio-sends-and-expects)
 
 Labels are model judgments and can be wrong. If classification fails, Story Studio keeps the prose and treats the unverified text as withheld from general model context. If the artist hits its output limit, the partial draft stays in the transcript and receives a cutoff warning. Changes from sensitive or unverified scenes need review before entering shared story context. Review manually added, imported, and edited passages too.
 

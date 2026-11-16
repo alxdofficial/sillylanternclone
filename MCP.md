@@ -69,7 +69,7 @@ Leave shell and file access as the client normally has them. Story Studio needs 
 
 ## Write with an agent
 
-Open Story Studio first. Use the launcher, or ask the agent “Start Story Studio using its MCP tool and give me the browser link.” In **Story** mode, select **MCP**, write a direction, and click **Queue turn**. A queued turn authorizes the agent to draft and save the reply and record its continuity.
+Open Story Studio first. Use the launcher, or ask the agent “Start Story Studio using its MCP tool and give me the browser link.” In **Progress the story**, select **MCP**, write a direction, and click **Queue turn**. A queued turn authorizes the agent to draft and save the reply and record its continuity.
 
 ### Brainstorm a new story or import a manuscript
 
@@ -129,7 +129,7 @@ If the library revision changes while the agent is writing, it rereads the story
 2. If `submit_reply` returns `continuityPending`, use the returned turn number and revision for the continuity pass. Call `inspect_continuity` when useful to check a cast profile, world setting, writing note, plot fact, or relationship history. Consult the smallest relevant section.
 3. Call `record_scene` with the story ID, revision, turn number, and up to five new, non-explicit continuity facts. Supply the in-story time if you can infer it. Use an empty `updates` array when nothing needs recording. If a proposal is rejected, correct or omit it and retry. The prose is already saved.
 
-A watcher can resume an unfinished continuity pass via `wait_for_queued_turn`. It returns `pendingRequest.mode: "continuity"` for an eligible saved reply and includes the scene and its available direction. Use `record_scene` for this result. A rewrite or alternate keeps the original scene time and closes without recording new facts. This is the same division of work that Story mode uses with OpenRouter. [OpenRouter context and tools](MODELS.md#what-story-studio-sends-and-expects)
+A watcher can resume an unfinished continuity pass via `wait_for_queued_turn`. It returns `pendingRequest.mode: "continuity"` for an eligible saved reply and includes the scene and its available direction. Use `record_scene` for this result. A rewrite or alternate keeps the original scene time and closes without recording new facts. This is the same division of work that Progress the story uses with OpenRouter. [OpenRouter context and tools](MODELS.md#what-story-studio-sends-and-expects)
 
 ### When the agent hands a turn back
 
