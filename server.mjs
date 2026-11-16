@@ -297,11 +297,10 @@ async function generateSetup(req,res,diagnostics) {
     return json(res,502,{error:error.diagnosticCode ? error.message : 'Story Studio could not prepare a setup reply.'});
   }
 }
-const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.ttf':'font/ttf'};
+const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8'};
 const staticAssets = new Set([
   '/index.html','/app.js','/prompt.js','/models.js','/graph-history.js','/library.js',
-  '/manuscript.js','/display-names.js','/sync.js','/style.css',
-  '/fonts/inter-regular.ttf','/fonts/inter-semibold.ttf','/fonts/instrument-serif.ttf','/fonts/source-serif.ttf'
+  '/manuscript.js','/display-names.js','/sync.js','/style.css'
 ]);
 function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens = agentOutputLimit) {
   const budget = AbortSignal.timeout(60_000);
