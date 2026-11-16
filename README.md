@@ -45,7 +45,7 @@ To add your own OpenRouter model, select **Add model by ID…** in Connection an
 
 ## Story Flow
 
-In **Write**, open **Story Flow** and choose **Suggest directions**. Pick one of the three or four distinct next beats or type your own direction. In OpenRouter, picking a direction starts the next scene with your selected writer and continuity agent. While Flow is open, Story Studio offers fresh directions after a successful new scene. Suggesting directions uses a separate OpenRouter request.
+In **Write**, open **Story Flow** and use the refresh icon to suggest directions. The choices appear just above the composer. Pick one of the three or four next beats or type your own direction. In OpenRouter, picking a direction starts the next scene with your selected writer and continuity agent. While Flow is open, Story Studio offers fresh directions after a successful new scene. Suggesting directions uses a separate OpenRouter request.
 
 For native MCP, ask your agent to use Story Flow. Its directions appear above the composer. Choose one there. If the agent is still waiting, it receives the choice directly. If the brief wait has ended, tell the agent to continue in its chat. Studio keeps the selection until the agent saves the continuation or the story moves on.
 

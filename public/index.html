@@ -6,6 +6,11 @@
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+<svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="icon-more" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></symbol>
+  <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+</svg>
 <div class="shell">
   <dialog class="sidebar" id="sidebar" aria-labelledby="storiesHeading">
     <header class="brand library-header">
@@ -13,7 +18,7 @@
       <div class="library-header-actions">
         <button id="importButton" class="button subtle">Import library</button>
         <button id="newProject" class="button primary">+ New story</button>
-        <button id="closeMenu" class="icon" aria-label="Close stories">×</button>
+        <button id="closeMenu" class="icon" aria-label="Close stories"><svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg></button>
       </div>
     </header>
     <div id="projectList" class="project-list"></div>
@@ -26,7 +31,7 @@
   <main class="main">
     <header class="topbar">
       <div class="studio-brand">
-        <button id="openMenu" class="tool" aria-label="Stories" aria-haspopup="dialog"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1zm0 0v14"/></svg><span>Story Studio</span></button>
+        <button id="openMenu" class="tool" aria-label="Story Studio stories" title="Open stories" aria-haspopup="dialog"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1zm0 0v14"/></svg><span>Story Studio</span></button>
         <div class="story-title">
           <h1 id="storyTitle">Your story</h1>
           <div id="saveStatus" class="save-status" role="status">Loading…</div>
@@ -41,12 +46,12 @@
         </div>
       </div>
       <div class="studio-tools">
-        <button type="button" class="tool" id="pasteReply" aria-haspopup="dialog">Add prose</button>
+        <button type="button" class="tool" id="pasteReply" aria-haspopup="dialog"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> Add prose</button>
         <button id="providerButton" class="tool" aria-haspopup="dialog"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v5m6-5v5M7 8h10v4a5 5 0 0 1-10 0zm5 9v4"/></svg> Connection</button>
         <div class="story-heading-actions">
           <button type="button" class="button subtle" id="toggleStoryTurns" aria-controls="storyTurnSidebar" aria-expanded="false">Turns</button>
           <details class="story-actions" id="storyActions" hidden>
-            <summary class="icon" aria-label="Story options" title="Story options">…</summary>
+            <summary class="icon" aria-label="Story options" title="Story options"><svg class="tool-mark" aria-hidden="true"><use href="#icon-more"/></svg></summary>
             <div class="story-action-menu"><button type="button" class="button danger" id="deleteProject">Delete story</button></div>
           </details>
         </div>
@@ -73,6 +78,12 @@
           </div>
         </div>
         <div id="messages" class="messages"></div>
+        <section id="storyFlowPanel" class="story-flow-panel" aria-labelledby="storyFlowHeading" hidden>
+          <h3 id="storyFlowHeading" class="sr-only">Story Flow</h3>
+          <p id="storyFlowStatus" class="story-flow-status" role="status"></p>
+          <div id="storyFlowOptions" class="story-flow-options" role="group" aria-labelledby="storyFlowHeading"></div>
+          <button id="requestStoryFlow" type="button" class="icon" aria-label="Suggest directions" title="Suggest directions"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5.3"/></svg></button>
+        </section>
         <div class="composer" id="writingComposer">
           <div class="composer-content">
           <div class="route-bar" id="routeModels">
@@ -94,17 +105,9 @@
             <p id="routeSummary" class="route-hint" role="status"></p>
             <div class="route-tools">
               <button id="toggleStoryFlow" type="button" class="text-button story-flow-toggle" aria-expanded="false" aria-controls="storyFlowPanel">Story Flow</button>
-              <button id="contextIndicator" type="button" class="text-button context-indicator" aria-haspopup="dialog"><span aria-hidden="true" class="context-icon">≡</span> Context</button>
+              <button id="contextIndicator" type="button" class="text-button context-indicator" aria-haspopup="dialog"><svg class="tool-mark context-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h12M4 18h8"/></svg> Context</button>
             </div>
           </div>
-          <section id="storyFlowPanel" class="story-flow-panel" aria-labelledby="storyFlowHeading" hidden>
-            <div class="story-flow-header">
-              <h3 id="storyFlowHeading">Story Flow</h3>
-              <button id="requestStoryFlow" type="button" class="button subtle">Suggest directions</button>
-            </div>
-            <p id="storyFlowStatus" class="story-flow-status" role="status"></p>
-            <div id="storyFlowOptions" class="story-flow-options" role="group" aria-labelledby="storyFlowHeading"></div>
-          </section>
           <p id="composerEditStatus" class="route-hint" role="status" hidden></p>
           <label id="instructionLabel" for="instruction" class="sr-only">What happens next?</label>
           <textarea id="instruction" rows="2" placeholder="Write the next beat or tell the narrator what happens…"></textarea>
@@ -224,7 +227,7 @@
             <div id="inspectorType" class="inspector-type"></div>
             <h3 id="inspectorHeading"></h3>
           </div>
-          <button type="button" class="icon" id="closeInspector" aria-label="Close inspector">×</button>
+          <button type="button" class="icon" id="closeInspector" aria-label="Close inspector"><svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg></button>
         </div>
         <div id="graphPreview" class="graph-preview" hidden></div>
         <div id="graphProfile" hidden>
@@ -294,7 +297,7 @@
 
 <dialog id="editDialog" class="form-dialog" aria-labelledby="editHeading">
   <form id="editForm">
-    <header class="dialog-top"><h2 id="editHeading">Time and context</h2><button type="button" class="icon" id="closeEdit" aria-label="Close">×</button></header>
+    <header class="dialog-top"><h2 id="editHeading">Time and context</h2><button type="button" class="icon" id="closeEdit" aria-label="Close"><svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg></button></header>
     <div class="dialog-body">
       <label>In-story date and time <span>Optional for manually written turns.</span><input id="editStoryTime" type="datetime-local" step="60"></label>
       <label>AI context<select id="turnSensitivity" aria-describedby="editContextNote editSensitivityStatus"><option value="include">Include as non-explicit</option><option value="omit">Keep context censored</option></select></label>
@@ -307,7 +310,7 @@
 </dialog>
 <dialog id="providerDialog" class="form-dialog" aria-labelledby="providerHeading">
   <form id="providerForm">
-    <header class="dialog-top"><div><h2 id="providerHeading">Connection</h2><p>Choose how Story Studio works with your models.</p></div><button type="button" id="closeProvider" class="icon" aria-label="Close">×</button></header>
+    <header class="dialog-top"><div><h2 id="providerHeading">Connection</h2><p>Choose how Story Studio works with your models.</p></div><button type="button" id="closeProvider" class="icon" aria-label="Close"><svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg></button></header>
     <div id="routerFields" class="dialog-body">
       <section class="connection-row">
         <div><h3>Native chat</h3><p class="form-note">Use the installed Story Studio MCP tools in Codex or Claude.</p></div>
@@ -316,7 +319,7 @@
       <section class="connection-row" id="connectionOpenRouter">
         <div><h3>OpenRouter</h3><p class="form-note" id="modelBilling"></p></div>
         <div>
-          <label>OpenRouter API key<input id="keyInput" type="password" placeholder="Enter an API key" autocomplete="off"></label><p class="form-note">The key stays in this tab until you reload or close it.</p>
+          <label>OpenRouter API key<input id="keyInput" aria-describedby="keyStorage" type="password" placeholder="Enter an API key" autocomplete="off"></label><p class="form-note" id="keyStorage">The key stays in this tab until you reload or close it.</p>
           <div class="connection-model"><label for="modelPreset">OpenRouter model</label><select id="modelPreset" aria-describedby="modelPolicy modelPrice"><option value="" disabled>Choose a model</option></select></div>
           <button type="button" id="removeUserModel" class="button danger" hidden>Remove user-added model</button><p id="modelPolicy" class="form-note"></p>
           <div class="model-price" id="modelPrice" aria-live="polite" hidden><p id="modelEstimate"></p><p id="modelRates"></p><p class="form-note"><span id="modelChapterAssumption">A chapter assumes 2,000 input and 5,000 output tokens total. </span><a id="modelSource" rel="noopener noreferrer" target="_blank">OpenRouter listing</a> · rates checked Nov 16, 2026.</p></div>
@@ -329,7 +332,7 @@
 </dialog>
 <dialog id="pasteDialog" class="form-dialog" aria-labelledby="pasteHeading">
   <form id="pasteForm">
-    <header class="dialog-top"><h2 id="pasteHeading">Add prose</h2><button type="button" id="closePaste" class="icon" aria-label="Close">×</button></header>
+    <header class="dialog-top"><h2 id="pasteHeading">Add prose</h2><button type="button" id="closePaste" class="icon" aria-label="Close"><svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg></button></header>
     <div class="dialog-body">
       <label>Story prose<textarea id="pasteText" rows="9" required></textarea></label>
       <label>AI context<select id="pasteSensitivity">
@@ -342,7 +345,7 @@
   </form>
 </dialog>
 <dialog id="promptDialog" class="form-dialog" aria-labelledby="promptHeading">
-  <header class="dialog-top"><h2 id="promptHeading">Prompt preview</h2><button type="button" id="closePrompt" class="icon" aria-label="Close">×</button></header>
+  <header class="dialog-top"><h2 id="promptHeading">Prompt preview</h2><button type="button" id="closePrompt" class="icon" aria-label="Close"><svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg></button></header>
   <div class="dialog-body">
     <section class="context-summary" aria-label="Context usage">
       <label id="contextStageField" hidden>Pass
@@ -366,7 +369,7 @@
 <dialog id="setupDialog" class="form-dialog" aria-labelledby="setupHeading">
   <header class="dialog-top">
     <h2 id="setupHeading" tabindex="-1">New story</h2>
-    <button type="button" class="icon" id="closeSetup" aria-label="Close story setup">×</button>
+    <button type="button" class="icon" id="closeSetup" aria-label="Close story setup"><svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg></button>
   </header>
   <ol class="setup-progress" id="setupProgress" aria-label="Story setup steps" hidden>
     <li data-stage="import">Manuscript</li>
@@ -377,14 +380,17 @@
     <button type="button" id="setupManual">
       <strong>Set up manually</strong>
       <span>Enter a title, setting, and cast. Start with as little as you like.</span>
+      <svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg>
     </button>
     <button type="button" id="setupBrainstorm">
       <strong>Brainstorm with a model</strong>
       <span>Explore ideas in a chat, then review the proposed story setup.</span>
+      <svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg>
     </button>
     <button type="button" id="setupExisting">
       <strong>Import an existing story</strong>
       <span>Paste a manuscript and turn it into a Story Studio project.</span>
+      <svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg>
     </button>
   </div>
   <form id="setupImport" hidden>
@@ -401,7 +407,6 @@
   </form>
   <form id="setupChat" hidden>
     <div class="setup-connection">
-      <strong class="setup-provider-label">OpenRouter</strong>
       <label for="setupModel" id="setupModelField">OpenRouter model <select id="setupModel"><option value="" disabled selected>Choose a model</option></select></label>
       <label for="setupKey" id="setupKeyField">OpenRouter API key <input id="setupKey" type="password" autocomplete="off"></label>
       <p class="form-note" id="setupProviderNote"></p>
@@ -455,10 +460,12 @@
       </section>
       <label class="context-toggle" id="setupReferencesReview" hidden><input type="checkbox" id="setupReferencesReviewed"> Allow my non-explicit setup chat and reference notes in future OpenRouter agent context.</label>
       <label>Story title <input id="setupTitle" required></label>
+      <div class="setup-start">
+        <label>Story start <input id="setupStartAt" type="datetime-local" aria-describedby="setupStartHint"></label>
+        <p class="form-note" id="setupStartHint">Starting relationships share this in-story date and time.</p>
+      </div>
       <label>Opening premise <textarea id="setupScenario" rows="2" placeholder="What is happening as the story starts?"></textarea></label>
       <label>World &amp; setting <textarea id="setupLore" rows="2" placeholder="Where and when does it take place?"></textarea></label>
-      <label>Story start <input id="setupStartAt" type="datetime-local" aria-describedby="setupStartHint"></label>
-      <p class="form-note" id="setupStartHint">Starting relationships share this in-story date and time.</p>
       <label>Writing notes <textarea id="setupNotes" rows="2" placeholder="Tone, point of view, or anything the narrator should know"></textarea></label>
       <label id="setupContinuityField" hidden>Story continuity <textarea id="setupContinuity" rows="2" placeholder="Established events and facts for continuing the story"></textarea></label>
       <fieldset class="setup-cast">

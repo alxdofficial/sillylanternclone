@@ -1155,6 +1155,8 @@ function renderPending() {
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 function syncRoute() {
+  const transcript = $('#messages');
+  const followLatest = storyView === 'write' && transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 40;
   const project = current();
   const mode = authorMode(project);
   const editingStory = mode === 'agent';
@@ -1200,14 +1202,15 @@ function syncRoute() {
   $('#sendButton').disabled = busy;
   $('#sendButton').textContent = editingStory ? busy ? 'Editing…' : 'Apply edits'
     : busy ? 'Writing…' : composerEdit ? rewriting ? 'Save & rewrite ↗' : 'Save edit' : 'Send & write ↗';
-  syncStoryFlow(project,editingStory);
+  syncStoryFlow(project,editingStory,composerVisible);
   updateContextIndicator();
+  if (followLatest) transcript.scrollTop = transcript.scrollHeight;
 }
 function speakerMetadata(speaker) {
   return {speakerId:speaker.id, speakerName:speaker.name};
 }
 
-function syncStoryFlow(project,editingStory) {
+function syncStoryFlow(project,editingStory,composerVisible) {
   const flow = activeStoryFlow(project);
   const native = flow?.source === 'mcp';
   const dismissKey = 'story-flow-dismissed:' + project.id;
@@ -1216,15 +1219,17 @@ function syncStoryFlow(project,editingStory) {
   const toggle = $('#toggleStoryFlow');
   toggle.hidden = editingStory && !native;
   toggle.disabled = busy || Boolean(composerEdit);
-  toggle.setAttribute('aria-expanded',String(expanded && !composerEdit));
-  panel.hidden = !expanded || Boolean(composerEdit);
+  const visible = (composerVisible || native) && expanded && !composerEdit;
+  toggle.setAttribute('aria-expanded',String(visible));
+  panel.hidden = !visible;
   if (panel.hidden) return;
   const request = $('#requestStoryFlow');
   const options = $('#storyFlowOptions');
   const status = $('#storyFlowStatus');
   request.hidden = native;
   request.disabled = busy;
-  request.textContent = flow ? 'New directions' : 'Suggest directions';
+  request.title = flow ? 'New directions' : 'Suggest directions';
+  request.setAttribute('aria-label',request.title);
   options.replaceChildren(...(flow?.options || []).map(({title,direction},index)=>{
     const button = el('button','story-flow-choice');
     button.type = 'button';
