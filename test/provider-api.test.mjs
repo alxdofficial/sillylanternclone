@@ -1,0 +1,141 @@
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import test from 'node:test';
+
+test('direct providers draft and exchange native tool results without crossing credentials', async () => {
+  const directory = await mkdtemp(join(tmpdir(),'story-studio-providers-'));
+  const listener = createServer().listen(0,'127.0.0.1');
+  await once(listener,'listening');
+  const {port} = listener.address();
+  await new Promise(resolve=>listener.close(resolve));
+  const mock = join(directory,'providers.mjs');
+  await writeFile(mock,`
+    import assert from 'node:assert/strict';
+    const update = {input:'safe',reply:'safe',storyTime:'1998-10-25T00:13',
+      updates:[{kind:'world',note:'The ferry has a bell.'}]};
+    const setup = {title:'The Bell',lore:'A ferry port.',scenario:'The bell stops.',notes:'',
+      cast:[{name:'Ada',description:'The dock keeper.'}]};
+    const edit = {changes:[{kind:'world',action:'append',text:'The pier has a lighthouse.'}],
+      message:'Added the lighthouse.',historySafe:true};
+    globalThis.fetch = async (url, options) => {
+      const body = JSON.parse(options.body);
+      if (url === 'https://api.anthropic.com/v1/messages') {
+        assert.equal(options.headers['x-api-key'],'claude-fixture');
+        assert.equal(options.headers.authorization,undefined);
+        assert.equal(body.model,'claude-sonnet-5-5');
+        assert.ok(body.system);
+        assert.ok(body.messages.every(message=>message.role !== 'system'));
+        if (!body.tools) return Response.json({stop_reason:'end_turn',usage:{input_tokens:1000,output_tokens:20},
+          content:[{type:'text',text:'The ferry bell rang.'}]});
+        if (body.tools.some(tool=>tool.name === 'prepare_story_setup')) {
+          return Response.json({stop_reason:'tool_use',content:[{type:'tool_use',
+            id:'setup-call',name:'prepare_story_setup',input:setup}]});
+        }
+        assert.ok(body.tools.find(tool=>tool.name === 'inspect_continuity').input_schema);
+        assert.equal(body.tool_choice.disable_parallel_tool_use,true);
+        const result = body.messages.at(-1).content;
+        if (Array.isArray(result)) {
+          assert.deepEqual(result,[{type:'tool_result',tool_use_id:'claude-world',content:'{"world":"The ferry is moored."}'}]);
+          assert.equal(body.messages.at(-2).content[0].id,'claude-world');
+        }
+        return Response.json({stop_reason:'tool_use',content:[{type:'tool_use',
+          id:Array.isArray(result) ? 'claude-done' : 'claude-world',
+          name:Array.isArray(result) ? 'record_scene' : 'inspect_continuity',
+          input:Array.isArray(result) ? update : {section:'world'}}]});
+      }
+      assert.equal(url,'https://api.openai.com/v1/responses');
+      assert.equal(options.headers.authorization,'Bearer openai-fixture');
+      assert.equal(options.headers['x-api-key'],undefined);
+      assert.equal(body.model,'gpt-6.1-terra');
+      assert.equal(body.store,false);
+      if (!body.tools) return Response.json({status:'completed',usage:{input_tokens:1000,output_tokens:20},output:[
+        {type:'message',role:'assistant',content:[{type:'output_text',text:'The ferry bell rang.'}]}]});
+      if (body.tools.some(tool=>tool.name === 'edit_story_state')) {
+        return Response.json({status:'completed',output:[{type:'function_call',
+          call_id:'edit-call',name:'edit_story_state',arguments:JSON.stringify(edit)}]});
+      }
+      assert.ok(body.tools.find(tool=>tool.name === 'inspect_continuity').parameters);
+      assert.deepEqual(body.include,['reasoning.encrypted_content']);
+      assert.equal(body.parallel_tool_calls,false);
+      const result = body.input.at(-1);
+      const found = result.type === 'function_call_output';
+      if (found) {
+        assert.deepEqual(result,{type:'function_call_output',call_id:'openai-world',output:'{"world":"The ferry is moored."}'});
+        assert.equal(body.input.at(-3).encrypted_content,'opaque-reasoning');
+        assert.equal(body.input.at(-2).call_id,'openai-world');
+      }
+      return Response.json({status:'completed',output:[
+        {type:'reasoning',id:'reasoning-id',summary:[],encrypted_content:'opaque-reasoning'},
+        {type:'function_call',id:'function-id',call_id:found ? 'openai-done' : 'openai-world',
+          name:found ? 'record_scene' : 'inspect_continuity',arguments:JSON.stringify(found ? update : {section:'world'})}
+      ]});
+    };
+  `);
+  const child = spawn(process.execPath,['--import',mock,fileURLToPath(new URL('../server.mjs',import.meta.url))],{
+    env:{...process.env,PORT:String(port),STORY_STUDIO_DATA:directory,STORY_STUDIO_LOG_DIR:join(directory,'logs')},
+    stdio:['ignore','pipe','inherit']
+  });
+  const done = once(child,'exit');
+  try {
+    await Promise.race([once(child.stdout,'data',{signal:AbortSignal.timeout(5000)}),
+      done.then(()=>{ throw Error('Server exited before listening.'); })]);
+    const origin = 'http://127.0.0.1:' + port;
+    const send = (body,path = '/api/generate') => fetch(origin+path,{method:'POST',
+      headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)});
+    const project = {id:'fixture',title:'Ferry',lore:'The ferry is moored.',notes:'',cast:[],messages:[]};
+    const claude = {provider:'anthropic',model:'claude-sonnet-5-5',key:'claude-fixture'};
+    const openai = {provider:'openai',model:'gpt-6.1-terra',key:'openai-fixture'};
+    for (const [writer,agent] of [[claude,openai],[openai,claude]]) {
+      const reply = await send({project,instruction:'Ring the bell.',...writer,
+        agentProvider:agent.provider,agentModel:agent.model,agentKey:agent.key});
+      assert.equal(reply.status,200);
+      const scene = await reply.json();
+      assert.equal(scene.text,'The ferry bell rang.');
+      assert.equal(scene.reply,'safe');
+      assert.deepEqual(scene.suggestions,[{kind:'world',note:'The ferry has a bell.'}]);
+    }
+    const setup = await send({...claude,mode:'draft',
+      messages:[{role:'user',content:'Plan a story about a ferry.'}]},'/api/setup');
+    assert.equal(setup.status,200);
+    assert.equal((await setup.json()).draft.cast[0].name,'Ada');
+    const state = await fetch(origin+'/api/state');
+    const {activeId,projects} = await state.json();
+    const original = projects.find(story=>story.id === activeId);
+    const edit = await send({...openai,storyId:activeId,revision:state.headers.get('etag'),
+      instruction:'Add a lighthouse.'},'/api/story-edits');
+    assert.equal(edit.status,200);
+    assert.equal((await edit.json()).count,1);
+    const saved = (await (await fetch(origin+'/api/state')).json()).projects.find(story=>story.id === activeId);
+    assert.match(saved.lore,/The pier has a lighthouse/);
+    assert.deepEqual(saved.messages,original.messages);
+    const mismatched = await send({project,instruction:'Ring the bell.',...openai,model:claude.model});
+    assert.equal(mismatched.status,400);
+    const keyMissing = await send({project,instruction:'Ring the bell.',...openai,
+      agentProvider:claude.provider,agentModel:claude.model});
+    assert.equal(keyMissing.status,400);
+    const sensitive = await send({project,instruction:'Ring the bell.',...claude,
+      agentProvider:openai.provider,agentModel:openai.model,agentKey:openai.key,sensitive:true});
+    assert.equal(sensitive.status,400);
+    const {days} = await (await fetch(origin+'/api/spend?timeZone=UTC')).json();
+    const spend = days.flatMap(day=>day.models);
+    for (const provider of ['anthropic','openai']) {
+      const row = spend.find(entry=>entry.provider === provider);
+      assert.ok(row?.usd > 0);
+      assert.equal(row.estimated,true);
+    }
+    for (const provider of ['anthropic','openai']) {
+      const trace = await readFile(join(directory,'logs',provider+'-trace.log'),'utf8');
+      assert.doesNotMatch(trace,/claude-fixture|openai-fixture/);
+    }
+  } finally {
+    child.kill();
+    await done;
+    await rm(directory,{recursive:true,force:true});
+  }
+});

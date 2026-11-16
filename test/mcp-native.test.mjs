@@ -32,14 +32,10 @@ test('native chat creates, writes, edits, and branches without queued work or le
     assert.ok(tools.some(({name})=>name === 'offer_story_directions'));
     assert.ok(!tools.some(({name})=>name.startsWith('wait_for_')));
     const instructions = client.getInstructions();
-    assert.ok(instructions.length < 4096);
-    assert.match(instructions.slice(0,512),/get_story_context.*submit_reply.*get_story_state.*edit_story_state.*read_story_turns/s);
-    assert.match(instructions.slice(0,512),/write or continue a new scene authorizes saving it/);
-    assert.match(instructions.slice(0,512),/preview or a draft first, show it in chat and wait/);
-    assert.match(tools.find(({name})=>name === "submit_reply").description,/before replying in chat.*write or continue/);
-    assert.match(instructions,/If scope is unclear/);
-    assert.match(instructions,/For every new request about the saved story, read the relevant state again/);
-    assert.match(instructions,/create_story for the agreed baseline.*cast before its relationships/);
+    assert.ok(instructions.length < 512);
+    assert.match(instructions,/optional tools.*current revision/);
+    assert.doesNotMatch(instructions,/before replying|workflow|Story Flow/);
+    assert.match(tools.find(({name})=>name === 'submit_reply').description,/Append a non-explicit prose scene/);
     const opened = await invoke('open_studio');
     childPid = opened.pid;
     assert.match(opened.url,/\?view=book&via=mcp$/);
@@ -74,12 +70,11 @@ test('native chat creates, writes, edits, and branches without queued work or le
     assert.equal(reference.save,undefined);
     const exactContext = await invoke('get_story_context',{storyId,purpose:'draft',direction:'CHAT DIRECTION MARKER'});
     assert.equal(exactContext.revision,reference.revision);
-    assert.match(exactContext.prompt,/You are the narrator/);
-    assert.match(exactContext.prompt,/CHAT DIRECTION MARKER/);
-    assert.match(exactContext.continuity,/after older prose leaves the prompt/);
-    assert.match(exactContext.save,/call submit_reply.*before answering in chat/);
+    assert.doesNotMatch(exactContext.prompt,/You are the narrator|CHAT DIRECTION MARKER/);
+    assert.match(exactContext.prompt,/They share the tower key/);
+    assert.equal(exactContext.save,undefined);
     const saved = await invoke('submit_reply',{storyId,revision:exactContext.revision,reply:'Ada lights the wick.',updates:[
-      {kind:'fact',note:'The tower wick is the backup signal.'},
+      {kind:'plot',note:'The tower wick is the backup signal.'},
       {kind:'writing',note:'Keep each paragraph brief.'}
     ]});
     assert.equal(saved.continuityPending,undefined);
@@ -88,13 +83,13 @@ test('native chat creates, writes, edits, and branches without queued work or le
     const settings = (revision,change) => invoke('edit_story_structure',{storyId,revision,change});
     const metadata = await invoke('get_story_state',{storyId});
     assert.equal(metadata.settings.graphUpdates,true);
-    assert.match(metadata.save,/edit_story_state.*inspect_continuity.*edit_story_structure/);
+    assert.equal(metadata.save,undefined);
     const longNote = 'Keep the danger implied. ' + 'Let the island weather set the rhythm. '.repeat(350) + 'End the note here.';
-    const note = await edit(metadata.revision,[{kind:'field',field:'authorNote',text:longNote}]);
-    const exactNote = await invoke('inspect_continuity',{storyId,section:'authorNote'});
-    const endOfNote = await invoke('inspect_continuity',{storyId,section:'authorNote',offset:exactNote.nextOffset});
+    const note = await edit(metadata.revision,[{kind:'notes',action:'append',text:longNote}]);
+    const exactNote = await invoke('inspect_continuity',{storyId,section:'notes'});
+    const endOfNote = await invoke('inspect_continuity',{storyId,section:'notes',offset:exactNote.nextOffset});
     assert.ok(exactNote.nextOffset);
-    assert.equal(exactNote.authorNote + endOfNote.authorNote,longNote);
+    assert.equal(exactNote.notes + endOfNote.notes,'Turn 1: Keep each paragraph brief.\n\n' + longNote);
     const held = await settings(note.revision,{kind:'hold_turn',turnNumber:1,reason:'explicit'});
     assert.ok(held.revision);
     const redacted = await invoke('read_story_turns',{storyId,turnNumber:1});
@@ -118,7 +113,7 @@ test('native chat creates, writes, edits, and branches without queued work or le
       return story;
     });
     const draft = await invoke('get_story_context',{storyId,purpose:'draft'});
-    assert.match(draft.prompt,/Continue naturally/);
+    assert.doesNotMatch(draft.prompt,/Continue naturally/);
     assert.doesNotMatch(draft.prompt,/Ada lights the wick|HELD BROWSER DIRECTION MARKER/);
     assert.match(draft.prompt,/They share the tower key/);
     await invoke('submit_reply',{storyId,revision:draft.revision,reply:'Mina crosses the quay.',updates:[]});
@@ -201,13 +196,15 @@ test('native chat creates, writes, edits, and branches without queued work or le
     });
     const resumed = await invoke('get_story_context',{storyId,purpose:'draft'});
     assert.deepEqual(resumed.storyFlow,{status:'selected',afterTurn:22,option:options[1]});
-    assert.match(resumed.prompt,/Ada searches for the missing chart behind the dispatch desk/);
+    assert.doesNotMatch(resumed.prompt,/Ada searches for the missing chart behind the dispatch desk/);
     assert.doesNotMatch(resumed.prompt,/Mina follows a flare/);
-    await invoke('submit_reply',{storyId,revision:resumed.revision,reply:'Ada found the chart beneath a loose floorboard.',updates:[]});
+    const reply = await invoke('submit_reply',{storyId,revision:resumed.revision,reply:'Ada found the chart beneath a loose floorboard.',updates:[]});
+    assert.equal(reply.nextStoryFlow,undefined);
     const continued = await invoke('get_story_context',{storyId,purpose:'draft'});
     assert.equal(continued.storyFlow,undefined);
+    assert.equal(reply.revision,continued.revision);
 
-    const waiting = invoke('offer_story_directions',{storyId,revision:continued.revision,options,waitSeconds:3});
+    const waiting = invoke('offer_story_directions',{storyId,revision:reply.revision,options,waitSeconds:3});
     let published;
     for (let attempt=0; attempt<40 && !published; attempt++) {
       const state = await (await fetch(origin + '/api/state')).json();

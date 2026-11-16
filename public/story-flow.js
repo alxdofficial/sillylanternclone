@@ -1,8 +1,9 @@
 export const storyFlowTitleLimit = 80;
 export const storyFlowDirectionLimit = 400;
+export const storyFlowOptionCount = 3;
 
 export function validStoryFlowOptions(value) {
-  if (!Array.isArray(value) || value.length < 3 || value.length > 4) return false;
+  if (!Array.isArray(value) || value.length !== storyFlowOptionCount) return false;
   const titles = new Set(), directions = new Set();
   const normalize = text=>text.trim().replace(/\s+/gu,' ').toLocaleLowerCase();
   for (const option of value) {
@@ -19,12 +20,22 @@ export function storyFlowTurn(project) {
 }
 
 export function normalizeStoryFlow(flow) {
-  if (!flow || !['mcp','openrouter'].includes(flow.source)
-      || !Number.isSafeInteger(flow.afterTurn) || flow.afterTurn < 0 || !validStoryFlowOptions(flow.options)
+  if (!flow || !['mcp','openrouter','anthropic','openai'].includes(flow.source)
+      || !Number.isSafeInteger(flow.afterTurn) || flow.afterTurn < 0 || !Array.isArray(flow.options)
       || (flow.selected !== undefined && (!Number.isInteger(flow.selected) || !flow.options[flow.selected]))) return undefined;
+  let {options,selected} = flow;
+  // Preserve a writer's selection if they had picked the fourth legacy option.
+  if (options.length === storyFlowOptionCount + 1) {
+    options = options.slice(0,storyFlowOptionCount);
+    if (selected === storyFlowOptionCount) {
+      selected = storyFlowOptionCount - 1;
+      options[selected] = flow.options[storyFlowOptionCount];
+    }
+  }
+  if (!validStoryFlowOptions(options)) return undefined;
   return {source:flow.source,afterTurn:flow.afterTurn,
-    options:flow.options.map(({title,direction})=>({title:title.trim(),direction:direction.trim()})),
-    ...(flow.selected === undefined ? {} : {selected:flow.selected})};
+    options:options.map(({title,direction})=>({title:title.trim(),direction:direction.trim()})),
+    ...(selected === undefined ? {} : {selected})};
 }
 
 export function activeStoryFlow(project) {

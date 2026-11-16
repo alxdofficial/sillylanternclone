@@ -19,9 +19,8 @@ const story = {
 test('prompt orders context around role-preserved history and the current direction', () => {
   const messages = buildMessages(story, 'Ren checks the BRASS COMPASS by the monkey statue. a+b');
   const text = formatMessages(messages);
-  const order = ['World setting', 'Opening premise', 'Cast:', 'Personality',
-    'Example dialogue', 'Relevant lore', 'Turn 1', 'Author’s note', 'Turn 2',
-    'Turn 5', 'Post-history instructions', 'Ren checks'];
+  const order = ['World setting', 'Opening premise', 'Cast:', 'Character profiles',
+    'Relevant lore', 'Turn 1', 'Turn 2', 'Turn 5', 'Ren checks'];
   for (let i = 1; i < order.length; i++) {
     assert.ok(text.indexOf(order[i-1]) >= 0 && text.indexOf(order[i]) > text.indexOf(order[i-1]), order[i]);
   }
@@ -89,8 +88,8 @@ test('narration uses the cast and retains legacy attribution without a character
   assert.match(prompt, /Mara knows the tide calendar/);
   assert.match(prompt, /Mara: Look east/);
   assert.match(prompt, /\[ASSISTANT\]\s+Iona: A lantern/);
-  assert.match(prompt, /Character profiles:\s+Iona\s+Description: Iona keeps the station lit/);
-  assert.match(prompt, /Mara\s+Description: Mara knows the tide calendar/);
+  assert.match(prompt, /Character profiles:\s+Iona: Iona keeps the station lit/);
+  assert.match(prompt, /Mara: Mara knows the tide calendar/);
   assert.doesNotMatch(prompt, /Mara keeps the station lit/);
 });
 
@@ -98,7 +97,7 @@ test('excluded text cannot activate lore or appear in an agent handoff', () => {
   const project = {
     ...story,
     loreRules:'private-marker | Secret triggered lore',
-    continuity:'At dawn, Ren carries the brass key.',
+    plotEvents:[{note:'At dawn, Ren carries the brass key.',turn:0,storyTime:'1998-10-25T06:00'}],
     messages:[
       {role:'user',content:'private-marker',excludeFromContext:true},
       {role:'user',content:'Take the morning ferry.'}
@@ -169,8 +168,7 @@ test('OpenRouter grounds a short follow-up in the latest narration', () => {
   });
   assert.deepEqual(messages.map(message=>message.role),['system','user','assistant','user']);
   assert.match(messages[0].content,/“Go into more detail” means expand the relevant beat in place/);
-  assert.match(messages[0].content,/Author’s note:\s+Keep it tense/);
-  assert.match(messages[0].content,/Post-history instructions:\s+End on a clue/);
+  assert.doesNotMatch(messages[0].content,/Post-history instructions|End on a clue/);
   assert.match(messages[0].content,/Keep restatements of the assignment, planning commentary, and speaker labels out of the prose/);
   assert.match(messages.at(-2).content,/Iona set the broken radio on the ticket counter/);
   assert.equal(messages.at(-1).content,'Author direction:\ngo into more detail');
@@ -198,7 +196,7 @@ test('a saved persona becomes one ordinary cast member in prompts', () => {
   assert.deepEqual(project.cast.map(({id,name})=>[id,name]),[['primary','Iona'],['ren','Ren']]);
   assert.equal(migrateLegacyCast(project),project);
   const prompt = formatMessages(buildMessages(project));
-  assert.match(prompt,/Ren\s+Description: Repairs radios\./);
+  assert.match(prompt,/Ren: Repairs radios\./);
   assert.doesNotMatch(prompt,/Writer character:|Other cast:/);
 });
 

@@ -8,7 +8,8 @@ import { nextTurnNumber, recentTokenCap, recentTurns, storyEditContext } from '.
 const sceneTime = '1998-10-25T00:13';
 const world = 'A ferry shelter at the pier.';
 const story = {
-  characterName:'Mara',character:'An archivist.',lore:world,continuity:'The bridge is closed.',
+  characterName:'Mara',character:'An archivist.',lore:world,
+  plotEvents:[{note:'The bridge is closed.',turn:0,storyTime:'1998-01-01T08:00'}],
   cast:[
     {id:'iona',name:'Iona',nickname:'Pilot',description:'A pilot.'},
     {id:'orin',name:'Orin',description:'A harbor master.'}
@@ -27,7 +28,7 @@ const call = (name,args,id) => ({
   id,type:'function',function:{name,arguments:typeof args === 'string' ? args : JSON.stringify(args)}
 });
 const assistant = (...toolCalls) => ({role:'assistant',content:null,tool_calls:toolCalls});
-const fact = {kind:'fact',note:'The ferry leaves at dawn.'};
+const fact = {kind:'plot',note:'The ferry leaves at dawn.'};
 const scene = {input:'safe',reply:'safe',storyTime:sceneTime,updates:[fact]};
 
 test('scene continuity includes the new draft and eligible recent prose only', () => {
@@ -37,6 +38,7 @@ test('scene continuity includes the new draft and eligible recent prose only', (
   assert.equal(system.role,'system');
   assert.match(system.content,/inspect_continuity/);
   assert.match(system.content,/record_scene/);
+  assert.match(system.content,/After each new scene.*relationship.*world for setting changes, plot for other lasting plot events, writing for requested standing guidance/);
   assert.deepEqual(messages.slice(1,3),[
     {role:'assistant',content:'Mara brings Iona the ledger.'},
     {role:'user',content:'Check the ferry schedule.'}
@@ -110,11 +112,11 @@ test('the continuity pass keeps an established scene time and discards disabled 
 
 test('unresponsive or malformed tool sequences cannot record a scene', async () => {
   await assert.rejects(runContinuity(story,'A direction.','A draft.',options,async ()=>{
-    return assistant(call('record_scene',scene,'duplicate'),call('inspect_continuity',{section:'memory'},'duplicate'));
+    return assistant(call('record_scene',scene,'duplicate'),call('inspect_continuity',{section:'plot'},'duplicate'));
   },()=>{}),{diagnosticCode:'CONTINUITY_NOT_RECORDED'});
   let calls = 0;
   await assert.rejects(runContinuity(story,'A direction.','A draft.',options,async ()=>{
-    return assistant(call('inspect_continuity',{section:'memory'},'lookup-' + ++calls));
+    return assistant(call('inspect_continuity',{section:'plot'},'lookup-' + ++calls));
   },()=>{}),{diagnosticCode:'CONTINUITY_NOT_RECORDED'});
   assert.equal(calls,4);
 });
@@ -140,29 +142,29 @@ test('a parallel final edit is retried as a single batch before any metadata cha
 });
 
 test('metadata reads omit unknown stored fields and flag clipped state', () => {
-  const examples = 'First line. ' + 'x'.repeat(3500) + ' Last line.';
-  const project = {...story,lore:'x'.repeat(20000),cast:[{...story.cast[0],examples,privateAttachment:'UNKNOWN_FIELD_SENTINEL'}]};
+  const description = 'First line. ' + 'x'.repeat(13000) + ' Last line.';
+  const project = {...story,lore:'x'.repeat(20000),cast:[{...story.cast[0],description,privateAttachment:'UNKNOWN_FIELD_SENTINEL'}]};
   const state = storyEditContext(project);
   assert.equal(state.shortened,true);
   assert.ok(state.world.length <= 12000);
   assert.doesNotMatch(JSON.stringify(state),/UNKNOWN_FIELD_SENTINEL|WITHHELD/);
   const {cast:[profile]} = inspectContinuity(project,{section:'cast',character:'Iona'});
-  assert.deepEqual(profile.shortenedFields,['examples']);
-  assert.match(profile.examples,/^First line\..*Last line\.$/s);
+  assert.deepEqual(profile.shortenedFields,['description']);
+  assert.match(profile.description,/^First line\..*Last line\.$/s);
 });
 
 test('continuity can recover an entire long profile one page at a time', () => {
-  const personality = 'x'.repeat(11999) + '🗝️ ' + 'patient '.repeat(19999);
-  const project = {...story,cast:[{...story.cast[0],personality}]};
-  const query = {section:'cast',character:'Iona',field:'personality'};
+  const description = 'x'.repeat(11999) + '🗝️ ' + 'patient '.repeat(19999);
+  const project = {...story,cast:[{...story.cast[0],description}]};
+  const query = {section:'cast',character:'Iona',field:'description'};
   let page = inspectContinuity(project,query);
   assert.equal(page.nextOffset,11999);
-  let recovered = page.personality;
+  let recovered = page.description;
   while (page.nextOffset !== undefined) {
     page = inspectContinuity(project,{...query,offset:page.nextOffset});
-    recovered += page.personality;
+    recovered += page.description;
   }
-  assert.equal(recovered,personality);
+  assert.equal(recovered,description);
 });
 
 test('the OpenRouter editor inspects existing events and waits for read results before committing', async () => {
@@ -173,13 +175,12 @@ test('the OpenRouter editor inspects existing events and waits for read results 
       {from:'mina',to:'ada',label:'They trade maps.',turn:0}],
     lore:'The tower opens at dawn.',
     notes:'Keep the prose close to Ada.',
-    authorNote:'Preserve the quiet tone.',
     messages:[{role:'assistant',content:'First scene.',turnNumber:1},{role:'assistant',content:'Second scene.',turnNumber:2}]
   };
   const changes = [{kind:'remove_relationship',eventIndex:0},
     {kind:'edit_relationship',eventIndex:1,label:'Mina lends Ada the marked map.',storyTime:sceneTime},
     {kind:'rename_character',name:'Mina',newName:'Mira'},
-    {kind:'field',field:'authorNote',text:'Keep the quiet tone and use present tense.'}];
+    {kind:'field',field:'notes',text:'Keep the quiet tone and use present tense.'}];
   let attempts = 0;
   const result = await runStoryEdit(project,'Update the map handoff, rename Mina, edit the author note, and remove the key event.',async messages => {
     if (++attempts === 1) return assistant(
@@ -197,7 +198,7 @@ test('the OpenRouter editor inspects existing events and waits for read results 
   assert.equal(project.relationships.length,1);
   assert.equal(project.relationships[0].label,'Mina lends Ada the marked map.');
   assert.equal(project.relationships[0].storyTime,sceneTime);
-  assert.equal(project.authorNote,'Keep the quiet tone and use present tense.');
+  assert.equal(project.notes,'Keep the quiet tone and use present tense.');
   assert.equal(project.messages.length,2);
 });
 

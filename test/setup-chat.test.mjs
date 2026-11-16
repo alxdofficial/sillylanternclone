@@ -92,7 +92,7 @@ test('chunked setup reads every source in order, then compacts lengthy notes bef
     const {latestWriterMessage,sections} = JSON.parse(prompt.at(-1).content);
     assert.equal(latestWriterMessage,clarification);
     assert.ok(sections.every(note=>note.story.includes('Iona visits at dawn')));
-    return toolCall('prepare_story_setup',{...draft,continuity:'Current non-explicit events.',chapterStarts:[2,99]});
+    return toolCall('prepare_story_setup',{...draft,plotEvents:[{note:'Current non-explicit events.'}],chapterStarts:[2,99]});
   };
   const result = await runChunkedSetup({messages,mode:'draft',manuscript:largeManuscript,context,complete,prepare,inputLimit});
   assert.ok(result.sections > 2);
@@ -141,7 +141,7 @@ test('setup chat uses the chosen model and stages a validated draft through the 
         assert.equal(oversizedContextSeen,3_000_000);
         assert.equal(request.model,'deepseek/deepseek-v4.1-flash');
         assert.ok(JSON.parse(request.messages[1].content).sections.length > 1);
-        return completedTool('prepare_story_setup',{...draft,continuity:'The map changed.',chapterStarts:[]});
+        return completedTool('prepare_story_setup',{...draft,plotEvents:[{note:'The map changed.'}],chapterStarts:[]});
       }
       const fullImport = request.messages[1].content.includes('Unabridged middle.');
       const importDraft = fullImport || request.messages[1].content.includes(contextNote);
@@ -154,7 +154,7 @@ test('setup chat uses the chosen model and stages a validated draft through the 
         assert.ok(request.messages[1].content.includes(JSON.stringify(manuscript)));
         assert.ok(request.messages[1].content.includes(contextNote + ' map-reference-note'.repeat(16_000)));
         assert.equal(request.model,'deepseek/deepseek-v4.1-flash');
-        assert.ok(setupTool.parameters.required.includes('continuity'));
+        assert.ok(Object.hasOwn(setupTool.parameters.properties,'plotEvents'));
       } else {
         assert.equal(request.messages[1].content,seed);
         if (request.messages.length > 2) {
@@ -186,7 +186,7 @@ test('setup chat uses the chosen model and stages a validated draft through the 
       assert.match(request.messages[0].content,/one non-explicit sentence/);
       assert.match(request.messages[0].content,/prepare_story_setup/);
       assert.match(request.messages.at(-1).content,/Prepare the story setup/);
-      const args = importDraft ? {...draft,continuity:'The map changed.',chapterStarts:[]} : draft;
+      const args = importDraft ? {...draft,plotEvents:[{note:'The map changed.'}],chapterStarts:[]} : draft;
       return Response.json({choices:[{finish_reason:'tool_calls',message:{content:null,tool_calls:[
         {type:'function',id:'fixture-draft',function:{name:'prepare_story_setup',arguments:JSON.stringify(args)}}
       ]}}]});
@@ -226,15 +226,15 @@ test('setup chat uses the chosen model and stages a validated draft through the 
     assert.deepEqual(await explicitlySelected.json(),{draft});
     const imported = await send('draft',[],origin,{manuscript,context:longContextNote});
     assert.equal(imported.status,200);
-    assert.deepEqual(await imported.json(),{draft:{...draft,continuity:'The map changed.',chapterStarts:[]}});
+    assert.deepEqual(await imported.json(),{draft:{...draft,plotEvents:[{note:'The map changed.'}],chapterStarts:[]}});
     const unabridged = await send('draft',[],origin,{manuscript:fullManuscript});
     assert.equal(unabridged.status,200);
-    assert.equal((await unabridged.json()).draft.continuity,'The map changed.');
+    assert.equal((await unabridged.json()).draft.plotEvents[0].note,'The map changed.');
     const overflow = await send('draft',[],origin,{manuscript,context:'note '.repeat(600_000)});
     assert.equal(overflow.status,200);
     const chunked = await overflow.json();
     assert.ok(chunked.sections > 1);
-    assert.deepEqual(chunked.draft,{...draft,continuity:'The map changed.',chapterStarts:[]});
+    assert.deepEqual(chunked.draft,{...draft,plotEvents:[{note:'The map changed.'}],chapterStarts:[]});
     assert.equal((await send('chat',[assistant(question)])).status,400);
     assert.equal((await send('chat',[writer(seed)],'https://example.com')).status,403);
     await assert.rejects(readFile(join(directory,'library.json')),{code:'ENOENT'});

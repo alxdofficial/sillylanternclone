@@ -1,26 +1,31 @@
 import { activeStoryFlow, normalizeStoryFlow, storyFlowTurn, validStoryFlowOptions } from './story-flow.js';
-import { applyTurnGraphUpdates, captureGraphVersion, ensureGraphBaseline, graphChangesByTurn, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
+import { applyGraphUpdate, applyTurnGraphUpdates, captureGraphVersion, ensureGraphBaseline, graphChangesByTurn, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
 import { bookChapters, bookMarkdown, libraryByteLimit, maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
 import { defaultChapterStarts, manuscriptByteLimit, manuscriptPassages, manuscriptReference, manuscriptTurns, parseManuscript } from './manuscript.js';
 import { mergeLibrary } from './sync.js';
 import { createDisplayNameMatcher } from './display-names.js';
 import { enhanceSelect } from './model-picker.js';
-import { buildWritingContext, formatMessages, storyTextFields, narrator, resolveCastName, migrateLegacyCast, castFields, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
+import { buildWritingContext, formatMessages, storyTextFields, narrator, resolveCastName, migrateLegacyCast, migrateStoryFields, simpleCharacter, castFields, validCast, validRelationships, validPlotEvents, graphSuggestions, nextTurnNumber, appendTurn, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
-import { models, chapterCost, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isModelId, isWriterModel, modelLabel, modelTag, modelContextWindow, setupDraftModel, setupChatOutputLimit, setupDraftOutputLimit } from './models.js';
+import { models, chapterCost, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isModelId, isWriterModel, modelLabel, modelTag, modelContextWindow, modelProvider, providerNames, setupDraftModel, setupChatOutputLimit, setupDraftOutputLimit } from './models.js';
 import { dateWriterTurn, mcpOmissionReason, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
 import { estimateContextTokens, writingHistoryLimit } from './prompt.js';
 import { agentBudget, continuityContext, editorContext, normalizeAgentHistory, normalizeSetupHistory } from './agent-context.js';
 
 const settingsFields = ['title', 'lore', 'notes', ...storyTextFields];
-const castLabels = {name:'Name', nickname:'Aliases', description:'Description', personality:'Personality', scenario:'Scenario', examples:'Example dialogue'};
+const castLabels = {name:'Name', nickname:'Aliases', description:'Description'};
 const $ = s => document.querySelector(s);
 let state, revision, pendingWrites = 0, timer, pendingSave = Promise.resolve(), dirty = false, busy = false, editingIndex = null;
 let libraryDirty = false, pendingLibraryWrites = 0;
 // The library as last loaded from or saved to the server, the base for merging agent writes.
 let baseLibrary = null, demoGeneration;
-let openRouterKey = '';
+const providerKeys = new Map();
+const hasApiKey = () => providerKeys.size > 0;
+const keyForModel = model => providerKeys.get(modelProvider(model));
+const providerOrder = ['anthropic','openai','openrouter'];
+const enabledProviders = () => providerOrder.filter(provider=>providerKeys.has(provider)).join(',');
 let editingCharacter;
+let draftPlotEvents = [];
 let draftRelationships = [], connectingFrom = '', editingRelationship = null;
 let draftStartAt = '', draftStartSource = '';
 let estimatedEdgeDates = new WeakSet();
@@ -48,13 +53,17 @@ const modelKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-model:
 const retiredPresets = new Set(['anthracite-org/magnum-v4-72b','thedrummer/unslopnemo-12b','sao10k/l3.1-euryale-70b','gryphe/mythomax-l2-13b']);
 function writingModel(project, mode = 'story') {
   const model = getSession(modelKey(project.id,mode));
-  return model && (mode === 'agent' ? isAgentModel(model) : isPreset(model) || userModels.includes(model)) ? model : '';
+  return keyForModel(model) && (mode === 'agent' ? isAgentModel(model) : isPreset(model) || userModels.includes(model)) ? model : '';
 }
 const continuityKey = (storyId,sensitive) => 'story-continuity-model:' + (sensitive ? 'sensitive:' : '') + storyId;
 function selectedContinuityModel(project) {
   const sensitive = sensitiveDraft(project);
   const model = getSession(continuityKey(project.id,sensitive));
-  return isContinuityModel(model,sensitive) ? model : continuityModel;
+  if (model && isContinuityModel(model,sensitive)) return keyForModel(model) ? model : '';
+  const available = models.filter(({id})=>keyForModel(id) && isContinuityModel(id,sensitive));
+  const writerProvider = modelProvider(writingModel(project));
+  return (available.find(({id})=>modelProvider(id) === writerProvider)
+    || available.find(({id})=>id === continuityModel) || available[0])?.id || '';
 }
 const draftKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-draft:' : 'story-draft:') + id;
 const flowNotice = new Map();
@@ -673,27 +682,11 @@ const spreadPositions = new Map();
 const storyViews = [['write','writeTab','writeView'],['book','bookTab','bookView'],['graph','graphTab','graphView'],['names','displayNamesTab','displayNamesView']];
 let bookStoryId, chapters = [], storyView = 'write', writeNeedsRender = false;
 let showGraphDirections = getSession('studio-show-directions') === 'true';
-const nativeCompanion = new URLSearchParams(location.search).get('via') === 'mcp';
-const nativeFlowStories = new Set();
-
-function usesNativeFlow(project) {
-  if (activeStoryFlow(project)?.source === 'mcp') nativeFlowStories.add(project.id);
-  return nativeCompanion || (!openRouterKey && nativeFlowStories.has(project.id));
-}
-
-function composerPreference(project) {
-  return usesNativeFlow(project) ? 'studio-hide-mcp-composer' : 'studio-hide-composer';
-}
-
-function composerIsShown(project) {
-  const preference = composerPreference(project);
-  const hidden = getSession(preference);
-  return hidden === null ? preference === 'studio-hide-composer' : hidden !== 'true';
-}
+const composerPreference = 'studio-hide-composer';
+const composerIsShown = () => getSession(composerPreference) !== 'true';
 
 $('#toggleComposer').onclick = () => {
-  const project = current();
-  setSession(composerPreference(project),String(composerIsShown(project)));
+  setSession(composerPreference,String(composerIsShown()));
   syncRoute();
 };
 let bookSpreadWanted = false, spreadCount = 1;
@@ -1032,6 +1025,7 @@ function renderMessages() {
       const cancelsRequest = project.agentRequest && (deletedTurns.includes(project.agentRequest.turnNumber)
         || deletedTurns.includes(project.agentRequest.replyTurnNumber));
       if (cancelsRequest) delete project.agentRequest;
+      if (project.plotEvents) project.plotEvents = project.plotEvents.filter(event=>!deletedTurns.includes(event.turn));
       if (project.agentNotice && deletedTurns.includes(project.agentNotice.turnNumber)) delete project.agentNotice;
       project.messages.splice(index,reply ? 2 : 1);
       markDirty(project);
@@ -1166,9 +1160,9 @@ function syncRoute() {
   const mode = authorMode(project);
   const editingStory = mode === 'agent';
   const model = writingModel(project,mode);
-  const rewriting = composerEdit?.canRegenerate && Boolean(model && openRouterKey);
-  const composerVisible = composerIsShown(project) || Boolean(composerEdit);
-  if (openRouterKey || composerEdit || !composerVisible) clearComposerConnectionWarning();
+  const rewriting = composerEdit?.canRegenerate && Boolean(model && keyForModel(model));
+  const composerVisible = composerIsShown() || Boolean(composerEdit);
+  if (hasApiKey() || composerEdit || !composerVisible) clearComposerConnectionWarning();
   $('#writingComposer').hidden = !composerVisible;
   $('#toggleComposer').setAttribute('aria-expanded',String(composerVisible));
   $('#toggleComposer').title = composerVisible ? 'Hide composer' : 'Show composer';
@@ -1218,46 +1212,30 @@ function speakerMetadata(speaker) {
 }
 
 function syncStoryFlow(project) {
-  const offer = activeStoryFlow(project);
-  const nativeMode = usesNativeFlow(project);
-  const flow = nativeMode && offer?.source === 'openrouter' ? null : offer;
-  const native = flow?.source === 'mcp';
+  const flow = activeStoryFlow(project);
   const request = $('#requestStoryFlow');
+  $('#storyFlowActionLabel').hidden = Boolean(flow);
   const options = $('#storyFlowOptions');
   const status = $('#storyFlowStatus');
-  request.hidden = native || nativeMode;
-  $('#copyNativeFlowRequest').hidden = !nativeMode || Boolean(flow);
   request.disabled = busy || Boolean(composerEdit);
   request.title = flow ? 'Suggest different directions for the next scene.' : 'Suggest directions for the next scene.';
-  request.setAttribute('aria-label',flow ? 'New directions' : 'Suggest directions');
+  request.setAttribute('aria-label',flow ? 'New directions' : 'Get AI recommendations');
   options.replaceChildren(...(flow?.options || []).map(({title,direction},index)=>{
     const button = el('button','story-flow-choice');
     button.type = 'button';
     button.append(el('span','story-flow-title',title),el('span','story-flow-description',direction));
-    button.disabled = busy || Boolean(composerEdit) || flow.selected !== undefined;
+    button.disabled = busy || Boolean(composerEdit);
     if (flow.selected === index) button.setAttribute('aria-pressed','true');
     button.onclick = () => void chooseStoryFlow(project,flow,index);
     return button;
   }));
-  status.textContent = (nativeMode && !native ? '' : flowNotice.get(project.id)) ||
-    (native && flow.selected !== undefined ? 'Direction selected. Return to your agent to continue.' : '');
+  status.textContent = flowNotice.get(project.id) || '';
   status.hidden = !status.textContent;
 }
 
 async function chooseStoryFlow(project,flow,index) {
   if (busy || current() !== project || JSON.stringify(activeStoryFlow(project)) !== JSON.stringify(flow)) return;
   const option = flow.options[index];
-  if (flow.source === 'mcp') {
-    project.storyFlow = {...flow,selected:index};
-    markDirty(project);
-    syncRoute();
-    await save();
-    if (dirty) {
-      flowNotice.set(project.id,'The direction could not be saved. Check the save notice and try again.');
-      syncRoute();
-    }
-    return;
-  }
   if (authorMode(project) === 'agent') {
     setSession(modeKey(project.id),'story');
     syncRoute();
@@ -1265,13 +1243,27 @@ async function chooseStoryFlow(project,flow,index) {
   const field = $('#instruction');
   field.value = option.direction;
   setSession(draftKey(project.id),option.direction);
-  await generate();
+  if (flow.source === 'mcp') {
+    project.storyFlow = {...flow,selected:index};
+    setSession(composerPreference,'');
+    markDirty(project);
+    syncRoute();
+    field.focus();
+    await save();
+  } else {
+    await generate();
+  }
 }
 
 async function requestStoryFlow() {
   if (!state || busy || composerEdit) return;
   const project = current();
-  if (!openRouterKey) return openAppSettings();
+  const agentModel = selectedContinuityModel(project);
+  if (!hasApiKey()) return openAppSettings();
+  if (!agentModel) {
+    continuityModelPicker.focus();
+    return error('Choose a continuity agent for Story Flow.');
+  }
   const trigger = $('#requestStoryFlow');
   const restoreFocus = document.activeElement === trigger;
   const transcript = JSON.stringify(project.messages);
@@ -1280,15 +1272,15 @@ async function requestStoryFlow() {
   try {
     const {options} = await api('/api/story-flow',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({project:openRouterSnapshot(project,project.messages),key:openRouterKey,
-        agentModel:selectedContinuityModel(project),sensitive:sensitiveDraft(project)})
+      body:JSON.stringify({project:openRouterSnapshot(project,project.messages),key:keyForModel(agentModel),
+        provider:modelProvider(agentModel),agentModel,sensitive:sensitiveDraft(project)})
     });
     await mergeServerLibrary({ifChanged:true});
     if (!state.projects.includes(project) || JSON.stringify(project.messages) !== transcript) {
       throw Error('The story changed while the directions were prepared. Ask for new directions.');
     }
-    if (!validStoryFlowOptions(options)) throw Error('The model did not return three or four distinct directions.');
-    project.storyFlow = {source:'openrouter',afterTurn:storyFlowTurn(project),options};
+    if (!validStoryFlowOptions(options)) throw Error('The model did not return three distinct directions.');
+    project.storyFlow = {source:modelProvider(agentModel),afterTurn:storyFlowTurn(project),options};
     flowNotice.delete(project.id);
     markDirty(project);
     await save();
@@ -1303,24 +1295,12 @@ async function requestStoryFlow() {
 }
 
 $('#requestStoryFlow').onclick = () => void requestStoryFlow();
-$('#copyNativeFlowRequest').onclick = async () => {
-  const prompt = 'Use Story Studio’s Story Flow tool to offer three or four directions for the current story in Write.';
-  const status = $('#storyFlowStatus');
-  try {
-    await navigator.clipboard.writeText(prompt);
-    status.textContent = 'Request copied. Paste it into your agent chat.';
-  } catch {
-    status.textContent = prompt;
-  }
-  status.hidden = false;
-};
-
 function openRouterSnapshot(project, messages, replyTime) {
   return {
     id:project.id,
     ...Object.fromEntries(settingsFields.map(key => [key,project[key] || ''])),
     storyStartAt:project.storyStartAt, storyStartSource:project.storyStartSource, graphUpdates:project.graphUpdates,
-    cast:project.cast, relationships:project.relationships, replyTime,
+    cast:project.cast, relationships:project.relationships, plotEvents:project.plotEvents, replyTime,
     contextTime:lastStoryTime({...project,messages}),
     messages, agentHistory:project.agentHistory, setupHistory:project.setupHistory
   };
@@ -1338,8 +1318,8 @@ async function generateAgentEdit(project) {
   if (!instruction) return input.focus();
   error();
   const model = writingModel(project,'agent');
-  const key = openRouterKey;
-  if (!key) return showComposerConnectionWarning();
+  const key = keyForModel(model);
+  if (!hasApiKey()) return showComposerConnectionWarning();
   if (!model) {
     sceneModelPicker.focus();
     return error('Choose an editor model, then send again.');
@@ -1352,7 +1332,7 @@ async function generateAgentEdit(project) {
     if (dirty || !state.projects.includes(project)) throw Error('Save the story and try again.');
     await api('/api/story-edits',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({storyId:project.id,revision,model,key,instruction})
+      body:JSON.stringify({storyId:project.id,revision,provider:modelProvider(model),model,key,instruction})
     });
     if (getSession(draftKey(project.id,'agent'))?.trim() === instruction) setSession(draftKey(project.id,'agent'),'');
     await mergeServerLibrary();
@@ -1368,12 +1348,21 @@ async function generate() {
   const project = current();
   if (authorMode(project) === 'agent') return generateAgentEdit(project);
   const model = writingModel(project);
-  const key = openRouterKey;
+  const key = keyForModel(model);
   if (composerEdit && (!composerEdit.canRegenerate || !model || !key)) return saveComposerEdit();
-  if (!key) return showComposerConnectionWarning();
-  const refreshDirections = !usesNativeFlow(project) && activeStoryFlow(project)?.source === 'openrouter';
+  if (!hasApiKey()) return showComposerConnectionWarning();
+  if (!model) {
+    sceneModelPicker.focus();
+    return error('Choose a prose artist, then send again.');
+  }
+  const activeFlow = activeStoryFlow(project);
+  const refreshDirections = Boolean(activeFlow && activeFlow.source !== 'mcp');
   const sensitive = sensitiveDraft(project);
   const agentModel = selectedContinuityModel(project);
+  if (!agentModel) {
+    continuityModelPicker.focus();
+    return error('Choose a continuity agent, then send again.');
+  }
   if (sensitive && !canWriteSensitive(model)) {
     return error('Choose an NSFW-friendly writer to generate a sensitive scene.');
   }
@@ -1445,7 +1434,8 @@ async function generate() {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        project:snapshot, instruction:authorTurn?.content ?? direction, provider:'openrouter', model, agentModel, key, sensitive,
+        project:snapshot, instruction:authorTurn?.content ?? direction, provider:modelProvider(model),model,key,
+        agentProvider:modelProvider(agentModel),agentModel,agentKey:keyForModel(agentModel),sensitive,
         flow:refreshDirections,
         mode:replacement ? 'replace' : 'send'
       })
@@ -1485,7 +1475,7 @@ async function generate() {
     });
     flowNotice.delete(target.id);
     if (validStoryFlowOptions(response.flowOptions)) {
-      target.storyFlow = {source:'openrouter',afterTurn:storyFlowTurn(target),options:response.flowOptions};
+      target.storyFlow = {source:modelProvider(agentModel),afterTurn:storyFlowTurn(target),options:response.flowOptions};
     } else if (response.flowUnavailable) {
       flowNotice.set(target.id,'The scene was saved. Use Suggest directions to try again.');
     }
@@ -1707,6 +1697,10 @@ function renderGraphTurns() {
       detail:pairs.length === 1 ? turnPreview(first.label) : pairs.join(' · '),
       accessibleLabel:countEvents(edges.length), selection:{kind:'moment',time}});
   }
+  for (const [index,event] of draftPlotEvents.entries()) {
+    entries.push({time:event.storyTime,detail:turnPreview(event.note),accessibleLabel:'Plot event',
+      selection:{kind:'plot',index}});
+  }
   for (const entry of storyTurns(current())) {
     if (entry.authorOnly && !showGraphDirections) continue;
     const onlyProse = !showGraphDirections && Boolean(entry.selection.replyTurn);
@@ -1810,7 +1804,7 @@ function appendTurnGraphChanges(preview, selection, edges) {
   for (const note of notes) {
     const label = note.kind === 'character' ? 'Character added · ' + note.name
       : note.kind === 'profile' ? 'Profile updated · ' + note.name
-      : note.kind === 'world' ? 'World setting' : note.kind === 'writing' ? 'Writing notes' : 'Story memory';
+      : note.kind === 'world' ? 'World setting' : note.kind === 'writing' ? 'Writing notes' : 'Plot event';
     const row = el('div','relationship-row');
     row.append(el('strong','',label),el('p','relationship-copy',note.note));
     preview.append(row);
@@ -1854,6 +1848,13 @@ function renderInspector() {
         el('p','form-note','Click to pin and edit.'));
       preview.hidden = false;
     }
+  } else if (selection.kind === 'plot') {
+    const event = draftPlotEvents[selection.index];
+    if (!event) return;
+    type.textContent = 'Plot event';
+    title.textContent = timeLabel(event.storyTime);
+    preview.replaceChildren(el('p','inspector-copy',event.note));
+    preview.hidden = false;
   } else if (['turn','moment'].includes(selection.kind)) {
     const messages = current().messages;
     const message = messages.find((item,index) => (item.turnNumber || index + 1) === selection.turn);
@@ -2096,8 +2097,10 @@ function reviewSuggestion(item) {
       const storyTime = suggestion.storyTime || relationshipTime(current(),{turn:item.turnNumber},draftStartAt);
       draftRelationships.push({from,to,label:suggestion.label,turn:item.turnNumber,storyTime});
     }
+  } else if (suggestion.kind === 'plot') {
+    applied = applyGraphUpdate({...current(),plotEvents:draftPlotEvents},suggestion,item.turnNumber);
   } else {
-    const input = $('#settingsForm').elements[suggestion.kind === 'writing' ? 'notes' : 'continuity'];
+    const input = $('#settingsForm').elements.notes;
     const next = addDatedFact(input.value,suggestion.note,item.turnNumber);
     applied = next !== input.value;
     input.value = next;
@@ -2121,7 +2124,7 @@ function renderGraphReview() {
   container.append(el('h3','','Review map updates'), el('p','form-note','Keep only non-explicit facts you want future models to see.'));
   for (const item of pending) {
     const {suggestion} = item;
-    const text = suggestion.kind === 'writing' ? 'Writing notes: ' + suggestion.note : suggestion.kind === 'fact' ? suggestion.note : suggestion.kind === 'world' ? 'World: ' + suggestion.note
+    const text = suggestion.kind === 'writing' ? 'Writing notes: ' + suggestion.note : suggestion.kind === 'plot' ? 'Plot event: ' + suggestion.note : suggestion.kind === 'world' ? 'World: ' + suggestion.note
       : ['character','profile'].includes(suggestion.kind) ? suggestion.name + ': ' + suggestion.note : suggestion.from + ' → ' + suggestion.to + ': ' + suggestion.label;
     const row = el('div','graph-suggestion', `Turn ${item.turnNumber} · ${text}`);
     const add = el('button','text-button','Keep');
@@ -2157,7 +2160,7 @@ function settingsSnapshot() {
   const form = $('#settingsForm');
   return JSON.stringify([
     settingsFields.map(key=>form.elements[key].value),
-    readCast(), draftRelationships, $('#storyStartAt').value,
+    readCast(), draftRelationships, draftPlotEvents, $('#storyStartAt').value,
     $('#graphUpdates').checked, pendingGraphReview.map(({status})=>status)
   ]);
 }
@@ -2213,6 +2216,7 @@ function loadSettings(initialTab = $('#settingsForm [role="tab"][aria-selected="
   $('#storyStartAt').value = draftStartAt;
   $('#storyStartAt').setCustomValidity('');
   estimatedEdgeDates = new WeakSet();
+  draftPlotEvents = (project.plotEvents || []).map(event=>({...event}));
   draftRelationships = (project.relationships || []).map(edge => {
     const draft = {...edge,storyTime:relationshipTime(project,edge,draftStartAt)};
     if (!edge.storyTime) estimatedEdgeDates.add(draft);
@@ -2242,8 +2246,7 @@ function addCastEditor(character) {
   const card = el('fieldset', 'cast-card');
   card.dataset.id = character.id;
   card.hidden = true;
-  const details = el('details', 'profile-details');
-  details.append(el('summary', '', 'Scenario and example dialogue'));
+  character = simpleCharacter(character);
   for (const [field, labelText] of Object.entries(castLabels)) {
     const label = el('label', '', labelText);
     const input = el(field === 'name' || field === 'nickname' ? 'input' : 'textarea');
@@ -2252,12 +2255,11 @@ function addCastEditor(character) {
     if (field === 'name' || field === 'nickname') {
       input.oninput = () => { input.setCustomValidity(''); refreshEditorName(card); };
     } else {
-      input.rows = field === 'personality' ? 2 : 4;
+      input.rows = 4;
     }
     label.append(input);
-    (['scenario','examples'].includes(field) ? details : card).append(label);
+    card.append(label);
   }
-  card.append(details);
   const remove = el('button', 'button subtle danger', 'Remove from cast');
   remove.type = 'button';
   remove.onclick = async () => {
@@ -2314,7 +2316,7 @@ function openTurnDetails(index) {
   showEditSensitivity(sensitivity,heldForReview);
   $('#editDialog').showModal();
 }
-function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');p = migrateLegacyCast({...p});if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentHistory?{agentHistory:normalizeAgentHistory(p.agentHistory)}:{}),...(normalizeSetupHistory(p.setupHistory)?{setupHistory:normalizeSetupHistory(p.setupHistory)}:{}),...(normalizeStoryFlow(p.storyFlow)?{storyFlow:normalizeStoryFlow(p.storyFlow)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentEditNotice && typeof p.agentEditNotice.message==='string' ? {agentEditNotice:{message:p.agentEditNotice.message.slice(0,300)}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(storyTextFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.continuityPending===true)result.continuityPending=true;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
+function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');p = migrateStoryFields(migrateLegacyCast(structuredClone(p)));if(p.plotEvents!==undefined&&!validPlotEvents(p.plotEvents))throw Error('A story has invalid plot events.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),lore:String(p.lore||''),notes:String(p.notes||''),...(p.plotEvents ? {plotEvents:p.plotEvents} : {}),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentHistory?{agentHistory:normalizeAgentHistory(p.agentHistory)}:{}),...(normalizeSetupHistory(p.setupHistory)?{setupHistory:normalizeSetupHistory(p.setupHistory)}:{}),...(normalizeStoryFlow(p.storyFlow)?{storyFlow:normalizeStoryFlow(p.storyFlow)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentEditNotice && typeof p.agentEditNotice.message==='string' ? {agentEditNotice:{message:p.agentEditNotice.message.slice(0,300)}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(storyTextFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.continuityPending===true)result.continuityPending=true;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
 if(m.role==='assistant'&&m.standalone===true)result.standalone=true;if(m.role==='assistant'&&m.startsChapter===true)result.startsChapter=true;if(m.role==='assistant'&&typeof m.sourcePrefix==='string')result.sourcePrefix=m.sourcePrefix;if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})};});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 
 const sceneModelChoice = $('#sceneModel');
@@ -2322,13 +2324,14 @@ const continuityModelChoice = $('#continuityModel');
 const modePicker = enhanceSelect($('#authorMode'));
 const sceneModelPicker = enhanceSelect(sceneModelChoice);
 const continuityModelPicker = enhanceSelect(continuityModelChoice);
-let continuitySensitive;
+let continuityOptionsKey = '';
 function syncContinuityModel(project) {
   const sensitive = sensitiveDraft(project);
-  if (sensitive !== continuitySensitive) {
-    continuitySensitive = sensitive;
-    continuityModelChoice.replaceChildren(...models.filter(model=>isContinuityModel(model.id,sensitive))
-      .map(model=>presetOption(model,'agent')));
+  const key = JSON.stringify([sensitive,enabledProviders()]);
+  if (key !== continuityOptionsKey) {
+    continuityOptionsKey = key;
+    continuityModelChoice.replaceChildren(...providerOptions(models.filter(model=>isContinuityModel(model.id,sensitive))
+      .map(model=>presetOption(model,'agent'))));
   }
   continuityModelChoice.value = selectedContinuityModel(project);
   continuityModelPicker.sync();
@@ -2385,9 +2388,20 @@ function presetOption(model,mode,priced = false) {
   return option;
 }
 
-function modelOptions(mode, {priced = false, addModel = false} = {}) {
+function providerOptions(options) {
   const placeholder = new Option('Pick a model','');
   placeholder.disabled = true;
+  const groups = providerOrder.flatMap(provider=>{
+    if (!providerKeys.has(provider)) return [];
+    const group = document.createElement('optgroup');
+    group.label = providerNames[provider];
+    group.append(...options.filter(option=>modelProvider(option.value) === provider));
+    return group.children.length ? [group] : [];
+  });
+  return [placeholder,...groups];
+}
+
+function modelOptions(mode, {priced = false, addModel = false} = {}) {
   const list = models.filter(model => mode === 'agent' ? isAgentModel(model.id) : isWriterModel(model.id))
     .map(model=>presetOption(model,mode,priced));
   if (mode !== 'agent') {
@@ -2397,12 +2411,15 @@ function modelOptions(mode, {priced = false, addModel = false} = {}) {
       option.dataset.tag = 'User-added';
       list.push(option);
     }
-    if (addModel) list.push(new Option('Manage custom models…','custom'));
   }
-  return [placeholder,...list];
+  const options = providerOptions(list);
+  if (addModel && mode === 'story' && providerKeys.has('openrouter')) {
+    options.push(new Option('Manage custom models…','custom'));
+  }
+  return options;
 }
 function syncSceneModel(model,mode) {
-  const optionsKey = JSON.stringify([mode,userModels]);
+  const optionsKey = JSON.stringify([mode,userModels,enabledProviders()]);
   if (sceneModelOptionsKey !== optionsKey) {
     sceneModelChoice.replaceChildren(...modelOptions(mode,{priced:true,addModel:true}));
     sceneModelOptionsKey = optionsKey;
@@ -2422,10 +2439,11 @@ sceneModelChoice.onchange = () => {
   setSession(modelKey(current().id,mode),model);
   syncRoute();
 };
+const providerKeyFields = {openrouter:$('#keyInput'),anthropic:$('#claudeKeyInput'),openai:$('#openAiKeyInput')};
 const providerDialog = $('#providerDialog');
 function openAppSettings() {
   if (!state || busy) return;
-  $('#keyInput').value = openRouterKey;
+  for (const [provider,field] of Object.entries(providerKeyFields)) field.value = providerKeys.get(provider) || '';
   $('#toggleDirections').checked = showGraphDirections;
   providerDialog.showModal();
 }
@@ -2435,10 +2453,17 @@ $('#providerButton').onclick = () => {
 };
 $('#openComposerSettings').onclick = openAppSettings;
 $('#closeProvider').onclick = $('#cancelProvider').onclick = () => providerDialog.close();
-providerDialog.addEventListener('close', () => { $('#keyInput').value = ''; });
+providerDialog.addEventListener('close', () => {
+  for (const field of Object.values(providerKeyFields)) field.value = '';
+});
 $('#providerForm').onsubmit = event => {
   event.preventDefault();
-  openRouterKey = $('#keyInput').value.trim();
+  providerKeys.clear();
+  for (const [provider,field] of Object.entries(providerKeyFields)) {
+    const key = field.value.trim();
+    if (key) providerKeys.set(provider,key);
+  }
+  if (setupDialog.open) populateSetupModels();
   showGraphDirections = $('#toggleDirections').checked;
   setSession('studio-show-directions',showGraphDirections ? 'true' : '');
   syncRoute();
@@ -2558,9 +2583,10 @@ cardInput.onchange = async () => {
     if (!Object.values(fields).some(key => typeof data[key] === 'string' && data[key].trim())) throw Error('No supported character fields found.');
     const editor = castEditors().find(item => item.dataset.id === characterId);
     if (!editor || storyView !== 'graph') return;
-    for (const [field, key] of Object.entries(fields)) {
+    const imported = simpleCharacter(Object.fromEntries(Object.entries(fields).map(([field,key])=>[field,data[key]])));
+    for (const field of castFields) {
       const input = editor.querySelector(`[data-field="${field}"]`);
-      input.value = typeof data[key] === 'string' ? data[key].trim() : '';
+      input.value = typeof imported[field] === 'string' ? imported[field].trim() : '';
       input.setCustomValidity('');
     }
     refreshEditorName(editor);
@@ -2654,6 +2680,7 @@ function saveGraphSettings() {
   project.storyStartAt = draftStartAt;
   project.storyStartSource = draftStartSource;
   project.relationships = draftRelationships;
+  project.plotEvents = draftPlotEvents;
   project.graphUpdates = $('#graphUpdates').checked;
   for (const [index, turn] of project.messages.entries()) {
     if (!turn.graphSuggestions) continue;
@@ -2696,7 +2723,14 @@ const setupChat = $('#setupChat');
 const setupReview = $('#setupReview');
 const setupImport = $('#setupImport');
 const setupModel = $('#setupModel');
-const setupKey = $('#setupKey');
+const setupModelPicker = enhanceSelect(setupModel);
+function populateSetupModels() {
+  const previous = setupModel.value;
+  setupModel.replaceChildren(...modelOptions('setup'));
+  setupModel.value = Array.from(setupModel.options).some(option=>option.value === previous) ? previous : '';
+  syncSetupChat();
+}
+$('#openSetupSettings').onclick = openAppSettings;
 const setupMessage = $('#setupMessage');
 const setupContext = $('#setupContext');
 const setupAttach = $('#setupAttach');
@@ -2795,12 +2829,14 @@ function addSetupRelationship({from='',to='',label=''} = {}) {
   return fromField;
 }
 
-function fillSetupReview({title='',scenario='',lore='',notes='',cast=[],continuity='',chapterStarts=[],relationships=[],storyStartAt=''} = {}) {
+let setupPlotEvents = [];
+function fillSetupReview({title='',scenario='',lore='',notes='',cast=[],plotEvents=[],chapterStarts=[],relationships=[],storyStartAt=''} = {}) {
   $('#setupTitle').value = title;
   $('#setupScenario').value = scenario;
   $('#setupLore').value = lore;
   $('#setupNotes').value = notes;
-  $('#setupContinuity').value = continuity;
+  setupPlotEvents = plotEvents;
+  $('#setupPlotEvents').value = plotEvents.map(event=>event.note).join('\n');
   for (const field of setupReview.querySelectorAll('textarea')) field.setCustomValidity('');
   $('#setupStartAt').value = storyStartAt;
   setupSuggestedChapters = chapterStarts.length || !setupManuscript ? chapterStarts : defaultChapterStarts(setupManuscript);
@@ -2821,12 +2857,11 @@ function fillSetupReview({title='',scenario='',lore='',notes='',cast=[],continui
 
 function updateManuscriptReview() {
   $('#setupSourceReview').hidden = !setupManuscript;
-  $('#setupContinuityField').hidden = !setupManuscript;
   $('#setupSuggestionField').hidden = !setupSuggestedChapters.length;
   if (!setupManuscript) return;
   const turns = manuscriptTurns(setupManuscript,$('#setupUseSuggestions').checked ? setupSuggestedChapters : []);
   const chapters = turns.filter(turn => turn.startsChapter).length + 1;
-  $('#setupReviewSummary').textContent = `${turns.length} ${turns.length === 1 ? 'turn' : 'turns'} · ${chapters} ${chapters === 1 ? 'chapter' : 'chapters'}. All imported prose is kept. MCP context requires review.`;
+  $('#setupReviewSummary').textContent = `${turns.length} ${turns.length === 1 ? 'turn' : 'turns'} · ${chapters} ${chapters === 1 ? 'chapter' : 'chapters'}. All imported prose is kept. AI context requires review.`;
 }
 
 function updateManuscriptSource() {
@@ -2866,12 +2901,14 @@ function syncSetupChat() {
   const draftModel = setupDraftModel(setupModel.value);
   const draftName = models.find(({id})=>id === draftModel).name;
   const manuscriptAction = setupManuscript ? 'Replace manuscript' : 'Use as manuscript';
-  $('#setupKeyField').hidden = Boolean(openRouterKey);
+  $('#openSetupSettings').hidden = hasApiKey();
   const usage = updateSetupContextUsage(content,context,draftModel);
   const canTransferDraft = (usage.chatFull || usage.draftFull) && Boolean(content);
-  $('#setupProviderNote').textContent = 'OpenRouter receives the full setup chat, additional context, and any attached manuscript. ' + draftName + ' prepares the draft.';
+  $('#setupProviderNote').textContent = setupModel.value
+    ? providerNames[modelProvider(setupModel.value)] + ' receives the setup chat, additional context, and any attached manuscript. ' + draftName + ' prepares the draft.'
+    : '';
   setupModel.disabled = pending;
-  setupKey.disabled = pending;
+  setupModelPicker.sync();
   setupMessage.readOnly = pending;
   setupContext.readOnly = pending;
   $('#setupSend').disabled = pending || usage.chatFull || !content;
@@ -2891,11 +2928,12 @@ async function requestSetup(mode) {
   const context = setupContext.value.trim();
   const usage = updateSetupContextUsage(content,context,setupDraftModel(setupModel.value));
   if (mode === 'chat' && usage.chatFull) return;
-  const key = openRouterKey || setupKey.value.trim();
+  const key = keyForModel(setupModel.value);
   setupChatError.textContent = '';
   if (!setupModel.value || !key) {
-    setupChatError.textContent = !setupModel.value ? 'Choose an OpenRouter model.' : 'Enter your OpenRouter API key.';
-    (!setupModel.value ? setupModel : setupKey).focus();
+    setupChatError.textContent = hasApiKey() ? 'Choose a setup model.' : 'Add an API key in Settings.';
+    if (hasApiKey()) setupModelPicker.focus();
+    else $('#openSetupSettings').focus();
     return;
   }
   if (mode === 'chat' && !content) return;
@@ -2910,7 +2948,7 @@ async function requestSetup(mode) {
       : usage.draftFull ? 'Reviewing the source in sections…' : 'Preparing your setup draft…';
     const payload = {mode,messages,manuscript,context};
     const result = await api('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},signal:request.signal,
-      body:JSON.stringify({...payload,model:setupModel.value,key})});
+      body:JSON.stringify({...payload,provider:modelProvider(setupModel.value),model:setupModel.value,key})});
     if (setupRequest !== request || !setupDialog.open) return;
     if (mode === 'draft') {
       setupReviewedMessages = messages;
@@ -2950,7 +2988,7 @@ $('#newProject').onclick = async () => {
   setupMessages = [];
   setupReviewedMessages = undefined;
   setupChat.reset();
-  setupModel.replaceChildren(...modelOptions('setup'));
+  populateSetupModels();
   setupModel.value = '';
   $('#setupContextDetails').open = false;
   setupImport.reset();
@@ -2970,7 +3008,6 @@ $('#closeSetup').onclick = () => setupDialog.close();
 setupDialog.addEventListener('close',() => {
   setupRequest?.abort();
   setupRequest = undefined;
-  setupKey.value = '';
   setupMessage.value = '';
   setupContext.value = '';
   setupMessages = [];
@@ -3114,9 +3151,19 @@ setupReview.onsubmit = event => {
     lore:$('#setupLore').value.trim(),premise:$('#setupScenario').value.trim(),notes:$('#setupNotes').value.trim(),
     storyStartAt,storyStartSource:setupStart ? 'author' : 'estimate',messages,relationships,
     ...(setupHistory && (setupHistory.context || setupHistory.messages.length) ? {setupHistory} : {}),
-    ...(setupManuscript ? {continuity:$('#setupContinuity').value.trim(),nextTurn:messages.length + 1} : {}),
+    plotEvents:$('#setupPlotEvents').value.split('\n').map(note=>note.trim()).filter(Boolean).map(note=>{
+      const suggested = setupPlotEvents.find(event=>event.note === note);
+      const turn = suggested?.sourceTurn <= messages.length ? suggested.sourceTurn : 0;
+      return {note,turn,storyTime:suggested?.storyTime || storyStartAt};
+    }),
+    ...(setupManuscript ? {nextTurn:messages.length + 1} : {}),
     cast:cast.map(member => ({...Object.fromEntries(castFields.map(field => [field,''])),...member}))
   };
+  if (!validPlotEvents(newStory.plotEvents)) {
+    $('#setupReviewError').textContent = 'Keep each plot event within 300 characters.';
+    $('#setupPlotEvents').focus();
+    return;
+  }
   const [project] = normalize({activeId:projectId,projects:[newStory]}).projects;
   captureGraphVersion(project,0);
   state.projects.unshift(project);
@@ -3172,7 +3219,7 @@ function showComposerConnectionWarning() {
   if (following) transcript.scrollTop = transcript.scrollHeight;
 }
 $('#instruction').addEventListener('focus',() => {
-  if (!openRouterKey && !composerEdit) showComposerConnectionWarning();
+  if (!hasApiKey() && !composerEdit) showComposerConnectionWarning();
 });
 $('#writingComposer').addEventListener('focusout',event => {
   if (!event.currentTarget.contains(event.relatedTarget)) clearComposerConnectionWarning();
@@ -3292,7 +3339,7 @@ function composerContext(stage = 'writer') {
   const writer = writingModel(project,mode);
   const useContinuity = mode === 'story' && stage === 'continuity';
   const model = useContinuity ? selectedContinuityModel(project) : writer;
-  if (composerEdit && (!composerEdit.canRegenerate || !model || !openRouterKey)) {
+  if (composerEdit && (!composerEdit.canRegenerate || !model || !keyForModel(model))) {
     return {heading:'Context',summary:'Context · no model call',parts:[],
       limits:'This action saves the text locally. No model sees it.'};
   }
@@ -3348,12 +3395,84 @@ function renderContextPanel() {
   $('#promptTextDetails').hidden = !messages;
   $('#promptContents').textContent = messages ? formatMessages(messages) : '';
 }
+
+const spendColors = ['#c7a6b9','#83b5bc','#c8ad7d','#a6a1d0','#91b593','#c39183'];
+const spendDate = new Intl.DateTimeFormat(undefined,{month:'short',day:'numeric',timeZone:'UTC'});
+const spendMoney = new Intl.NumberFormat(undefined,{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:4});
+const formatSpend = value => value > 0 && value < 0.0001 ? '<$0.0001' : spendMoney.format(value);
+const spendLabel = date => spendDate.format(new Date(date + 'T12:00:00Z'));
+const modelSpendKey = ({provider,model}) => provider + '/' + model;
+
+function renderSpendDays(days, selected) {
+  const chart = $('#spendChart'), breakdown = $('#spendBreakdown');
+  const totals = days.map(day=>day.models.reduce((sum,row)=>sum+row.usd,0));
+  const ceiling = Math.max(...totals,0);
+  const modelsInRange = [...new Set(days.flatMap(day=>day.models.map(modelSpendKey)))].sort();
+  const color = row => spendColors[modelsInRange.indexOf(modelSpendKey(row)) % spendColors.length];
+  chart.replaceChildren(...days.map(({date,models},index)=>{
+    const button = el('button','spend-day');
+    button.type = 'button';
+    button.setAttribute('aria-pressed',String(index === selected));
+    button.setAttribute('aria-label',spendLabel(date) + ', ' + formatSpend(totals[index]));
+    const plot = el('span','spend-plot');
+    plot.setAttribute('aria-hidden','true');
+    for (const row of models) {
+      if (!row.usd || !ceiling) continue;
+      const segment = el('span','spend-segment');
+      segment.style.height = (row.usd / ceiling * 100) + '%';
+      segment.style.backgroundColor = color(row);
+      plot.append(segment);
+    }
+    button.append(plot,el('span','spend-day-label',spendLabel(date)));
+    button.onclick = () => {
+      renderSpendDays(days,index);
+      chart.children[index].focus({preventScroll:true});
+    };
+    return button;
+  }));
+  breakdown.replaceChildren(el('dt','spend-total',spendLabel(days[selected].date)),el('dd','spend-total',formatSpend(totals[selected])));
+  for (const row of days[selected].models) {
+    const label = el('dt','spend-label');
+    const swatch = el('span','spend-swatch');
+    swatch.setAttribute('aria-hidden','true');
+    swatch.style.backgroundColor = color(row);
+    label.append(swatch,el('span','',modelName(row.model) + ' · ' + providerNames[row.provider]));
+    const price = row.unpriced === row.calls ? 'Unavailable' : (row.estimated ? '≈' : '') + formatSpend(row.usd);
+    const amount = el('dd','',price);
+    if (row.unpriced) amount.append(el('small','','Cost missing for ' + row.unpriced + (row.unpriced === 1 ? ' call' : ' calls')));
+    breakdown.append(label,amount);
+  }
+}
+
+async function refreshSpend() {
+  const status = $('#spendStatus');
+  $('#spendChart').replaceChildren();
+  $('#spendBreakdown').replaceChildren();
+  $('#spendNote').hidden = true;
+  status.textContent = 'Loading spend…';
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const {days} = await api('/api/spend?timeZone=' + encodeURIComponent(timeZone));
+    const latest = days.findLastIndex(day=>day.models.length);
+    if (latest < 0) {
+      status.textContent = 'No API spend recorded in the past seven days.';
+      return;
+    }
+    status.textContent = '';
+    $('#spendNote').hidden = false;
+    renderSpendDays(days,latest);
+  } catch {
+    status.textContent = 'Couldn’t load API spend. Reopen this panel to retry.';
+  }
+}
+
 $('#contextStage').onchange = renderContextPanel;
 $('#contextIndicator').onclick = () => {
   if (!state) return;
   $('#contextStage').value = 'writer';
   renderContextPanel();
   $('#promptDialog').showModal();
+  void refreshSpend();
 };
 $('#closePrompt').onclick = () => $('#promptDialog').close();
 function download(blob, filename) {
@@ -3458,7 +3577,7 @@ storyDrawer.addEventListener('click', event => {
   }
 })();
 
-// The native chat can save at any time. Refresh open reading views using the library revision.
+// Other Studio tabs and connected tools can save while this view is open.
 let checkingUpdates = false;
 setInterval(async () => {
   if (!state || document.hidden || checkingUpdates || dirty || pendingWrites || busy ||

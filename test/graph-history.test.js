@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { applyTurnGraphUpdates, captureGraphVersion, graphChangesByTurn, normalizeGraphHistory, readGraphVersion, storyAtTurn } from '../public/graph-history.js';
+import { buildWritingContext, migrateStoryFields } from '../public/prompt.js';
+import { applyStoryEdits } from '../story-edits.mjs';
 
 function story() {
   return {
@@ -19,7 +21,7 @@ function story() {
 test('turn graph changes use saved source turns and omit pending proposals', () => {
   const project = story();
   project.lore += '\nTurn 7: The south slip is open.';
-  project.continuity += '\nTurn 5: Ada located the missing lantern.';
+  project.plotEvents = [{note:'Ada located the missing lantern.',turn:5,storyTime:'1998-01-01T08:05'}];
   project.relationships = [
     {turn:0,from:'primary',to:'ada',label:'They have worked together for years.'},
     {turn:5,from:'primary',to:'ada',label:'Iona lends Ada the spare key.'}
@@ -27,16 +29,16 @@ test('turn graph changes use saved source turns and omit pending proposals', () 
   project.messages = [{
     turnNumber:5,
     appliedGraphUpdates:[
-      {kind:'fact',note:'Ada located the missing lantern.'},
+      {kind:'plot',note:'Ada located the missing lantern.'},
       {kind:'character',name:'Tomas',note:'The night watchman.'}
     ],
-    graphSuggestions:[{kind:'fact',note:'Pending fact only.'}]
+    graphSuggestions:[{kind:'plot',note:'Pending fact only.'}]
   }];
   const changes = graphChangesByTurn(project);
   assert.equal(changes.has(0),false);
   assert.deepEqual(changes.get(5),{
     relationships:[project.relationships[1]],
-    notes:project.messages[0].appliedGraphUpdates
+    notes:[project.messages[0].appliedGraphUpdates[1],{kind:'plot',...project.plotEvents[0]}]
   });
   assert.deepEqual(changes.get(7).notes,[{kind:'world',note:'The south slip is open.'}]);
 });
@@ -58,16 +60,16 @@ test('graph changes reconstruct detailed character and world states by turn', ()
 
   const early = readGraphVersion(project, 5);
   assert.equal(early.lore, 'The port is blocked by ice.');
-  assert.equal(early.cast[1].description, 'Restores old boats.');
+  assert.match(early.cast[1].description, /^Restores old boats\..*Quiet\..*blue lever/s);
   assert.equal(early.cast[0].nickname, 'Captain, Ion');
-  assert.equal(early.cast[0].examples, '“We weigh anchor at first light.”');
+  assert.match(early.cast[0].description, /We weigh anchor at first light/);
   const latest = readGraphVersion(project, 10);
   assert.equal(latest.lore, 'The last ice has melted.');
-  assert.equal(latest.cast[1].description, 'Restores old boats and captains the Breakwater.');
-  assert.equal(latest.continuity, 'Ada bought the Breakwater.');
+  assert.match(latest.cast[1].description, /^Restores old boats and captains the Breakwater\./);
+  assert.equal(latest.continuity, undefined);
 
   latest.cast[1].description = 'Detach this edit from the stored timeline.';
-  assert.equal(readGraphVersion(project, 10).cast[1].description, 'Restores old boats and captains the Breakwater.');
+  assert.match(readGraphVersion(project, 10).cast[1].description, /^Restores old boats and captains the Breakwater\./);
   assert.deepEqual(normalizeGraphHistory(JSON.parse(JSON.stringify(project.graphHistory))), project.graphHistory);
 });
 
@@ -79,8 +81,8 @@ test('same-turn saves coalesce without changing earlier versions', () => {
   project.lore = 'The launch is underwater.';
   captureGraphVersion(project, 2);
   assert.equal(project.graphHistory.length, 2);
-  assert.equal(readGraphVersion(project, 1).cast[0].description, 'A navigator who trusts the winter stars.');
-  assert.equal(readGraphVersion(project, 2).cast[0].description, 'A navigator with a new first mate.');
+  assert.match(readGraphVersion(project, 1).cast[0].description, /^A navigator who trusts the winter stars\./);
+  assert.match(readGraphVersion(project, 2).cast[0].description, /^A navigator with a new first mate\./);
   assert.equal(readGraphVersion(project, 2).lore, 'The launch is underwater.');
   assert.throws(() => captureGraphVersion(project, 1), /before the latest version/);
 });
@@ -109,7 +111,7 @@ test('malformed backups are rejected rather than returning incorrect past states
   const project = story();
   captureGraphVersion(project, 0);
   assert.throws(() => normalizeGraphHistory([...project.graphHistory,{turn:0,lore:'Duplicate'}]), /strictly increasing/);
-  assert.throws(() => normalizeGraphHistory([...project.graphHistory,{turn:1,continuity:10}]), /invalid section/);
+  assert.throws(() => normalizeGraphHistory([...project.graphHistory,{turn:1,lore:10}]), /invalid section/);
 });
 
 test('a turn snapshot keeps the selected take and past graph state without changing the original', () => {
@@ -140,8 +142,8 @@ test('a turn snapshot keeps the selected take and past graph state without chang
   assert.equal(snapshot.nextTurn,5);
   assert.equal(snapshot.agentRequest,undefined);
   assert.equal(snapshot.lore,'Both boats have cleared the ice.');
-  assert.equal(snapshot.continuity,'The crew borrowed a flare.');
-  assert.equal(snapshot.cast.find(member=>member.id === 'ada').description,'Restores old boats.');
+  assert.equal(snapshot.continuity,undefined);
+  assert.match(snapshot.cast.find(member=>member.id === 'ada').description,/^Restores old boats\./);
   assert.deepEqual(snapshot.relationships.map(edge => edge.turn),[0,4]);
   assert.deepEqual(snapshot.graphHistory.map(version => version.turn),[0,4]);
   snapshot.messages[1].alternatives[0] = 'Branch-only take.';
@@ -156,7 +158,7 @@ test('automatic graph updates are saved with their source turn and the prior ver
   const updates = [
     {kind:'relationship',from:'Captain',to:'Tomas',label:'Iona hands Tomas the flare.'},
     {kind:'character',name:'Tomas',note:'A night watchman.'},
-    {kind:'fact',note:'Tomas can call for help.'}
+    {kind:'plot',note:'Tomas can call for help.'}
   ];
   assert.deepEqual(applyTurnGraphUpdates(project,message,updates,{allowAutomatic:true}),{applied:3,pending:0});
   assert.equal(project.relationships[0].turn,2);
@@ -165,7 +167,7 @@ test('automatic graph updates are saved with their source turn and the prior ver
   assert.deepEqual(message.appliedGraphUpdates,[updates[1],updates[0],updates[2]]);
   assert.equal(readGraphVersion(project,0).cast.length,2);
   assert.equal(readGraphVersion(project,2).cast.length,3);
-  assert.match(readGraphVersion(project,2).continuity,/Turn 2: Tomas can call for help/);
+  assert.deepEqual(project.plotEvents,[{note:'Tomas can call for help.',turn:2,storyTime:'1998-01-01T08:05'}]);
 });
 
 test('updates needing review remain outside the saved graph', () => {
@@ -176,4 +178,32 @@ test('updates needing review remain outside the saved graph', () => {
   assert.deepEqual(message.graphSuggestions,updates);
   assert.equal(project.lore,'The port is blocked by ice.');
   assert.equal(project.graphHistory,undefined);
+});
+
+test('legacy notes and profile details are consolidated while retired story memory is ignored', () => {
+  const project = {
+    notes:'Use short sentences.', authorNote:'Define jargon in context.', postHistory:'RETIRED INSTRUCTION',
+    continuity:'RETIRED MEMORY', lore:'An island.', cast:[{id:'ada',name:'Ada',nickname:'Pilot',
+      description:'Repairs radios.',personality:'Patient.',scenario:'Marooned.',examples:'“Did you hear that?”'}],
+    messages:[{role:'assistant',content:'A radio crackled.',appliedGraphUpdates:[{kind:'fact',note:'RETIRED RECEIPT'}]}],
+    graphHistory:[{turn:0,cast:[],lore:'An island.',continuity:'RETIRED SNAPSHOT'}]
+  };
+  migrateStoryFields(project);
+  assert.equal(project.notes,'Use short sentences.\n\nDefine jargon in context.');
+  assert.deepEqual(Object.keys(project.cast[0]).sort(),['description','id','name','nickname']);
+  assert.match(project.cast[0].description,/Patient\..*Marooned\..*Did you hear that/s);
+  assert.doesNotMatch(JSON.stringify(project),/RETIRED/);
+  assert.doesNotMatch(JSON.stringify(buildWritingContext(project,'Continue.')),/RETIRED/);
+});
+
+test('plot events can be added, updated, and excluded by rewinding their source turn', () => {
+  const project = {title:'A harbor',messages:[{role:'assistant',content:'Wait.',turnNumber:1},
+    {role:'assistant',content:'The ferry docked.',turnNumber:2,storyTime:'1998-01-01T08:05'}],lore:'A port.',notes:''};
+  assert.equal(applyStoryEdits(project,[{kind:'plot',note:'The ferry docked.'}]),1);
+  assert.deepEqual(project.plotEvents,[{note:'The ferry docked.',turn:2,storyTime:'1998-01-01T08:05'}]);
+  assert.equal(applyStoryEdits(project,[{kind:'edit_plot',eventIndex:0,note:'The second ferry docked.'}]),1);
+  assert.match(JSON.stringify(buildWritingContext(project,'Continue.')),/The second ferry docked/);
+  assert.deepEqual(storyAtTurn(project,0).plotEvents,[]);
+  assert.equal(applyStoryEdits(project,[{kind:'remove_plot',eventIndex:0}]),1);
+  assert.deepEqual(project.plotEvents,[]);
 });

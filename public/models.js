@@ -1,8 +1,13 @@
 // Rates in USD per million tokens are estimates. Context uses the lowest listed endpoint window.
 export const sensitiveArtist = 'thedrummer/cydonia-24b-v4.1';
 export const continuityModel = 'deepseek/deepseek-v4.1-flash';
+export const providerNames = Object.freeze({
+  openrouter:'OpenRouter', anthropic:'Claude API', openai:'OpenAI API'
+});
 
 export const models = [
+  {id:'claude-sonnet-5-5', provider:'anthropic', name:'Claude Sonnet 5.5', input:2, output:10, contextWindow:1_000_000, tier:'Preferred'},
+  {id:'gpt-6.1-terra', provider:'openai', name:'GPT-6.1 Terra', input:1, output:5, contextWindow:1_050_000, tier:'Preferred'},
   {id:sensitiveArtist, name:'Cydonia 24B v4.1', input:0.30, output:0.50, contextWindow:131_072, sensitiveWriter:true},
   {id:'cognitivecomputations/dolphin-mistral-24b-venice-edition', name:'Dolphin Mistral 24B Venice', input:0.20, output:0.90, contextWindow:128_000, sensitiveWriter:true},
   {id:continuityModel, name:'DeepSeek V4.1 Flash', input:0.14, output:0.42, contextWindow:1_000_000, tier:'Economy', sensitiveAgent:true},
@@ -24,7 +29,8 @@ export const isModelId = value => typeof value === 'string' && /^[a-z0-9_.-]+\/[
   && value.length <= 150 && value.toLowerCase() !== 'openrouter/auto';
 
 const catalogModel = id => models.find(model=>model.id === id);
-export const isWriterModel = id => isModelId(id) && !catalogModel(id)?.agentOnly;
+export const modelProvider = id => catalogModel(id)?.provider || (isModelId(id) ? 'openrouter' : undefined);
+export const isWriterModel = id => Boolean(modelProvider(id)) && !catalogModel(id)?.agentOnly;
 export const canWriteSensitive = id => Boolean(catalogModel(id)?.sensitiveWriter);
 export const isAgentModel = id => models.some(model => model.id === id && !model.sensitiveWriter && !model.agentOnly);
 export const isContinuityModel = (id,sensitive) => sensitive ? Boolean(catalogModel(id)?.sensitiveAgent) : isAgentModel(id);

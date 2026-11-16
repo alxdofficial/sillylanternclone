@@ -1,12 +1,12 @@
-import { castFields, getCast, graphSuggestions, migrateLegacyCast, relationshipTime, resolveCastName, validCast } from './prompt.js';
+import { castFields, getCast, graphSuggestions, migrateLegacyCast, relationshipTime, resolveCastName, validCast, localStoryTime, migrateStoryFields, simpleCharacter } from './prompt.js';
 
-const requiredSections = ['cast', 'lore', 'continuity'];
+const requiredSections = ['cast', 'lore'];
 const sections = [...requiredSections,'notes'];
 const castKeys = new Set(['id', ...castFields]);
 const revisionKeys = new Set(['turn', ...sections]);
 const validTurn = turn => Number.isSafeInteger(turn) && turn >= 0;
 const owns = (value, key) => Object.hasOwn(value, key);
-const copyCast = cast => cast.map(member => ({
+const copyCast = cast => cast.map(simpleCharacter).map(member => ({
   id:member.id,
   ...Object.fromEntries(castFields.map(field => [field, member[field] || '']))
 }));
@@ -24,13 +24,17 @@ export function normalizeGraphHistory(value) {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new TypeError('Graph history must be an array.');
   let previousTurn = -1;
-  return value.map((entry, index) => {
+  return value.flatMap((raw, index) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new TypeError('Invalid graph version.');
+    const {continuity,...entry} = raw;
+    if (Array.isArray(entry.cast)) entry.cast = entry.cast.map(simpleCharacter);
     if (!entry || Array.isArray(entry) || typeof entry !== 'object'
       || !validTurn(entry.turn) || entry.turn <= previousTurn
       || Object.keys(entry).some(key => !revisionKeys.has(key))) {
       throw new TypeError('Graph history turns must be valid and strictly increasing.');
     }
     const present = sections.filter(section => owns(entry, section));
+    if (!present.length && typeof continuity === 'string' && index > 0) { previousTurn = entry.turn; return []; }
     if (!present.length || (index === 0 && !requiredSections.every(section=>owns(entry,section)))) {
       throw new TypeError('Graph history must start with a complete version and record only nonempty changes.');
     }
@@ -69,7 +73,7 @@ export function graphChangesByTurn(project) {
   }
   project.messages.forEach((message,index) => {
     for (const note of graphSuggestions(message.appliedGraphUpdates)) {
-      if (note.kind !== 'relationship') forTurn(message.turnNumber || index + 1).notes.push(note);
+      if (!['relationship','plot'].includes(note.kind)) forTurn(message.turnNumber || index + 1).notes.push(note);
     }
   });
   // Older libraries preserved the source of kept facts as a dated line.
@@ -86,7 +90,7 @@ export function graphChangesByTurn(project) {
   };
   for (const member of getCast(project)) addDatedNotes(member.description,'profile',member.name);
   addDatedNotes(project.lore,'world');
-  addDatedNotes(project.continuity,'fact');
+  for (const event of project.plotEvents || []) forTurn(event.turn).notes.push({kind:'plot',...event});
   addDatedNotes(project.notes,'writing');
   return changes;
 }
@@ -95,7 +99,7 @@ export function storyAtTurn(project, index) {
   const ending = project.messages[index];
   if (!ending) throw new RangeError('That story turn is no longer available.');
   const turn = ending.turnNumber || index + 1;
-  const story = migrateLegacyCast(structuredClone(project));
+  const story = migrateStoryFields(migrateLegacyCast(structuredClone(project)));
   story.messages.length = index + 1;
   story.nextTurn = turn + 1;
   if (story.agentHistory) story.agentHistory = story.agentHistory.filter(entry=>entry.afterTurn <= turn);
@@ -109,11 +113,12 @@ export function storyAtTurn(project, index) {
   if (version) {
     story.cast = version.cast;
     story.lore = version.lore;
-    story.continuity = version.continuity;
+
     if (version.notes !== undefined) story.notes = version.notes;
   }
   if (story.graphHistory) story.graphHistory = story.graphHistory.filter(entry => entry.turn <= turn);
   const castIds = new Set(getCast(story).map(member => member.id));
+  if (story.plotEvents) story.plotEvents = story.plotEvents.filter(event=>event.turn <= turn);
   if (story.relationships) story.relationships = story.relationships.filter(edge =>
     (edge.turn || 0) <= turn && castIds.has(edge.from) && castIds.has(edge.to));
   return story;
@@ -128,7 +133,6 @@ export function captureGraphVersion(project, turn) {
   const snapshot = {
     cast:copyCast(getCast(project)),
     lore:project.lore || '',
-    continuity:project.continuity || '',
     notes:project.notes || ''
   };
   const current = readGraphVersion(project);
@@ -195,7 +199,14 @@ export function applyGraphUpdate(project, update, turn) {
     member.description = text;
     return true;
   }
-  const field = update.kind === 'world' ? 'lore' : update.kind === 'writing' ? 'notes' : 'continuity';
+  if (update.kind === 'plot') {
+    const events = project.plotEvents ||= [];
+    if (events.some(event=>event.note.trim().toLowerCase() === update.note.trim().toLowerCase())) return false;
+    events.push({note:update.note,turn,storyTime:update.storyTime || relationshipTime(project,{turn}) || localStoryTime()});
+    return true;
+  }
+  if (!['world','writing'].includes(update.kind)) return null;
+  const field = update.kind === 'world' ? 'lore' : 'notes';
   const text = addDatedFact(project[field],update.note,turn);
   if (project[field] === text) return false;
   project[field] = text;

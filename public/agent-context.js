@@ -104,7 +104,7 @@ export function buildAgentContext(project,{system,request,model,outputLimit} = {
 
 export const storyEditInstructions = [
   'Apply the writer’s requested change to the current story state. Leave prose, turns, and chapters intact.',
-  'Use the matching operation for the world, writing notes, cast, facts, or relationship events. Append new facts. For a partial correction, read all pages of the field and preserve its other text. When changing an existing relationship, use its current eventIndex. Keep each event to one sentence about what changed.',
+  'Use world for setting; notes for all author guidance, style, terminology, and writing techniques; plot for lasting plot events; and relationship for consequential changes between characters. Use character to add a cast member and profile to update description or aliases. Personality, backstory, and dialogue examples belong in the description. Append new information by default. Before replacing part of a field, read every page and preserve its other text. Use the current eventIndex for existing graph events. Keep each event to one sentence.',
   'Preserve established facts and remove characters or events only when the writer explicitly asks. If the requested change is ambiguous or unsupported, return no changes and explain briefly.'
 ].join(' ');
 
@@ -113,6 +113,8 @@ export const structuredInstructions = [
   'Use inspect_continuity to look up relevant story state when needed. Use exact cast names and follow nextOffset for additional pages.',
   'Keep every field safe for work. Never include or paraphrase graphic, sexual, or otherwise NSFW details. Keep a non-graphic consequence only if it matters to the later story. Omit the update if you cannot express it safely.'
 ];
+
+export const sceneContinuityInstructions = 'After each new scene, record up to five lasting, non-explicit changes. Use relationship for one sentence about what changed between two exact cast names, dated when known. A handoff, promise, agreement, or new obligation between cast members belongs on the relationship graph when it affects later decisions. Use world for setting changes, plot for other lasting plot events, writing for requested standing guidance and jargon, and character or profile for cast facts. Put personality, character background, and dialogue examples in the description. Use a separate plot event only when it carries information the relationship event does not. Skip repeats and one-scene directions. Use updates: [] when nothing changed.';
 
 export function editorContext(project,instruction,model) {
   const system = [...structuredInstructions,storyEditInstructions,'Finish by calling edit_story_state.'].join('\n\n');
@@ -123,8 +125,8 @@ export function continuityContext(project,instruction,prose,{suggest,truncated,m
   const system = [
     ...structuredInstructions,
     'Classify the latest author direction and draft independently. Graphic sexual content or a request for it is explicit. Non-graphic romance and aftermath are safe. Use unclassified if unsure.',
-    'Finish with record_scene, even if no facts changed. Infer the in-story minute when possible. Record lasting facts in the graph and save writing preferences in writing notes only when the writer means them to apply to future scenes. Keep each new relationship event to one sentence about what changed between two named characters.',
-    ...(!suggest ? ['Record an empty updates array for this draft.'] : []),
+    'Finish with record_scene, even if no facts changed. Infer the in-story minute when possible.',
+    suggest ? sceneContinuityInstructions : 'Record an empty updates array for this draft.',
     ...(truncated ? ['The draft ends early. Classify only the text present.'] : []),
     ...(mode === 'alternate' ? ['Set input to safe. This alternate has no new author direction.'] : []),
     ...(sensitive ? ['The writer marked this direction sensitive. Set input to explicit.'] : [])

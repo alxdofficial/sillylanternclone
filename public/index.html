@@ -99,8 +99,7 @@
           <h3 id="storyFlowHeading" class="sr-only">Story Flow</h3>
           <p id="storyFlowStatus" class="story-flow-status" role="status"></p>
           <div id="storyFlowOptions" class="story-flow-options" role="group" aria-labelledby="storyFlowHeading"></div>
-          <button id="copyNativeFlowRequest" type="button" class="text-button" title="Copy a request to paste into your agent chat" hidden>Ask agent for directions</button>
-          <button id="requestStoryFlow" type="button" class="icon" aria-label="Suggest directions" title="Suggest directions"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5.3"/></svg></button>
+          <div class="story-flow-action"><span id="storyFlowActionLabel">Get AI recommendations</span><button id="requestStoryFlow" type="button" class="icon" aria-label="Suggest directions" title="Suggest directions"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5.3"/></svg></button></div>
         </section>
         <div class="composer-dock">
         <button type="button" class="icon composer-collapse" id="toggleComposer" aria-label="Hide composer" title="Hide composer" aria-expanded="true" aria-controls="writingComposer">
@@ -283,17 +282,12 @@
     <section role="tabpanel" id="worldPanel" aria-labelledby="worldTab" hidden>
       <label>Story start <span>Setup events share this date and time.</span><input id="storyStartAt" type="datetime-local" step="60"></label>
       <label>World setting<textarea name="lore" rows="5" placeholder="Places, time period, society, and how the world works."></textarea></label>
-      <label>Story memory <span>Short, non-explicit facts worth carrying forward.</span><textarea name="continuity" rows="5"></textarea></label>
       <label>Keyword lore <span>One rule per line: keyword, keyword | lore. Use * | lore for always-on entries.</span><textarea name="loreRules" rows="5" placeholder="castle, palace | The castle stands above the sea.&#10;* | Magic has a cost."></textarea></label>
     </section>
     <section role="tabpanel" id="writingPanel" aria-labelledby="writingTab" hidden>
       <label>Story title<input name="title"></label>
       <label>Opening premise<textarea name="premise" rows="3"></textarea></label>
       <label>Writing notes<textarea name="notes" rows="4"></textarea></label>
-      <details class="profile-details"><summary>Author’s note and post-history instructions</summary>
-        <label>Author’s note<textarea name="authorNote" rows="3"></textarea></label>
-        <label>Post-history instructions<textarea name="postHistory" rows="3"></textarea></label>
-      </details>
     </section>
   </div>
   <footer class="dialog-actions settings-actions">
@@ -343,7 +337,7 @@
       <label>In-story date and time <span>Optional for manually written turns.</span><input id="editStoryTime" type="datetime-local" step="60"></label>
       <label>AI context<select id="turnSensitivity" aria-describedby="editContextNote editSensitivityStatus"><option value="include">Include as non-explicit</option><option value="omit">Keep context censored</option></select></label>
       <p id="editSensitivityStatus" class="form-note" role="status" hidden></p>
-      <p id="editContextNote" class="form-note">OpenRouter labels new turns automatically. General AI prompts leave out explicit or unverified text. Approved graph facts can still carry forward.</p>
+      <p id="editContextNote" class="form-note">Studio labels API-generated turns automatically. General AI prompts leave out explicit or unverified text. Approved graph facts can still carry forward.</p>
       <label class="context-toggle"><input id="excludeTurn" type="checkbox"> Exclude this turn’s text from all AI prompts</label>
     </div>
     <footer class="dialog-actions"><button type="button" class="button subtle" id="cancelEdit">Cancel</button><button class="button primary">Save turn</button></footer>
@@ -357,10 +351,12 @@
     </header>
     <div class="dialog-body">
       <section class="connection-row">
-        <h3>OpenRouter</h3>
+        <h3>API providers</h3>
         <div>
-          <label>OpenRouter API key<input id="keyInput" aria-describedby="keyStorage" type="password" placeholder="Enter an API key" autocomplete="off"></label>
-          <p class="form-note" id="keyStorage">The key stays in this tab until you reload or close it.</p>
+          <label>Claude API key<input id="claudeKeyInput" aria-describedby="keyStorage" type="password" autocomplete="off"></label>
+          <label>OpenAI API key<input id="openAiKeyInput" aria-describedby="keyStorage" type="password" autocomplete="off"></label>
+          <label>OpenRouter API key<input id="keyInput" aria-describedby="keyStorage" type="password" autocomplete="off"></label>
+          <p class="form-note" id="keyStorage">Add a key to show that provider’s models. Keys stay in this tab until you reload or close it. Clear a key to disable its provider.</p>
         </div>
       </section>
       <section class="connection-row">
@@ -368,8 +364,8 @@
         <label class="context-toggle" title="Include author directions in the Graph timeline."><input type="checkbox" id="toggleDirections"> Show author directions in Graph</label>
       </section>
       <section class="connection-row">
-        <h3>Native chat</h3>
-        <p class="form-note">Connect Story Studio’s MCP tools in Codex or Claude, then ask the agent to open your story.</p>
+        <h3>External tools</h3>
+        <p class="form-note">Optional MCP clients can read and edit the saved library.</p>
       </section>
     </div>
     <footer class="dialog-actions">
@@ -407,6 +403,13 @@
       <div class="context-bar" id="contextBar" aria-hidden="true"></div>
       <dl id="contextParts" class="context-parts"></dl>
       <p class="form-note" id="contextLimits"></p>
+    </section>
+    <section class="spend-summary" aria-labelledby="spendHeading">
+      <h3 id="spendHeading">API spend</h3>
+      <p class="form-note" id="spendStatus" role="status"></p>
+      <div id="spendChart" class="spend-chart" role="group" aria-label="Daily API spend over the last seven days"></div>
+      <dl id="spendBreakdown" class="spend-breakdown"></dl>
+      <p class="form-note" id="spendNote" hidden>USD for calls made in this Studio. Direct API amounts are estimates before credits.</p>
     </section>
     <details id="promptTextDetails" open>
       <summary>Prompt text</summary>
@@ -455,8 +458,11 @@
   </form>
   <form id="setupChat" hidden>
     <div class="setup-connection">
-      <label for="setupModel" id="setupModelField">OpenRouter model <select id="setupModel"><option value="" disabled selected>Choose a model</option></select></label>
-      <label for="setupKey" id="setupKeyField">OpenRouter API key <input id="setupKey" type="password" autocomplete="off"></label>
+      <div class="setup-model-field">
+        <label for="setupModel" id="setupModelField">Setup model</label>
+        <select id="setupModel"><option value="" disabled selected>Choose a model</option></select>
+      </div>
+      <button type="button" id="openSetupSettings" class="button subtle">Set up an API provider</button>
       <p class="form-note" id="setupProviderNote"></p>
 
     </div>
@@ -506,7 +512,7 @@
         <label class="context-toggle" id="setupSuggestionField"><input type="checkbox" id="setupUseSuggestions" checked> Use suggested chapter breaks</label>
         <label class="context-toggle"><input type="checkbox" id="setupReviewedAll"> I reviewed the full manuscript as non-explicit. Allow it in future general AI context.</label>
       </section>
-      <label class="context-toggle" id="setupReferencesReview" hidden><input type="checkbox" id="setupReferencesReviewed"> Allow my non-explicit setup chat and reference notes in future OpenRouter agent context.</label>
+      <label class="context-toggle" id="setupReferencesReview" hidden><input type="checkbox" id="setupReferencesReviewed"> Allow my non-explicit setup chat and reference notes in future Studio agent context.</label>
       <label>Story title <input id="setupTitle" required></label>
       <div class="setup-start">
         <label>Story start <input id="setupStartAt" type="datetime-local" aria-describedby="setupStartHint"></label>
@@ -515,7 +521,7 @@
       <label>Opening premise <textarea id="setupScenario" rows="2" placeholder="What is happening as the story starts?"></textarea></label>
       <label>World &amp; setting <textarea id="setupLore" rows="2" placeholder="Where and when does it take place?"></textarea></label>
       <label>Writing notes <textarea id="setupNotes" rows="2" placeholder="Tone, point of view, or anything the narrator should know"></textarea></label>
-      <label id="setupContinuityField" hidden>Story continuity <textarea id="setupContinuity" rows="2" placeholder="Established events and facts for continuing the story"></textarea></label>
+      <label>Plot events <span>One event per line. These appear in the graph timeline.</span><textarea id="setupPlotEvents" rows="2"></textarea></label>
       <fieldset class="setup-cast">
         <legend>Cast</legend>
         <div id="setupCast"></div>

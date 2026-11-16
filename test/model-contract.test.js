@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMessages, clipEnds, dateWriterTurn, formatMessages, narrator, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from '../public/prompt.js';
+import { buildMessages, clipEnds, dateWriterTurn, formatMessages, narrator, replyInput, stripSpeakerName, syncTakeSuggestions } from '../public/prompt.js';
 import { canWriteSensitive, isContinuityModel, modelLabel, models } from '../public/models.js';
 import { checkMapUpdates } from '../map-updates.mjs';
 import { continuityMessages } from '../continuity.mjs';
@@ -41,17 +41,6 @@ test('OpenRouter strips a specific assignment aside and preserves narration and 
 test('a refusal spoken by a character is still story prose', () => {
   assert.equal(isWritingRefusal('“I can’t help with that request,” said the lighthouse keeper.'),false);
   assert.equal(isWritingRefusal('I cannot help with that request. I can offer a different scene.'),true);
-});
-
-test('a queued turn is only valid while it still matches the story, its speaker and MCP context', () => {
-  const writer = {role:'user', content:'Cross the bridge.', turnNumber:2};
-  const reply = {role:'assistant', content:'Mara crosses.', turnNumber:1};
-  assert.deepEqual(queuedTurn(story([reply, writer], {mode:'send', speakerId:'iona', turnNumber:2})).request,
-    {mode:'send', speakerId:narrator.id, turnNumber:2});
-  assert.match(queuedTurn(story([reply, writer], {mode:'send', speakerId:'gone', turnNumber:2})).problem, /no longer in the cast/);
-  assert.match(queuedTurn(story([reply, writer], {mode:'send', speakerId:'iona', turnNumber:1})).problem, /queued turn changed/);
-  assert.match(queuedTurn(story([reply, {...writer, contentSensitivity:'explicit'}], {mode:'send', speakerId:'iona', turnNumber:2})).problem, /outside MCP context/);
-  assert.equal(queuedTurn(story([reply])).request, null);
 });
 
 test('a reply to the last writer turn uses it as the direction, like a new direction', () => {
@@ -97,7 +86,7 @@ test('long notes keep their opening and their newest kept facts', () => {
 });
 
 test('map updates follow the first take and are set aside for other takes', () => {
-  const message = {role:'assistant', content:'B', alternatives:['A', 'B'], selectedAlternative:1, graphSuggestions:[{kind:'fact', note:'From A.'}]};
+  const message = {role:'assistant', content:'B', alternatives:['A', 'B'], selectedAlternative:1, graphSuggestions:[{kind:'plot', note:'From A.'}]};
   syncTakeSuggestions(message);
   assert.equal(message.graphSuggestions, undefined);
   message.selectedAlternative = 0;

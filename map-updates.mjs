@@ -17,7 +17,7 @@ export const updateSchema = z.discriminatedUnion('kind', [
   z.strictObject({kind:z.literal('character'), name:castName.describe('A new character’s name.'), note:note.describe('A brief safe-for-work profile.')}),
   z.strictObject({kind:z.literal('world'), note:note.describe('A new safe-for-work fact about the setting.')}),
   z.strictObject({kind:z.literal('writing'), note:note.describe('A standing, non-explicit writing preference the author explicitly asked to carry into future scenes.')}),
-  z.strictObject({kind:z.literal('fact'), note:note.describe('A safe-for-work plot fact to remember.')})
+  z.strictObject({kind:z.literal('plot'), note:note.describe('One concise, safe-for-work plot development for the graph timeline.'),storyTime:sceneTimeSchema.optional()})
 ]);
 
 export function checkMapUpdates(project, value) {

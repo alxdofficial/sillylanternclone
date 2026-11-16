@@ -5,7 +5,7 @@ import { castFields, getCast, migrateLegacyCast, resolveCastName } from './publi
 import { diagnosticError } from './diagnostics.mjs';
 import { castName, sceneTimeSchema, updateSchema } from './map-updates.mjs';
 
-const editableFields = {world:'lore', notes:'notes', continuity:'continuity', premise:'premise'};
+const editableFields = {world:'lore', notes:'notes', premise:'premise'};
 const text = z.string().trim().min(1);
 const action = z.enum(['append','replace']);
 const eventIndex = z.int().nonnegative().describe('Copy eventIndex from inspect_continuity for the current story.');
@@ -15,7 +15,7 @@ const relationship = updateSchema.options.find(option => option.shape.kind.value
 
 export const graphEditShapes = [
   settings,
-  op('field',{field:z.enum(['premise','lore','notes','continuity','authorNote','postHistory','loreRules']),
+  op('field',{field:z.enum(['premise','lore','notes','loreRules']),
     text:z.string().trim().describe('Replace this full field. Read every page first when preserving surrounding text.')}),
   op('rename_character',{name:castName,newName:text}),
   op('remove_character',{name:castName}).describe('Remove a character and their relationship events only when asked.'),
@@ -24,18 +24,20 @@ export const graphEditShapes = [
     label:text.optional().describe('One concise, non-explicit sentence about what changed between the characters.'),
     storyTime:sceneTimeSchema.optional(),sourceTurn:z.int().min(0).optional()
   }),
+  op('edit_plot',{eventIndex,note:text.max(300).optional(),storyTime:sceneTimeSchema.optional()}),
+  op('remove_plot',{eventIndex}).describe('Remove a plot event only when asked.'),
   op('remove_relationship',{eventIndex}).describe('Remove the specified event only when asked.')
 ];
 export const graphEditKinds = new Set(graphEditShapes.map(shape=>shape.shape.kind.value));
 
 export const storyEditChangesSchema = z.array(z.union([
-  z.strictObject({kind:z.enum(['world','notes','continuity','premise']),action,text}),
+  z.strictObject({kind:z.enum(['world','notes','premise']),action,text}),
   op('character',{name:castName,description:text}),
-  op('profile',{name:castName,field:z.enum(['description','personality','scenario','examples','nickname']),action,text}),
+  op('profile',{name:castName,field:z.enum(['description','nickname']),action,text}),
   relationship,
+  updateSchema.options.find(option=>option.shape.kind.value === 'plot'),
   ...graphEditShapes
 ])).max(20);
-export { storyEditInstructions } from './public/agent-context.js';
 
 export function validStoryEditInstruction(instruction) {
   return typeof instruction === 'string' && !!instruction.trim();
@@ -66,7 +68,7 @@ function updateFields(target,values) {
   return changed;
 }
 
-function applyStructuredChange(project,change,originalEvents) {
+function applyStructuredChange(project,change,originalEvents,originalPlot) {
   const {kind} = change;
   if (kind === 'field') return updateFields(project,{[change.field]:change.text});
   if (kind === 'settings') {
@@ -74,7 +76,7 @@ function applyStructuredChange(project,change,originalEvents) {
     let changed = updateFields(project,{title,storyStartAt,graphUpdates,
       ...(storyStartAt ? {storyStartSource:'author'} : {})});
     if (storyStartAt) {
-      for (const edge of project.relationships) {
+      for (const edge of [...project.relationships,...project.plotEvents]) {
         if (!edge.turn && updateFields(edge,{storyTime:storyStartAt})) changed = true;
       }
     }
@@ -91,6 +93,16 @@ function applyStructuredChange(project,change,originalEvents) {
       throw diagnosticError('STORY_EDIT_CAST_EXISTS','Another character already uses that name.');
     }
     return updateFields(member,{name:change.newName});
+  }
+  if (kind === 'edit_plot' || kind === 'remove_plot') {
+    const event = originalPlot[change.eventIndex];
+    const index = project.plotEvents.indexOf(event);
+    if (index < 0) throw diagnosticError('STORY_EDIT_EVENT_UNKNOWN','Use a current plot eventIndex from inspect_continuity.');
+    if (kind === 'remove_plot') {
+      project.plotEvents.splice(index,1);
+      return true;
+    }
+    return updateFields(event,{note:change.note,storyTime:change.storyTime});
   }
   // All event indices refer to the story as read, even after another operation removes a row.
   const event = originalEvents[change.eventIndex];
@@ -115,15 +127,16 @@ export function applyStoryEdits(project, changes) {
   const parsed = storyEditChangesSchema.safeParse(changes);
   if (!parsed.success) throw diagnosticError('STORY_EDIT_INVALID','Send valid metadata changes.');
   const draft = migrateLegacyCast({...project,cast:(project.cast || []).map(member=>({...member})),
-    relationships:(project.relationships || []).map(edge=>({...edge}))});
+    plotEvents:(project.plotEvents || []).map(event=>({...event})),relationships:(project.relationships || []).map(edge=>({...edge}))});
   const originalEvents = draft.relationships.slice();
+  const originalPlot = draft.plotEvents.slice();
   const turn = Math.max(project.graphHistory?.at(-1)?.turn || 0,project.messages.at(-1)?.turnNumber || project.messages.length);
   ensureGraphBaseline(draft);
   let count = 0;
   for (const change of parsed.data) {
     if (graphEditKinds.has(change.kind)) {
-      if (applyStructuredChange(draft,change,originalEvents)) count++;
-    } else if (change.kind === 'relationship') {
+      if (applyStructuredChange(draft,change,originalEvents,originalPlot)) count++;
+    } else if (change.kind === 'relationship' || change.kind === 'plot') {
       const applied = applyGraphUpdate(draft,change,turn);
       if (applied === null) throw diagnosticError('STORY_EDIT_RELATIONSHIP_INVALID','Use two distinct cast names for a relationship.');
       if (applied) count++;

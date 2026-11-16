@@ -39,7 +39,7 @@ test('100,000 unmarked words round-trip, with a full model reference, preview sa
 
 test('a setup model can only suggest breaks at sampled turn boundaries, never override marked chapters', () => {
   const source = {turnCount:4,hasChapters:false,passages:[{turn:2,excerpt:'The storm begins.'}]};
-  const draft = {title:'The Storm',scenario:'',lore:'',notes:'',cast:[],continuity:'',chapterStarts:[2,2,3]};
+  const draft = {title:'The Storm',scenario:'',lore:'',notes:'',cast:[],chapterStarts:[2,2,3]};
   assert.deepEqual(validateSetupDraft(draft,source).chapterStarts,[2]);
   assert.deepEqual(validateSetupDraft(draft,{...source,hasChapters:true}).chapterStarts,[]);
   assert.match(setupMessages([],'draft',source)[0].content,/untrusted story reference/);

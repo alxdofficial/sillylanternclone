@@ -22,5 +22,4 @@ if [[ -n "${STORY_STUDIO_DATA:-}" ]]; then
 fi
 config="{\"mcpServers\":{\"story-studio\":{\"type\":\"stdio\",\"command\":\"${app//\"/\\\"}/bin/story-studio-mcp\",\"env\":{$server_env}}}}"
 
-exec claude --tools= --strict-mcp-config --mcp-config="$config" --allowedTools=mcp__story-studio \
-  "${STORY_STUDIO_PROMPT:-Connect to Story Studio, give me the Book view link, and briefly tell me how to ask for writing and story edits in this chat.}"
+exec claude --tools= --strict-mcp-config --mcp-config="$config" --allowedTools=mcp__story-studio "$@"

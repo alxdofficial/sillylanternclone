@@ -4,8 +4,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
-import { agentOutputLimit, agentReasoning, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isModelId, isWriterModel, models, proseOutputLimit, setupChatOutputLimit, setupDraftModel, setupDraftOutputLimit } from './public/models.js';
-import { buildWritingContext, getCast, legacyCastFields, migrateLegacyCast, storyTextFields, validCast, validRelationships, validSensitivity, isStoryTime, estimateContextTokens } from './public/prompt.js';
+import { agentOutputLimit, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isWriterModel, modelProvider, models, providerNames, proseOutputLimit, setupChatOutputLimit, setupDraftModel, setupDraftOutputLimit } from './public/models.js';
+import { buildWritingContext, getCast, legacyCastFields, migrateLegacyCast, migrateStoryFields, validPlotEvents, storyTextFields, validCast, validRelationships, validSensitivity, isStoryTime, estimateContextTokens } from './public/prompt.js';
 import { libraryByteLimit, maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory } from './examples/the-late-ferry.mjs';
 import { isWritingRefusal, stripWritingPreamble } from './openrouter-format.mjs';
@@ -14,22 +14,24 @@ import { validStoryEditInstruction } from './story-edits.mjs';
 import { agentBudget } from './public/agent-context.js';
 import { runStoryFlow, storyFlowOutputLimit } from './story-flow.mjs';
 import { runChunkedSetup, runSetup, setupMessages, setupPromptFits } from './setup-chat.mjs';
-import { setupQueue } from './setup-queue.mjs';
 import { createLogger, createTrace, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
 import { fileURLToPath } from 'node:url';
+import { providerAdapters, rememberProviderOutput } from './provider-api.mjs';
+import { createSpendLedger } from './provider-spend.mjs';
 
 const root=dirname(fileURLToPath(import.meta.url));
 const dataDir=process.env.STORY_STUDIO_DATA || join(homedir(),'Library','Application Support','Story Studio');
+const spend = createSpendLedger(dataDir);
 const statePath=join(dataDir,'library.json');
 const port=Number(process.env.PORT || 4317);
 const log = createLogger('server');
-const trace = createTrace('openrouter');
+const traces = new Map(Object.keys(providerNames).map(provider=>[provider,createTrace(provider)]));
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   log('error','startup_failed',{code:'INVALID_PORT'});
   console.error('Story Studio: PORT must be a number from 1 to 65535.');
   process.exit(1);
 }
-const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/agent','/api/generate','/api/story-edits','/api/story-flow','/api/setup','/api/setup/mcp','/api/export']);
+const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/generate','/api/story-edits','/api/story-flow','/api/setup','/api/export']);
 const methodNames = new Set(['GET','POST','PUT']);
 const modelIds = new Set(models.map(model => model.id));
 let starter = createStarterStory();
@@ -53,7 +55,7 @@ async function parseLibrary(path) {
   return migrateLibrary(library);
 }
 function migrateLibrary(library) {
-  for (const project of library.projects) migrateLegacyCast(project);
+  for (const project of library.projects) migrateStoryFields(migrateLegacyCast(project));
   return library;
 }
 async function readSavedLibrary() {
@@ -135,84 +137,56 @@ async function body(req, limit = 2_000_000) {
   catch { throw Object.assign(diagnosticError('INVALID_JSON','Invalid JSON.'), {status:400}); }
 }
 
-// What connected MCP agents are doing, so the page can tell the writer
-// whether anyone is watching for a queued turn. Kept in memory only: it is
-// never saved, so it cannot conflict with library saves. Entries expire
-// when an agent stops reporting.
-const agentLifetimes = {watching:60_000, writing:15 * 60_000};
-const agentPresence = new Map();
-const shortText = (value, max) => typeof value === 'string' ? value.trim().slice(0, max) : '';
-function liveAgents(now = Date.now()) {
-  for (const [id, agent] of agentPresence) if (agent.expires <= now) agentPresence.delete(id);
-  return [...agentPresence.values()].map(({expires, ...agent}) => agent);
-}
-function reportAgent(report) {
-  const {id, state} = report || {};
-  if (typeof id !== 'string' || !/^[a-z0-9-]{8,64}$/.test(id) || !['watching','writing','done'].includes(state)) return false;
-  if (state === 'done') return agentPresence.delete(id), true;
-  const now = Date.now();
-  const previous = agentPresence.get(id);
-  const turn = state === 'writing'
-    ? {storyId:shortText(report.storyId, 200), turnNumber:Number.isSafeInteger(report.turnNumber) ? report.turnNumber : null, speaker:shortText(report.speaker, 100)}
-    : {};
-  const same = previous?.state === state && previous.storyId === turn.storyId && previous.turnNumber === turn.turnNumber;
-  agentPresence.set(id, {id, client:shortText(report.client, 60) || 'Your agent', state, ...turn, since:same ? previous.since : now, expires:now + agentLifetimes[state]});
-  return true;
-}
-
 const libraryLimit = libraryByteLimit;
-function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && [...storyTextFields,...legacyCastFields].every(k=>p[k]===undefined || typeof p[k]==='string') && ['lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.standalone===undefined || m.role==='assistant' && m.standalone===true) && (m.sourcePrefix===undefined || typeof m.sourcePrefix==='string') && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
-const openRouterStatusHints = {
+function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.plotEvents===undefined || validPlotEvents(p.plotEvents)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && [...storyTextFields,...legacyCastFields].every(k=>p[k]===undefined || typeof p[k]==='string') && ['lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.standalone===undefined || m.role==='assistant' && m.standalone===true) && (m.sourcePrefix===undefined || typeof m.sourcePrefix==='string') && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
+const apiStatusHints = {
   401:'Check your API key.',
   402:'Check your balance and key spending limit.',
-  403:'The request was denied by OpenRouter or its provider.',
+  403:'The provider denied the request.',
   404:'The selected model or an eligible provider is unavailable.',
   429:'The selected model is rate limited. Try again later.'
 };
 
-async function generateOpenRouter(messages, model, key, diagnostics, {
+const validKey = key => typeof key === 'string' && /^[!-~]{1,512}$/.test(key);
+const keyRequired = provider => 'Add your ' + providerNames[provider] + ' key in Settings.';
+
+async function generateCompletion(messages, model, key, diagnostics, {
   stage = 'prose', maxOutputTokens = proseOutputLimit(model), tools, signal, prefixLength
 } = {}) {
   if (stage !== 'prose' && estimateContextTokens(JSON.stringify({messages,tools})) >
       (prefixLength ? agentBudget(model,maxOutputTokens).window * 0.97 - maxOutputTokens : agentBudget(model,maxOutputTokens).inputLimit)) {
     throw Object.assign(diagnosticError('AGENT_CONTEXT_FULL','The setup, story state, or tool results exceed this model’s shared input budget.'),{status:400});
   }
+  const provider = modelProvider(model);
+  const providerName = providerNames[provider];
+  const adapter = providerAdapters.get(provider);
+  const trace = traces.get(provider);
+  const code = reason => provider.toUpperCase() + '_' + reason;
   const started = Date.now();
   const metadata = stage === 'metadata';
-  const details = diagnostics[stage] = {model:modelIds.has(model) ? model : 'custom',maxOutputTokens};
+  const details = diagnostics[stage] = {provider,model:modelIds.has(model) ? model : 'custom',maxOutputTokens};
   log('info','generation_started',{requestId:diagnostics.requestId,storyRef:diagnostics.storyRef,
-    provider:'openrouter',stage,...details});
+    stage,...details});
   const timeout = AbortSignal.timeout(tools || maxOutputTokens > 2048 ? 240_000 : 120_000);
   const upstreamSignal = signal ? AbortSignal.any([signal,timeout]) : timeout;
   const timedOut = error => errorCode(error) === 'TIMEOUT' || upstreamSignal.reason?.name === 'TimeoutError';
-  const exchange = {requestId:diagnostics.requestId,storyRef:diagnostics.storyRef,stage,exchangeId:randomUUID()};
-  const reasoning = tools || (stage === 'setup-chat' && isAgentModel(model)) ? agentReasoning(model) : undefined;
-  const claudeAgent = stage !== 'prose' && model.startsWith('anthropic/');
-  const outbound = claudeAgent && prefixLength ? messages.map((message,index)=>index === prefixLength - 1
-    ? {...message,content:[{type:'text',text:message.content,cache_control:{type:'ephemeral'}}]}
-    : message) : messages;
-  const payload = {
-    model, messages:outbound, max_tokens:maxOutputTokens,
-    provider:{data_collection:'deny',...(tools || reasoning ? {require_parameters:true} : {})},
-    ...(tools ? {tools,tool_choice:'auto'} : {}), reasoning,
-    ...(diagnostics.storyRef && stage !== 'prose' ? {session_id:`studio-${diagnostics.storyRef}-${stage}`} : {}),
-    ...(claudeAgent && !prefixLength ? {cache_control:{type:'ephemeral'}} : {})
-  };
+  const exchange = {requestId:diagnostics.requestId,storyRef:diagnostics.storyRef,stage,provider,exchangeId:randomUUID()};
+  const payload = adapter.request({model,messages,tools,maxOutputTokens,stage,prefixLength,storyRef:diagnostics.storyRef});
   trace('request',{...exchange,payload},key);
   let response;
   try {
-    response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    response = await fetch(adapter.url, {
       method: 'POST',
       redirect: 'error',
-      headers: {authorization: 'Bearer ' + key, 'content-type': 'application/json'},
+      headers: {...adapter.headers(key),'content-type':'application/json'},
       signal:upstreamSignal,
       body: JSON.stringify(payload)
     });
   } catch (error) {
     details.durationMs = Date.now() - started;
-    trace('transport_error',{...exchange,message:error.message,code:errorCode(error,'OPENROUTER_CONNECTION_FAILED')},key);
-    if (timedOut(error)) throw diagnosticError('OPENROUTER_TIMEOUT','OpenRouter took too long to reply.');
-    throw diagnosticError('OPENROUTER_CONNECTION_FAILED','Could not connect to OpenRouter.');
+    trace('transport_error',{...exchange,message:error.message,code:errorCode(error,code('CONNECTION_FAILED'))},key);
+    if (timedOut(error)) throw diagnosticError(code('TIMEOUT'),providerName + ' took too long to reply.');
+    throw diagnosticError(code('CONNECTION_FAILED'),'Could not connect to ' + providerName + '.');
   }
   details.durationMs = Date.now() - started;
   diagnostics[metadata ? 'metadataUpstreamStatus' : 'upstreamStatus'] = details.status = response.status;
@@ -227,14 +201,28 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
     trace('response',{...exchange,httpStatus:response.status,payload:result,
       ...(responseFailure ? {body:raw,readError:responseFailure.message} : {})},key);
   }
+  if (!responseFailure && (response.ok || result?.usage)) {
+    try {
+      const usd = spend.record({provider,model,result});
+      if (usd !== null) details.costUsd = usd;
+    } catch (failure) {
+      log('warn','spend_record_failed',{requestId:diagnostics.requestId,provider,code:errorCode(failure,'SPEND_WRITE_FAILED')});
+    }
+  }
   if (!response.ok) {
-    const hint = openRouterStatusHints[response.status] || 'Check the model and try again.';
-    throw diagnosticError('OPENROUTER_HTTP_ERROR',`OpenRouter returned ${response.status}. ${hint}`);
+    const balanceExhausted = provider === 'openai' && ['credit_balance_exhausted','insufficient_quota'].includes(result?.error?.code)
+      || provider === 'anthropic' && response.status === 400 && /credit balance is too low/i.test(result?.error?.message || '');
+    if (balanceExhausted) {
+      throw diagnosticError(code('CREDIT_BALANCE_EXHAUSTED'),providerName + ' reports an exhausted credit balance. Check the linked organization’s billing page.');
+    }
+    const hint = apiStatusHints[response.status] || 'Check the model and try again.';
+    throw diagnosticError(code('HTTP_ERROR'),`${providerName} returned ${response.status}. ${hint}`);
   }
   if (responseFailure) {
-    if (timedOut(responseFailure)) throw diagnosticError('OPENROUTER_TIMEOUT','OpenRouter took too long to finish the reply.');
-    throw diagnosticError('OPENROUTER_INVALID_RESPONSE','OpenRouter returned an unreadable response.');
+    if (timedOut(responseFailure)) throw diagnosticError(code('TIMEOUT'),providerName + ' took too long to finish the reply.');
+    throw diagnosticError(code('INVALID_RESPONSE'),providerName + ' returned an unreadable response.');
   }
+  result = adapter.normalize(result);
   if (typeof result?.provider === 'string' && /^[A-Za-z0-9][A-Za-z0-9 .+&()/\-]{0,59}$/.test(result.provider)) {
     details.host = result.provider;
   }
@@ -255,56 +243,54 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
   }
   const upstreamError = result?.error || choice?.error;
   if (upstreamError) {
-    const {code} = upstreamError;
-    if (Number.isInteger(code) && code >= 400 && code <= 599) details.errorStatus = code;
-    const hint = openRouterStatusHints[details.errorStatus] || 'Check the model and try again.';
-    throw diagnosticError('OPENROUTER_UPSTREAM_ERROR',`OpenRouter reported a provider error. ${hint}`);
+    const status = upstreamError.code;
+    if (Number.isInteger(status) && status >= 400 && status <= 599) details.errorStatus = status;
+    const hint = apiStatusHints[details.errorStatus] || 'Check the model and try again.';
+    throw diagnosticError(code('UPSTREAM_ERROR'),`${providerName} reported a provider error. ${hint}`);
   }
   if (finish === 'content_filter') {
-    throw diagnosticError('OPENROUTER_CONTENT_FILTERED','OpenRouter reported that the response was filtered.');
+    throw diagnosticError(code('CONTENT_FILTERED'),providerName + ' reported that the response was filtered.');
   }
   if (finish === 'error') {
-    throw diagnosticError('OPENROUTER_INCOMPLETE_REPLY','OpenRouter reported an incomplete response.');
+    throw diagnosticError(code('INCOMPLETE_REPLY'),providerName + ' reported an incomplete response.');
   }
   const text = choice?.message?.content;
   const refusal = choice?.message?.refusal;
-  if (tools && Array.isArray(choice?.message?.tool_calls) && finish !== 'length' && !refusal) {
+  if (tools && Array.isArray(choice?.message?.tool_calls) && finish === 'tool_calls' && !refusal) {
     const {content,tool_calls,reasoning_details} = choice.message;
     const allowedNames = new Set(tools.map(tool => tool.function.name));
     details.tools = tool_calls.slice(0,4).map(call => allowedNames.has(call?.function?.name) ? call.function.name : 'unknown');
-    return {role:'assistant',content:content ?? null,tool_calls,...(reasoning_details ? {reasoning_details} : {})};
+    return rememberProviderOutput({role:'assistant',content:content ?? null,tool_calls,
+      ...(reasoning_details ? {reasoning_details} : {})},result);
   }
   if (!metadata && ((typeof refusal === 'string' && refusal.trim())
     || (stage === 'prose' && typeof text === 'string' && isWritingRefusal(text.trim())))) {
-    throw diagnosticError('OPENROUTER_WRITING_DECLINED','The selected OpenRouter model declined this direction.');
+    throw diagnosticError(code('WRITING_DECLINED'),'The selected ' + providerName + ' model declined this direction.');
   }
-  if (typeof text !== 'string' || !text.trim()) throw diagnosticError('OPENROUTER_EMPTY_REPLY','OpenRouter returned no text for this request.');
+  if (typeof text !== 'string' || !text.trim()) throw diagnosticError(code('EMPTY_REPLY'),providerName + ' returned no text for this request.');
   return {text:text.trim(), truncated:finish === 'length'};
 }
 async function generateSetup(req,res,diagnostics) {
-  const {mode,model,key,messages,manuscript,context} = await body(req,libraryLimit) || {};
+  const {mode,model,key,messages,manuscript,context,provider = 'openrouter'} = await body(req,libraryLimit) || {};
   const prompt = setupMessages(messages,mode,manuscript,context,'prepare_story_setup');
   if (!prompt) {
     diagnostics.code = 'INVALID_SETUP_CONVERSATION';
     return json(res,400,{error:'Check the setup conversation and manuscript reference.'});
   }
-  if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
-    diagnostics.code = 'OPENROUTER_KEY_REQUIRED';
-    return json(res,400,{error:'Enter an OpenRouter API key to brainstorm.'});
+  if (!isWriterModel(model) || modelProvider(model) !== provider) {
+    diagnostics.code = 'SETUP_MODEL_INVALID';
+    return json(res,400,{error:'Choose a model from the selected API provider.'});
   }
-  if (typeof model !== 'string' || !isModelId(model)) {
-    diagnostics.code = 'OPENROUTER_MODEL_INVALID';
-    return json(res,400,{error:'Choose an OpenRouter model for brainstorming.'});
-  }
+  if (!validKey(key)) return json(res,400,{error:keyRequired(provider)});
   const drafting = mode === 'draft';
   const selected = drafting ? setupDraftModel(model) : model;
-  diagnostics.provider = 'openrouter';
+  diagnostics.provider = provider;
   diagnostics.mode = mode;
   diagnostics.model = modelIds.has(selected) ? selected : 'custom';
   const signal = disconnectSignal(res);
   try {
     const complete = drafting ? storyToolCompletion(selected,key,diagnostics,'setup-draft',signal,setupDraftOutputLimit)
-      : messages => generateOpenRouter(messages,selected,key,diagnostics,{stage:'setup-chat',maxOutputTokens:setupChatOutputLimit,signal});
+      : messages => generateCompletion(messages,selected,key,diagnostics,{stage:'setup-chat',maxOutputTokens:setupChatOutputLimit,signal});
     const inputLimit = agentBudget(selected,drafting ? setupDraftOutputLimit : setupChatOutputLimit).inputLimit;
     if (setupPromptFits(prompt,mode,manuscript,inputLimit)) {
       return json(res,200,await runSetup(prompt,mode,manuscript,complete));
@@ -334,7 +320,7 @@ function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens 
   return async (messages,tools,prefixLength) => {
     diagnostics.toolRounds = (diagnostics.toolRounds || 0) + 1;
     try {
-      return await generateOpenRouter(messages,model,key,diagnostics,{stage,maxOutputTokens,tools,signal:combined,prefixLength});
+      return await generateCompletion(messages,model,key,diagnostics,{stage,maxOutputTokens,tools,signal:combined,prefixLength});
     } finally {
       (diagnostics.toolCalls ||= []).push(diagnostics[stage]);
     }
@@ -342,18 +328,18 @@ function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens 
 }
 
 async function generateStoryEdits(req,res,diagnostics) {
-  const {storyId,revision,model,key,instruction} = await body(req,libraryLimit) || {};
+  const {storyId,revision,model,key,instruction,provider = 'openrouter'} = await body(req,libraryLimit) || {};
   if (typeof storyId !== 'string' || typeof revision !== 'string' || !validStoryEditInstruction(instruction)) {
     return json(res,400,{error:'Enter a story edit request.'});
   }
-  if (!isAgentModel(model)) return json(res,400,{error:'Choose a supported model for Agent mode.'});
-  if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) return json(res,400,{error:'Enter an OpenRouter API key in Connection.'});
+  if (!isAgentModel(model) || modelProvider(model) !== provider) return json(res,400,{error:'Choose a supported model for Agent mode.'});
+  if (!validKey(key)) return json(res,400,{error:keyRequired(provider)});
   const library = await getState();
   if (liveRevision(library) !== revision) return json(res,409,{error:'The story changed. Reload the latest version and try again.'});
   const index = library.projects.findIndex(item => item.id === storyId);
   if (index < 0) return json(res,404,{error:'Story not found.'});
   const project = structuredClone(library.projects[index]);
-  Object.assign(diagnostics,{provider:'openrouter',mode:'story-edit',storyRef:storyReference(storyId),model});
+  Object.assign(diagnostics,{provider,mode:'story-edit',storyRef:storyReference(storyId),model});
   const signal = disconnectSignal(res);
   try {
     const result = await runStoryEdit(project,instruction,storyToolCompletion(model,key,diagnostics,'story-edit',signal),model);
@@ -376,15 +362,13 @@ function flowCompletion(model,key,diagnostics,signal) {
 }
 
 async function suggestStoryFlow(req,res,diagnostics) {
-  const {project,agentModel = continuityModel,key,sensitive = false} = await body(req,libraryLimit) || {};
+  const {project,agentModel = continuityModel,key,sensitive = false,provider = 'openrouter'} = await body(req,libraryLimit) || {};
   if (!validateState({activeId:project?.id,projects:[project]}) || typeof sensitive !== 'boolean'
-      || !isContinuityModel(agentModel,sensitive)) {
+      || !isContinuityModel(agentModel,sensitive) || modelProvider(agentModel) !== provider) {
     return json(res,400,{error:'Choose a supported continuity agent and story for Story Flow.'});
   }
-  if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
-    return json(res,400,{error:'Enter an OpenRouter API key in Connection.'});
-  }
-  Object.assign(diagnostics,{provider:'openrouter',storyRef:storyReference(project.id),model:agentModel});
+  if (!validKey(key)) return json(res,400,{error:keyRequired(provider)});
+  Object.assign(diagnostics,{provider,storyRef:storyReference(project.id),model:agentModel});
   const signal = disconnectSignal(res);
   try {
     const options = await runStoryFlow(project,flowCompletion(agentModel,key,diagnostics,signal),{model:agentModel,sensitive});
@@ -397,14 +381,13 @@ async function suggestStoryFlow(req,res,diagnostics) {
 }
 
 async function routeRequest(req,res,url,diagnostics) {
+if (url.pathname === '/api/spend' && req.method === 'GET') {
+  let timeZone = url.searchParams.get('timeZone') || 'UTC';
+  try { new Intl.DateTimeFormat('en',{timeZone}); } catch { timeZone = 'UTC'; }
+  return json(res,200,{days:await spend.recent(timeZone)});
+}
 if (url.pathname === '/api/state' && req.method === 'GET') {
   return sendLibrary(req,res,await getState());
-}
-if (url.pathname === '/api/agent' && req.method === 'GET') {
-  return json(res, 200, {now:Date.now(), agents:liveAgents()});
-}
-if (url.pathname === '/api/agent' && req.method === 'POST') {
-  return reportAgent(await body(req, 4000)) ? json(res, 200, {ok:true}) : json(res, 400, {error:'Invalid agent status.'});
 }
 if (url.pathname === '/api/starter/reset' && req.method === 'POST') {
   return await updateState(async () => {
@@ -464,44 +447,38 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
 if (url.pathname === '/api/setup' && req.method === 'POST') return generateSetup(req,res,diagnostics);
 if (url.pathname === '/api/story-edits' && req.method === 'POST') return generateStoryEdits(req,res,diagnostics);
 if (url.pathname === '/api/story-flow' && req.method === 'POST') return suggestStoryFlow(req,res,diagnostics);
-if (url.pathname === '/api/setup/mcp' && req.method === 'POST') {
-  const request = await body(req);
-  if (['status','claim','claim-next'].includes(request?.action)) diagnostics.readOnly = true;
-  return json(res,200,setupQueue(request));
-}
 if (url.pathname === '/api/generate' && req.method === 'POST') {
-  const {project,instruction,provider,model,key,mode='send',sensitive=false,agentModel=continuityModel,flow=false} = await body(req, libraryLimit) || {};
+  const {project,instruction,provider,model,key,mode='send',sensitive=false,agentModel=continuityModel,agentProvider=provider,agentKey:separateKey,flow=false} = await body(req, libraryLimit) || {};
+  const agentKey = agentProvider === provider ? key : separateKey;
   if (!validateState({activeId:project?.id,projects:[project]}) || typeof instruction !== 'string') {
     diagnostics.code = 'INVALID_STORY_REQUEST';
     return json(res,400,{error:'Invalid story request.'});
   }
-  migrateLegacyCast(project);
-  if (provider !== 'openrouter' || !['send','alternate','replace'].includes(mode)) {
+  migrateStoryFields(migrateLegacyCast(project));
+  if (!Object.hasOwn(providerNames,provider) || !['send','alternate','replace'].includes(mode)) {
     diagnostics.code = 'UNSUPPORTED_GENERATION_MODE';
     return json(res,400,{error:'Unsupported browser generation mode.'});
   }
-  diagnostics.provider = 'openrouter';
+  diagnostics.provider = provider;
   diagnostics.mode = mode;
   diagnostics.storyRef = storyReference(project.id);
   const signal = disconnectSignal(res);
   try {
-    if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
-      diagnostics.code = 'OPENROUTER_KEY_REQUIRED';
-      return json(res,400,{error:'Enter an OpenRouter API key in Connection.'});
-    }
-    if (!isWriterModel(model)) {
-      diagnostics.code = 'OPENROUTER_MODEL_INVALID';
-      return json(res,400,{error:'Enter a specific OpenRouter model ID (author/model).'});
+    if (!validKey(key)) return json(res,400,{error:keyRequired(provider)});
+    if (!isWriterModel(model) || modelProvider(model) !== provider) {
+      diagnostics.code = 'WRITER_MODEL_INVALID';
+      return json(res,400,{error:'Choose a prose model from the selected API provider.'});
     }
     if (typeof sensitive !== 'boolean' || (sensitive && !canWriteSensitive(model))) {
       diagnostics.code = 'SENSITIVE_ARTIST_REQUIRED';
       return json(res,400,{error:'Choose an NSFW-friendly writer for a sensitive scene.'});
     }
-    if (!isContinuityModel(agentModel,sensitive)) {
+    if (!isContinuityModel(agentModel,sensitive) || modelProvider(agentModel) !== agentProvider) {
       diagnostics.code = 'CONTINUITY_MODEL_REQUIRED';
       return json(res,400,{error:sensitive ? 'Choose a supported sensitive-scene continuity agent.'
         : 'Choose a supported continuity agent.'});
     }
+    if (!validKey(agentKey)) return json(res,400,{error:keyRequired(agentProvider)});
     diagnostics.model = modelIds.has(model) ? model : 'custom';
     diagnostics.outputFormat = 'text';
     const {messages,problem} = buildWritingContext(project,instruction,mode,{model,includeSensitive:sensitive,openRouter:true});
@@ -509,14 +486,14 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
       diagnostics.code = 'WRITE_INPUT_TOO_LONG';
       return json(res,400,{error:problem});
     }
-    const output = await generateOpenRouter(messages,model,key,diagnostics,{signal});
+    const output = await generateCompletion(messages,model,key,diagnostics,{signal});
     if (signal.aborted) return;
     const text = stripWritingPreamble(output.text);
     if (text !== output.text) diagnostics.prosePreambleRemoved = true;
     if (/^\[(?:removed|redacted)\][.!]?$/i.test(text)) {
-      throw diagnosticError('OPENROUTER_REMOVAL_PLACEHOLDER','The writing provider returned a removal placeholder. No story reply came back.');
+      throw diagnosticError(provider.toUpperCase() + '_REMOVAL_PLACEHOLDER','The writing provider returned a removal placeholder. No story reply came back.');
     }
-    if (!text) throw diagnosticError('OPENROUTER_EMPTY_REPLY','OpenRouter returned no story prose for this request.');
+    if (!text) throw diagnosticError('PROSE_EMPTY_REPLY','The provider returned no story prose for this request.');
     diagnostics.truncated = output.truncated;
     const draft = {text,input:sensitive ? 'explicit' : 'unclassified',reply:'unclassified',storyTime:'',suggestions:[]};
     if (output.truncated) draft.truncated = true;
@@ -524,7 +501,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     try {
       diagnostics.metadataModel = agentModel;
       const parsed = await runContinuity(project,instruction,text,{suggest,truncated:output.truncated,mode,sensitive,model:agentModel},
-        storyToolCompletion(agentModel,key,diagnostics,'metadata',signal),
+        storyToolCompletion(agentModel,agentKey,diagnostics,'metadata',signal),
         rejections => {
           diagnostics.mapUpdateRejections = rejections;
           diagnostics.invalidMapUpdates = rejections.length;
@@ -532,7 +509,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
       Object.assign(draft,parsed);
     } catch (e) {
       if (signal.aborted) return;
-      diagnostics.metadataCode = errorCode(e,'OPENROUTER_METADATA_FAILED');
+      diagnostics.metadataCode = errorCode(e,'CONTINUITY_FAILED');
       draft.metadataFailed = true;
     }
     diagnostics.inputSensitivity = draft.input;
@@ -542,7 +519,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     if (flow === true && !output.truncated) {
       try {
         const held = sensitive || draft.input !== 'safe' || draft.reply !== 'safe';
-        draft.flowOptions = await runStoryFlow(project,flowCompletion(agentModel,key,diagnostics,signal),{
+        draft.flowOptions = await runStoryFlow(project,flowCompletion(agentModel,agentKey,diagnostics,signal),{
           model:agentModel,instruction,prose:text,sensitive:held,updates:held ? [] : draft.suggestions
         });
       } catch (failure) {
@@ -578,8 +555,8 @@ const server = http.createServer(async (req,res) => {
   res.setHeader('x-story-studio-request-id',diagnostics.requestId);
   res.once('finish', () => {
     const status = res.statusCode;
-    const mutation = diagnostics.method !== 'GET' && apiEndpoints.has(diagnostics.endpoint) && diagnostics.endpoint !== '/api/agent';
-    if (status < 400 && (!mutation || diagnostics.readOnly)) return;
+    const mutation = diagnostics.method !== 'GET' && apiEndpoints.has(diagnostics.endpoint);
+    if (status < 400 && !mutation) return;
     const level = status >= 500 ? 'error' : status >= 400 || diagnostics.truncated || diagnostics.unverifiedLabels || diagnostics.invalidMapUpdates ? 'warn' : 'info';
     log(level,status >= 400 ? 'request_failed' : 'request_completed',{...diagnostics,status,durationMs:Date.now()-started});
   });

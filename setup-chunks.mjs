@@ -80,7 +80,7 @@ const extractionInstructions = [
 
 const reductionInstructions = [
   'Combine this consecutive set of Story Studio setup notes using record_setup_notes. Remove repetition and compress them substantially.',
-  'Retain distinct character names, relationship facts, world information, source turn references and useful continuity. Keep the writer’s confirmed choices separate, keeping newer explicit decisions over conflicting earlier ones. Write only non-explicit notes.'
+  'Retain distinct character names, relationship facts, world information, and consequential plot events with source turn references and in-story dates when available. Keep the writer’s confirmed choices separate, keeping newer explicit decisions over conflicting earlier ones. Write only non-explicit notes.'
 ].join('\n\n');
 
 export async function collectSetupNotes({messages,manuscript,context,complete,inputLimit,finalFits}) {

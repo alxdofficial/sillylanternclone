@@ -2,6 +2,18 @@
 
 For current setup and controls, use the [README](README.md) and [MCP guide](MCP.md). The archival walkthroughs at the end retain the interface and model behavior observed at the time.
 
+## Direct providers and optional MCP tools
+
+In a disposable library, exercised Chrome with fixture credentials. Confirmed that adding and clearing keys shows and hides the corresponding model groups, the composer sends separate Claude and OpenAI selections, the returned prose appears in Write, and setup uses the selected OpenAI model. Automated integration tests capture the native Anthropic and OpenAI payloads, including read tool replies, OpenAI reasoning replay, mixed-provider credentials, setup draft validation, and a saved editor update. Provider replies in those automated checks were simulated.
+
+The stdio regression test checks that optional MCP tools can edit an isolated library, enforce revisions and story context holds, and omit the retired watcher tools. The earlier checks below describe historical app versions.
+
+## Live direct-provider results
+
+On the disposable Late Ferry preview, Sonnet 5.5 and GPT‑6.1 Terra each produced prose, classified the test scene, inferred its date, and returned a validated scene tool call. Sonnet wrote 134 words against a 90–120-word target and recorded the key handoff as a relationship. Terra wrote 102 words and recorded a new agreement in plot memory rather than creating an edge. Both returned four plausible Story Flow choices in live requests. Some options proposed showing graph events already entered in the editor. The current prompt directs the agent toward consequences and decisions instead of replaying established events.
+
+Both editors read the existing author guidance before updating and preserving it. Sonnet saved four requested field changes. Terra saved five, including the missing dated edge. These calls were made before the data model retired Story memory and combined Writing notes and Author’s notes. The revised schema and Story Flow read tool are covered by regression tests.
+
 ## Native chat and companion views
 
 Used the MCP SDK over local stdio to create a story, append prose and continuity, and make a metadata edit. An already open companion refreshed as the prose and world changed. In the browser, exercised the Book and Graph tabs at split-panel and phone widths, hid the composer, and manually saved a turn with an explicit label. With a simulated OpenRouter provider, exercised Sensitive scene, the separate continuity pass, graph proposal approval, and Editor agent.

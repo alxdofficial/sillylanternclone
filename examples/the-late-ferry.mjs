@@ -70,61 +70,40 @@ const starter = {
       "id": "primary",
       "name": "Lina Park",
       "nickname": "",
-      "description": "A former deckhand now dispatching the night ferry. She has to explain the delay to waiting passengers and to the skipper, and she feels the weight of every clearance she grants. She works from the dispatch desk, tracks the radio, and keeps the incident book within reach. Her stake is her authority on the night watch and the harbor's trust in her judgment.",
-      "personality": "",
-      "scenario": "It is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified.",
-      "examples": ""
+      "description": "A former deckhand now dispatching the night ferry. She has to explain the delay to waiting passengers and to the skipper, and she feels the weight of every clearance she grants. She works from the dispatch desk, tracks the radio, and keeps the incident book within reach. Her stake is her authority on the night watch and the harbor's trust in her judgment.\n\nIt is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified."
     },
     {
       "id": "c87bf87c-691c-492c-aaf7-adc8adf164e6",
       "name": "Sam Bell",
       "nickname": "",
-      "description": "Works the ticket window and studies electrical maintenance on their own time. They carry a pencil and a torch and want to be taken seriously as a technician rather than a ticket clerk. They notice hardware details others miss and are eager to prove the training Ellis gave them was worth giving.",
-      "personality": "",
-      "scenario": "",
-      "examples": ""
+      "description": "Works the ticket window and studies electrical maintenance on their own time. They carry a pencil and a torch and want to be taken seriously as a technician rather than a ticket clerk. They notice hardware details others miss and are eager to prove the training Ellis gave them was worth giving."
     },
     {
       "id": "c9c204e5-f2c4-44e0-b1aa-34b0636b7adc",
       "name": "Tomas Reyes",
       "nickname": "",
-      "description": "The ferry skipper, cautious since a close call in fog. He will not move the ferry without Lina's clearance and prefers to wait out uncertain conditions. He is steady with passengers but quietly watches the channel and the beacon.",
-      "personality": "",
-      "scenario": "",
-      "examples": ""
+      "description": "The ferry skipper, cautious since a close call in fog. He will not move the ferry without Lina's clearance and prefers to wait out uncertain conditions. He is steady with passengers but quietly watches the channel and the beacon."
     },
     {
       "id": "cc3407eb-83e6-4f96-a36b-ee08bccfd517",
       "name": "Mae Chen",
       "nickname": "",
-      "description": "A junior clerk with spare signboards at hand. She can reassure passengers and keep the terminal calm while the ferry is delayed, and she is learning how the harbor's paperwork actually moves through the night. Her stake is being trusted with more responsibility.\nTurn 6: Checking the incident book to draft the passenger announcement, she noticed the struck-through entries and pressed pen marks, and now wants to find who owns the heavy pressing pen.",
-      "personality": "",
-      "scenario": "",
-      "examples": ""
+      "description": "A junior clerk with spare signboards at hand. She can reassure passengers and keep the terminal calm while the ferry is delayed, and she is learning how the harbor's paperwork actually moves through the night. Her stake is being trusted with more responsibility.\nTurn 6: Checking the incident book to draft the passenger announcement, she noticed the struck-through entries and pressed pen marks, and now wants to find who owns the heavy pressing pen."
     },
     {
       "id": "2ce7d2c7-5995-4b5b-9438-8abaa654245e",
       "name": "Noor Haddad",
       "nickname": "",
-      "description": "Keeps the weather station and makes duplicate entries in grease pencil. She logs readings with care and treats the duplicates as a safeguard, not a formality. Her observations are precise and she notices when a record does not match what she remembers writing.\nTurn 6: Read the weather desk's duplicate record over the radio, giving the exact beacon irregularity time and duration.",
-      "personality": "",
-      "scenario": "",
-      "examples": ""
+      "description": "Keeps the weather station and makes duplicate entries in grease pencil. She logs readings with care and treats the duplicates as a safeguard, not a formality. Her observations are precise and she notices when a record does not match what she remembers writing.\nTurn 6: Read the weather desk's duplicate record over the radio, giving the exact beacon irregularity time and duration."
     },
     {
       "id": "1b92d34f-1884-4031-ac36-7577103bb86c",
       "name": "Ellis Ward",
       "nickname": "",
-      "description": "The blunt harbor electrician who trained Sam to read the gate circuit. He is practical, impatient with unclear thinking, and respected for knowing the harbor's wiring better than anyone. He speaks plainly and expects others to keep up.",
-      "personality": "",
-      "scenario": "",
-      "examples": ""
+      "description": "The blunt harbor electrician who trained Sam to read the gate circuit. He is practical, impatient with unclear thinking, and respected for knowing the harbor's wiring better than anyone. He speaks plainly and expects others to keep up."
     }
   ],
-  "authorNote": "",
-  "postHistory": "",
   "loreRules": "",
-  "continuity": "Turn 2: At 23:41 the departure board in the terminal flickered and died, and the east beacon flashed twice then went dark.\nTurn 4: Sam isolated the gate motor's breaker, opened the gate with the manual key, and radioed Tomas that the gate is clear; the ferry remains moored pending Lina's clearance and a working east beacon.\nTurn 4: Noor reported the east beacon's two-flash pattern over the radio, and Mae relayed it to the waiting passengers.\nTurn 6: The dispatch incident book has a clean gap between 23:30 and 23:45: several lines neatly struck through with a felt pen, exactly where a beacon fault entry should have been. The page is not torn, just crossed out.\nTurn 6: Lina told the waiting passengers only what she could verify: the east beacon had a brief glitch, the ferry departs once the beacon is confirmed working, and the payphones are available for calls home. The ferry remains firmly moored.",
   "messages": [
     {
       "role": "user",
@@ -143,7 +122,7 @@ const starter = {
       "turnNumber": 2,
       "appliedGraphUpdates": [
         {
-          "kind": "fact",
+          "kind": "plot",
           "note": "At 23:41 the departure board in the terminal flickered and died, and the east beacon flashed twice then went dark."
         },
         {
@@ -190,11 +169,11 @@ const starter = {
           "note": "The gate motor is fed from the north panel; the breaker for it is third from the left, and the gate can be cranked open by hand once the motor is isolated."
         },
         {
-          "kind": "fact",
+          "kind": "plot",
           "note": "Sam isolated the gate motor's breaker, opened the gate with the manual key, and radioed Tomas that the gate is clear; the ferry remains moored pending Lina's clearance and a working east beacon."
         },
         {
-          "kind": "fact",
+          "kind": "plot",
           "note": "Noor reported the east beacon's two-flash pattern over the radio, and Mae relayed it to the waiting passengers."
         },
         {
@@ -227,11 +206,11 @@ const starter = {
           "note": "At 00:07 the weather desk's duplicate record put the beacon irregularity at 23:41, lasting eighteen seconds; station pressure 1012 mb, wind southwest at eight knots."
         },
         {
-          "kind": "fact",
+          "kind": "plot",
           "note": "The dispatch incident book has a clean gap between 23:30 and 23:45: several lines neatly struck through with a felt pen, exactly where a beacon fault entry should have been. The page is not torn, just crossed out."
         },
         {
-          "kind": "fact",
+          "kind": "plot",
           "note": "Lina told the waiting passengers only what she could verify: the east beacon had a brief glitch, the ferry departs once the beacon is confirmed working, and the payphones are available for calls home. The ferry remains firmly moored."
         },
         {
@@ -256,68 +235,44 @@ const starter = {
           "id": "primary",
           "name": "Lina Park",
           "nickname": "",
-          "description": "A former deckhand now dispatching the night ferry. She has to explain the delay to waiting passengers and to the skipper, and she feels the weight of every clearance she grants. She works from the dispatch desk, tracks the radio, and keeps the incident book within reach. Her stake is her authority on the night watch and the harbor's trust in her judgment.",
-          "personality": "",
-          "scenario": "It is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified.",
-          "examples": ""
+          "description": "A former deckhand now dispatching the night ferry. She has to explain the delay to waiting passengers and to the skipper, and she feels the weight of every clearance she grants. She works from the dispatch desk, tracks the radio, and keeps the incident book within reach. Her stake is her authority on the night watch and the harbor's trust in her judgment.\n\nIt is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified."
         },
         {
           "id": "c87bf87c-691c-492c-aaf7-adc8adf164e6",
           "name": "Sam Bell",
           "nickname": "",
-          "description": "Works the ticket window and studies electrical maintenance on their own time. They carry a pencil and a torch and want to be taken seriously as a technician rather than a ticket clerk. They notice hardware details others miss and are eager to prove the training Ellis gave them was worth giving.",
-          "personality": "",
-          "scenario": "",
-          "examples": ""
+          "description": "Works the ticket window and studies electrical maintenance on their own time. They carry a pencil and a torch and want to be taken seriously as a technician rather than a ticket clerk. They notice hardware details others miss and are eager to prove the training Ellis gave them was worth giving."
         },
         {
           "id": "c9c204e5-f2c4-44e0-b1aa-34b0636b7adc",
           "name": "Tomas Reyes",
           "nickname": "",
-          "description": "The ferry skipper, cautious since a close call in fog. He will not move the ferry without Lina's clearance and prefers to wait out uncertain conditions. He is steady with passengers but quietly watches the channel and the beacon.",
-          "personality": "",
-          "scenario": "",
-          "examples": ""
+          "description": "The ferry skipper, cautious since a close call in fog. He will not move the ferry without Lina's clearance and prefers to wait out uncertain conditions. He is steady with passengers but quietly watches the channel and the beacon."
         },
         {
           "id": "cc3407eb-83e6-4f96-a36b-ee08bccfd517",
           "name": "Mae Chen",
           "nickname": "",
-          "description": "A junior clerk with spare signboards at hand. She can reassure passengers and keep the terminal calm while the ferry is delayed, and she is learning how the harbor's paperwork actually moves through the night. Her stake is being trusted with more responsibility.",
-          "personality": "",
-          "scenario": "",
-          "examples": ""
+          "description": "A junior clerk with spare signboards at hand. She can reassure passengers and keep the terminal calm while the ferry is delayed, and she is learning how the harbor's paperwork actually moves through the night. Her stake is being trusted with more responsibility."
         },
         {
           "id": "2ce7d2c7-5995-4b5b-9438-8abaa654245e",
           "name": "Noor Haddad",
           "nickname": "",
-          "description": "Keeps the weather station and makes duplicate entries in grease pencil. She logs readings with care and treats the duplicates as a safeguard, not a formality. Her observations are precise and she notices when a record does not match what she remembers writing.",
-          "personality": "",
-          "scenario": "",
-          "examples": ""
+          "description": "Keeps the weather station and makes duplicate entries in grease pencil. She logs readings with care and treats the duplicates as a safeguard, not a formality. Her observations are precise and she notices when a record does not match what she remembers writing."
         },
         {
           "id": "1b92d34f-1884-4031-ac36-7577103bb86c",
           "name": "Ellis Ward",
           "nickname": "",
-          "description": "The blunt harbor electrician who trained Sam to read the gate circuit. He is practical, impatient with unclear thinking, and respected for knowing the harbor's wiring better than anyone. He speaks plainly and expects others to keep up.",
-          "personality": "",
-          "scenario": "",
-          "examples": ""
+          "description": "The blunt harbor electrician who trained Sam to read the gate circuit. He is practical, impatient with unclear thinking, and respected for knowing the harbor's wiring better than anyone. He speaks plainly and expects others to keep up."
         }
       ],
-      "lore": "Bellwether is a small working harbor with a late ferry crossing to Alder Island. The terminal is a modest, practical building where passengers wait on benches after the last squall has moved through. The harbor runs on paper: clothbound incident books kept at dispatch, duplicate weather readings preserved in grease pencil, radio traffic, and payphones. The east beacon is supposed to flash once at regular intervals to mark the channel; tonight it flashes twice and goes dark. A rain squall has just passed, and the cause of the beacon fault is still unknown. Departure is tightly controlled: the skipper needs clearance from dispatch, and no ferry leaves the dock without it. The night is quiet, wet, and ordinary in every way except for the details that do not line up.",
-      "continuity": ""
-    },
-    {
-      "turn": 2,
-      "continuity": "Turn 2: At 23:41 the departure board in the terminal flickered and died, and the east beacon flashed twice then went dark."
+      "lore": "Bellwether is a small working harbor with a late ferry crossing to Alder Island. The terminal is a modest, practical building where passengers wait on benches after the last squall has moved through. The harbor runs on paper: clothbound incident books kept at dispatch, duplicate weather readings preserved in grease pencil, radio traffic, and payphones. The east beacon is supposed to flash once at regular intervals to mark the channel; tonight it flashes twice and goes dark. A rain squall has just passed, and the cause of the beacon fault is still unknown. Departure is tightly controlled: the skipper needs clearance from dispatch, and no ferry leaves the dock without it. The night is quiet, wet, and ordinary in every way except for the details that do not line up."
     },
     {
       "turn": 4,
-      "lore": "Bellwether is a small working harbor with a late ferry crossing to Alder Island. The terminal is a modest, practical building where passengers wait on benches after the last squall has moved through. The harbor runs on paper: clothbound incident books kept at dispatch, duplicate weather readings preserved in grease pencil, radio traffic, and payphones. The east beacon is supposed to flash once at regular intervals to mark the channel; tonight it flashes twice and goes dark. A rain squall has just passed, and the cause of the beacon fault is still unknown. Departure is tightly controlled: the skipper needs clearance from dispatch, and no ferry leaves the dock without it. The night is quiet, wet, and ordinary in every way except for the details that do not line up.\nTurn 4: The gate motor is fed from the north panel; the breaker for it is third from the left, and the gate can be cranked open by hand once the motor is isolated.",
-      "continuity": "Turn 2: At 23:41 the departure board in the terminal flickered and died, and the east beacon flashed twice then went dark.\nTurn 4: Sam isolated the gate motor's breaker, opened the gate with the manual key, and radioed Tomas that the gate is clear; the ferry remains moored pending Lina's clearance and a working east beacon.\nTurn 4: Noor reported the east beacon's two-flash pattern over the radio, and Mae relayed it to the waiting passengers."
+      "lore": "Bellwether is a small working harbor with a late ferry crossing to Alder Island. The terminal is a modest, practical building where passengers wait on benches after the last squall has moved through. The harbor runs on paper: clothbound incident books kept at dispatch, duplicate weather readings preserved in grease pencil, radio traffic, and payphones. The east beacon is supposed to flash once at regular intervals to mark the channel; tonight it flashes twice and goes dark. A rain squall has just passed, and the cause of the beacon fault is still unknown. Departure is tightly controlled: the skipper needs clearance from dispatch, and no ferry leaves the dock without it. The night is quiet, wet, and ordinary in every way except for the details that do not line up.\nTurn 4: The gate motor is fed from the north panel; the breaker for it is third from the left, and the gate can be cranked open by hand once the motor is isolated."
     },
     {
       "turn": 6,
@@ -326,63 +281,71 @@ const starter = {
           "id": "primary",
           "name": "Lina Park",
           "nickname": "",
-          "description": "A former deckhand now dispatching the night ferry. She has to explain the delay to waiting passengers and to the skipper, and she feels the weight of every clearance she grants. She works from the dispatch desk, tracks the radio, and keeps the incident book within reach. Her stake is her authority on the night watch and the harbor's trust in her judgment.",
-          "personality": "",
-          "scenario": "It is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified.",
-          "examples": ""
+          "description": "A former deckhand now dispatching the night ferry. She has to explain the delay to waiting passengers and to the skipper, and she feels the weight of every clearance she grants. She works from the dispatch desk, tracks the radio, and keeps the incident book within reach. Her stake is her authority on the night watch and the harbor's trust in her judgment.\n\nIt is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified."
         },
         {
           "id": "c87bf87c-691c-492c-aaf7-adc8adf164e6",
           "name": "Sam Bell",
           "nickname": "",
-          "description": "Works the ticket window and studies electrical maintenance on their own time. They carry a pencil and a torch and want to be taken seriously as a technician rather than a ticket clerk. They notice hardware details others miss and are eager to prove the training Ellis gave them was worth giving.",
-          "personality": "",
-          "scenario": "",
-          "examples": ""
+          "description": "Works the ticket window and studies electrical maintenance on their own time. They carry a pencil and a torch and want to be taken seriously as a technician rather than a ticket clerk. They notice hardware details others miss and are eager to prove the training Ellis gave them was worth giving."
         },
         {
           "id": "c9c204e5-f2c4-44e0-b1aa-34b0636b7adc",
           "name": "Tomas Reyes",
           "nickname": "",
-          "description": "The ferry skipper, cautious since a close call in fog. He will not move the ferry without Lina's clearance and prefers to wait out uncertain conditions. He is steady with passengers but quietly watches the channel and the beacon.",
-          "personality": "",
-          "scenario": "",
-          "examples": ""
+          "description": "The ferry skipper, cautious since a close call in fog. He will not move the ferry without Lina's clearance and prefers to wait out uncertain conditions. He is steady with passengers but quietly watches the channel and the beacon."
         },
         {
           "id": "cc3407eb-83e6-4f96-a36b-ee08bccfd517",
           "name": "Mae Chen",
           "nickname": "",
-          "description": "A junior clerk with spare signboards at hand. She can reassure passengers and keep the terminal calm while the ferry is delayed, and she is learning how the harbor's paperwork actually moves through the night. Her stake is being trusted with more responsibility.\nTurn 6: Checking the incident book to draft the passenger announcement, she noticed the struck-through entries and pressed pen marks, and now wants to find who owns the heavy pressing pen.",
-          "personality": "",
-          "scenario": "",
-          "examples": ""
+          "description": "A junior clerk with spare signboards at hand. She can reassure passengers and keep the terminal calm while the ferry is delayed, and she is learning how the harbor's paperwork actually moves through the night. Her stake is being trusted with more responsibility.\nTurn 6: Checking the incident book to draft the passenger announcement, she noticed the struck-through entries and pressed pen marks, and now wants to find who owns the heavy pressing pen."
         },
         {
           "id": "2ce7d2c7-5995-4b5b-9438-8abaa654245e",
           "name": "Noor Haddad",
           "nickname": "",
-          "description": "Keeps the weather station and makes duplicate entries in grease pencil. She logs readings with care and treats the duplicates as a safeguard, not a formality. Her observations are precise and she notices when a record does not match what she remembers writing.\nTurn 6: Read the weather desk's duplicate record over the radio, giving the exact beacon irregularity time and duration.",
-          "personality": "",
-          "scenario": "",
-          "examples": ""
+          "description": "Keeps the weather station and makes duplicate entries in grease pencil. She logs readings with care and treats the duplicates as a safeguard, not a formality. Her observations are precise and she notices when a record does not match what she remembers writing.\nTurn 6: Read the weather desk's duplicate record over the radio, giving the exact beacon irregularity time and duration."
         },
         {
           "id": "1b92d34f-1884-4031-ac36-7577103bb86c",
           "name": "Ellis Ward",
           "nickname": "",
-          "description": "The blunt harbor electrician who trained Sam to read the gate circuit. He is practical, impatient with unclear thinking, and respected for knowing the harbor's wiring better than anyone. He speaks plainly and expects others to keep up.",
-          "personality": "",
-          "scenario": "",
-          "examples": ""
+          "description": "The blunt harbor electrician who trained Sam to read the gate circuit. He is practical, impatient with unclear thinking, and respected for knowing the harbor's wiring better than anyone. He speaks plainly and expects others to keep up."
         }
       ],
-      "lore": "Bellwether is a small working harbor with a late ferry crossing to Alder Island. The terminal is a modest, practical building where passengers wait on benches after the last squall has moved through. The harbor runs on paper: clothbound incident books kept at dispatch, duplicate weather readings preserved in grease pencil, radio traffic, and payphones. The east beacon is supposed to flash once at regular intervals to mark the channel; tonight it flashes twice and goes dark. A rain squall has just passed, and the cause of the beacon fault is still unknown. Departure is tightly controlled: the skipper needs clearance from dispatch, and no ferry leaves the dock without it. The night is quiet, wet, and ordinary in every way except for the details that do not line up.\nTurn 4: The gate motor is fed from the north panel; the breaker for it is third from the left, and the gate can be cranked open by hand once the motor is isolated.\nTurn 6: At 00:07 the weather desk's duplicate record put the beacon irregularity at 23:41, lasting eighteen seconds; station pressure 1012 mb, wind southwest at eight knots.",
-      "continuity": "Turn 2: At 23:41 the departure board in the terminal flickered and died, and the east beacon flashed twice then went dark.\nTurn 4: Sam isolated the gate motor's breaker, opened the gate with the manual key, and radioed Tomas that the gate is clear; the ferry remains moored pending Lina's clearance and a working east beacon.\nTurn 4: Noor reported the east beacon's two-flash pattern over the radio, and Mae relayed it to the waiting passengers.\nTurn 6: The dispatch incident book has a clean gap between 23:30 and 23:45: several lines neatly struck through with a felt pen, exactly where a beacon fault entry should have been. The page is not torn, just crossed out.\nTurn 6: Lina told the waiting passengers only what she could verify: the east beacon had a brief glitch, the ferry departs once the beacon is confirmed working, and the payphones are available for calls home. The ferry remains firmly moored."
+      "lore": "Bellwether is a small working harbor with a late ferry crossing to Alder Island. The terminal is a modest, practical building where passengers wait on benches after the last squall has moved through. The harbor runs on paper: clothbound incident books kept at dispatch, duplicate weather readings preserved in grease pencil, radio traffic, and payphones. The east beacon is supposed to flash once at regular intervals to mark the channel; tonight it flashes twice and goes dark. A rain squall has just passed, and the cause of the beacon fault is still unknown. Departure is tightly controlled: the skipper needs clearance from dispatch, and no ferry leaves the dock without it. The night is quiet, wet, and ordinary in every way except for the details that do not line up.\nTurn 4: The gate motor is fed from the north panel; the breaker for it is third from the left, and the gate can be cranked open by hand once the motor is isolated.\nTurn 6: At 00:07 the weather desk's duplicate record put the beacon irregularity at 23:41, lasting eighteen seconds; station pressure 1012 mb, wind southwest at eight knots."
     }
   ],
   "nextTurn": 7,
-  "premise": "It is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified."
+  "premise": "It is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified.",
+  "plotEvents": [
+    {
+      "note": "At 23:41 the departure board in the terminal flickered and died, and the east beacon flashed twice then went dark.",
+      "turn": 2,
+      "storyTime": "1998-10-24T23:41"
+    },
+    {
+      "note": "Sam isolated the gate motor's breaker, opened the gate with the manual key, and radioed Tomas that the gate is clear; the ferry remains moored pending Lina's clearance and a working east beacon.",
+      "turn": 4,
+      "storyTime": "1998-10-24T23:53"
+    },
+    {
+      "note": "Noor reported the east beacon's two-flash pattern over the radio, and Mae relayed it to the waiting passengers.",
+      "turn": 4,
+      "storyTime": "1998-10-24T23:53"
+    },
+    {
+      "note": "The dispatch incident book has a clean gap between 23:30 and 23:45: several lines neatly struck through with a felt pen, exactly where a beacon fault entry should have been. The page is not torn, just crossed out.",
+      "turn": 6,
+      "storyTime": "1998-10-25T00:07"
+    },
+    {
+      "note": "Lina told the waiting passengers only what she could verify: the east beacon had a brief glitch, the ferry departs once the beacon is confirmed working, and the payphones are available for calls home. The ferry remains firmly moored.",
+      "turn": 6,
+      "storyTime": "1998-10-25T00:07"
+    }
+  ]
 };
 
 export function createStarterStory() {

@@ -35,7 +35,7 @@ Compatibility is a concrete future feature, not a yes/no promise. Character Card
 
 ## Why the project chose MCP for local agent access
 
-[MCP](https://modelcontextprotocol.io/docs/learn/architecture) lets local agent clients discover a shared set of story tools using their own model access and sign-in. Story Studio exposes narrowly scoped reads and separate writes. A queued direction authorizes saving the new reply, and setup retains a browser review step. OpenRouter can run the same style of workflow directly through its API without needing an MCP client.
+[MCP](https://modelcontextprotocol.io/docs/learn/architecture) lets local agent clients discover a shared set of story tools using their own model access and sign-in. Story Studio exposes narrowly scoped reads and separate writes. Early experiments queued writing in the browser. The current browser handles writing and setup with the selected API provider.
 
 ## Operational limits and next steps
 
@@ -81,6 +81,6 @@ Story Studio keeps a single story-local cast. Each member has the same profile f
 
 ## Current integration and long-story context
 
-The current browser exposes **MCP**, **OpenRouter**, and **Manual**. The earlier direct Codex subprocess experiment is historical. The supported Codex and Claude Code connection now uses a shared stdio MCP server registered in the local native client. See [MCP.md](MCP.md). MCP does not make inference calls; the calling agent writes within its native session. The browser queues work and reads back the agent's saved reply.
+The early browser prototype exposed **MCP**, **OpenRouter**, and **Manual** and queued work for an external agent. The current browser runs API calls through its provider harness. External agents can still use the optional [MCP tools](MCP.md) for saved state.
 
 Story Studio assembles recent included dialogue under an estimated token budget alongside character, world, and continuity facts. It prioritizes bounded older relationship events by relevance and displays those events with turn numbers in the prompt. This is a lossy record of continuity, with no claim of unlimited recall or fidelity to old prose.

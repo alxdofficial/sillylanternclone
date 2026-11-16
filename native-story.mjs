@@ -45,6 +45,7 @@ export function createNativeStory(library, value) {
   const project = {
     id:randomUUID(),title:draft.title,premise:draft.scenario,lore:draft.lore,notes:draft.notes,
     storyStartAt:time,storyStartSource:draft.storyStartAt ? 'author' : 'estimate',cast,messages:[],
+    plotEvents:(draft.plotEvents || []).map(({note,storyTime})=>({note,storyTime:storyTime || time,turn:0})),
     relationships:(draft.relationships || []).map(({from,to,label})=>({
       from:ids.get(from),to:ids.get(to),label,storyTime:time,turn:0
     }))
@@ -124,7 +125,9 @@ export function applyNativeStoryChange(library,project,change) {
     } else if (kind === 'delete_turn') {
       const next = project.messages[index+1];
       const paired = turn.role === 'user' && next?.role === 'assistant' && !next.standalone;
+      const deleted = new Set([change.turnNumber,...(paired ? [next.turnNumber || index + 2] : [])]);
       project.messages.splice(index,paired ? 2 : 1);
+      if (project.plotEvents) project.plotEvents = project.plotEvents.filter(event=>!deleted.has(event.turn));
       delete project.agentRequest;
       delete project.agentNotice;
       return {deletedTurns:paired ? 2 : 1};

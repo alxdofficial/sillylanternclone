@@ -1,6 +1,17 @@
-# OpenRouter models
+# API providers and models
 
 In **Progress the story**, choose the **Prose artist** and **Continuity agent** separately. Economy and Preferred labels appear beside applicable models in both pickers and in **Editor agent**. Marking a **Sensitive scene** switches continuity to the sensitive model list and limits the writing route to the labeled writers. The settings remember the normal and sensitive continuity choices separately.
+
+## Direct APIs
+
+| Provider | Model | Context | USD per million input / output |
+| --- | --- | ---: | ---: |
+| Claude API | [Claude Sonnet 5.5](https://platform.claude.com/docs/en/models/sonnet-5-5/overview) | 1,000,000 | $2 / $10 |
+| OpenAI API | [GPT-6.1 Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra) | 1,050,000 | $1 / $5 |
+
+Both models support prose, continuity, Editor agent, and setup. Each selected model routes to its own API and key. Sensitive turns use the eligible OpenRouter models. Story Studio uses native [Claude client tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/how-tool-use-works), [OpenAI Responses function calling](https://developers.openai.com/api/docs/guides/function-calling), and [OpenRouter tool calling](https://openrouter.ai/docs/guides/features/tool-calling). The local harness applies the same validation across all three.
+
+## OpenRouter
 
 In a 16 November 2026 retest through Story Studio, Cydonia and MythoMax each returned three of three replies tagged explicit on Parasail. DeepSeek V4.1 Flash returned two replies tagged explicit on Baidu and River. A third request on Cohere returned no prose. Cydonia has Story Studio’s 8,000-token prose limit. MythoMax was removed from the presets because its listed providers have context windows of 4,096 to 8,192 tokens. [MythoMax provider limits](https://openrouter.ai/api/v1/models/gryphe/mythomax-l2-13b/endpoints)
 
@@ -26,8 +37,6 @@ The rates were checked on 16 November 2026 and can vary by host. The **Prose art
 
 The Mistral Large 4 OpenRouter ID is **mistralai/mistral-large-4-0**. The sensitive continuity choices have listed tool-capable providers. The presets reflect application routing choices and provider capabilities. The earlier live prose test covered Cydonia and DeepSeek, and provider moderation or refusals can vary.
 
-The state-editing routes use OpenRouter's native function calls. The selected provider needs to support tools. Availability varies with the model, host, and your provider settings. [OpenRouter tool calling](https://openrouter.ai/docs/guides/features/tool-calling)
-
 The context column gives the conservative window used for each model. Story Studio budgets a smaller prompt and keeps up to an estimated 16,000 tokens of recent eligible prose. The same story can grow over time as more of its continuity is carried in notes and relationship events.
 
 Choose **Writer → Manage custom models…** to add an OpenRouter model by ID or remove it from your browser. Custom models are selectable as writers in **Progress the story** or for setup chat. These uses only require ordinary text completions. Choose a supported Editor agent preset for direct story edits.
@@ -44,21 +53,25 @@ The writer receives narrator instructions, full cast and world information, writ
 
 An NSFW-friendly writer can receive sensitive history for turns marked **Sensitive scene**. The marked direction stays explicit even if the later classification suggests otherwise. **Exclude this turn’s text from all AI prompts** also withholds that turn from the sensitive writer. Automatic classification occurs after the artist receives the direction, so use **Sensitive scene** whenever you intend to request sensitive content.
 
-The selected continuity agent gets the new direction and draft, full current story state, and eligible prior exchanges. It can inspect state and calls `record_scene` to classify the new material, infer a time, and propose durable non-explicit updates. Explicit standing style preferences go in writing notes. The call can take multiple tool rounds. [OpenRouter client tools](https://openrouter.ai/docs/guides/features/tool-calling)
+The selected continuity agent gets the new direction and draft, full current story state, and eligible prior exchanges. It can inspect state and calls `record_scene` to classify the new material, infer a time, and review the scene for lasting non-explicit changes. It records meaningful changes between characters as relationship events, setting changes under World, lasting plot developments as dated plot events in the graph, and standing author guidance in Writing notes. The call can take multiple tool rounds. [OpenRouter client tools](https://openrouter.ai/docs/guides/features/tool-calling)
 
 Both direction and draft must be labeled non-explicit for automatic updates. Proposals from sensitive or unverified scenes require review before they enter shared continuity. If the artist reaches its output limit, Story Studio keeps and classifies the partial draft and leaves map updates empty. If the continuity pass fails, the prose is still saved and the unverified text stays outside general model context. A provider refusal leaves the direction available to edit or retry. Alternates and rewrites retain the original time and do not record new graph facts.
 
 ### Story Flow
 
-The **Suggest directions** icon above the composer starts Story Flow in Write. The selected continuity model returns three or four next beats through a dedicated function using eligible story context and available non-explicit continuity. After a successful scene, Studio requests new directions if you chose a suggestion or wrote your own direction with an active OpenRouter offer. If the suggestion call fails, the scene stays in the manuscript.
+**Get AI recommendations** above the composer starts Story Flow in Write. The selected continuity model returns three next beats through a dedicated function using eligible story context and available non-explicit continuity. It can look up a character, setting detail, or dated event with the same read-only tool as the editor. After a successful scene, Studio requests new directions if you chose a suggestion or wrote your own direction with an active in-app offer. If the suggestion call fails, the scene stays in the manuscript.
 
 ### Editor agent
 
-The selected model receives your edit request, full canonical state, and eligible history. The input threshold is 90% of its configured window minus the 8,192-token output reserve. Studio removes complete older exchanges in batches of about 30% of the window when it reaches the threshold. Current state stays in the prompt, and removed prompt history stays in the local library. Retained prose, reviewed setup notes, and approved tool outcomes can form a stable prefix. Longer scopes, active tool replies, and reasoning still consume provider context. The final tool applies a revision-checked edit to story metadata. [OpenRouter caching](https://openrouter.ai/docs/guides/best-practices/prompt-caching)
+The selected model receives your edit request, full canonical state, and eligible history. The input threshold is 90% of its configured window minus the 8,192-token output reserve. Studio removes complete older exchanges in batches of about 30% of the window when it reaches the threshold. Current state stays in the prompt, and removed prompt history stays in the local library. Retained prose, reviewed setup notes, and approved tool outcomes can form a stable prefix. Longer scopes, active tool replies, and reasoning still consume provider context. The final tool applies revision-checked edits to setting, plot and relationship events, the cast, or Writing notes. Profiles have a name, aliases, and one description. [OpenRouter caching](https://openrouter.ai/docs/guides/best-practices/prompt-caching)
+
+### Spending
+
+The context panel shows daily USD totals by API vendor and model for the last seven local calendar days. OpenRouter uses the amount in its response. Direct API amounts use standard published rates, including cache reads and writes and the GPT‑6.1 Terra long-context tier. The panel reports missing costs separately. This is local usage since tracking started, before any subscription credits. [Claude rates](https://platform.claude.com/docs/en/about-claude/pricing) · [Terra rates](https://developers.openai.com/api/docs/models/gpt-6.1-terra)
 
 ### New story setup
 
-Setup runs through the same agent runner. The selected model responds conversationally while you brainstorm. When you click **Prepare setup draft**, a supported Editor agent preset calls `prepare_story_setup` with fields for the proposed story. If your chat model is outside those presets, the wizard shows that DeepSeek V4.1 Flash will prepare the draft. The app validates the draft and stages it for review. The inputs are the complete planning chat, reference notes, and attached manuscript. When the source fits the selected model’s window, setup sends it in one prompt. Otherwise **Prepare setup draft** reads consecutive sections, collects structured story and author notes, and synthesizes an editable draft. Chunked setup can bill multiple calls. After setup, approved material is eligible as early history on the OpenRouter agent path.
+Setup runs through the same agent runner. The selected model responds conversationally while you brainstorm. When you click **Prepare setup draft**, a supported Editor agent preset calls `prepare_story_setup` with fields for the proposed story, including dated plot events. If your chat model is outside those presets, the wizard shows that DeepSeek V4.1 Flash will prepare the draft. The app validates the draft and stages it for review. The inputs are the complete planning chat, reference notes, and attached manuscript. When the source fits the selected model’s window, setup sends it in one prompt. Otherwise **Prepare setup draft** reads consecutive sections, collects structured story and author notes, and synthesizes an editable draft. Chunked setup can bill multiple calls. After setup, approved material is eligible as early history in the agent harness.
 
 Story Studio asks OpenRouter to route each request to endpoints with `data_collection: "deny"`. The artist and continuity calls can reach different hosts. The structured runner allows up to four model rounds, validates the arguments locally, and accepts one final batch. A browser disconnect cancels unfinished upstream calls on a best-effort basis. Requests already processed can still be billed. [Provider routing controls](https://openrouter.ai/docs/guides/routing/provider-selection)
 

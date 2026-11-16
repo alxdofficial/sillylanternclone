@@ -57,6 +57,12 @@ export function enhanceSelect(select, {minWidth} = {}) {
       hint.textContent = option.dataset.help;
       name.append(hint);
     }
+    if (!showDetail && option?.parentElement instanceof HTMLOptGroupElement) {
+      const provider = document.createElement('span');
+      provider.className = 'picker-provider';
+      provider.textContent = option.parentElement.label;
+      name.append(provider);
+    }
     const result = [name];
     if (option?.dataset.tag) {
       const tag = document.createElement('span');
@@ -134,7 +140,28 @@ export function enhanceSelect(select, {minWidth} = {}) {
       return {row,option};
     });
     if (!choices.length) return;
-    list.replaceChildren(...choices.map(({row})=>row));
+    const groups = new Map();
+    list.replaceChildren();
+    for (const {option,row} of choices) {
+      const parent = option.parentElement;
+      if (!(parent instanceof HTMLOptGroupElement)) {
+        list.append(row);
+        continue;
+      }
+      if (!groups.has(parent)) {
+        const group = document.createElement('div');
+        group.setAttribute('role','group');
+        group.setAttribute('aria-label',parent.label);
+        const label = document.createElement('div');
+        label.className = 'picker-group-label';
+        label.setAttribute('aria-hidden','true');
+        label.textContent = parent.label;
+        group.append(label);
+        groups.set(parent,group);
+        list.append(group);
+      }
+      groups.get(parent).append(row);
+    }
     list.showPopover();
     button.setAttribute('aria-expanded','true');
     place();
@@ -143,7 +170,7 @@ export function enhanceSelect(select, {minWidth} = {}) {
 
   function sync() {
     button.disabled = select.disabled;
-    if (button.disabled || (isOpen() && choices.some(({option}) => option.parentElement !== select))) close();
+    if (button.disabled || (isOpen() && choices.some(({option}) => !select.contains(option)))) close();
     const option = select.selectedOptions[0] || select.options[0];
     value.replaceChildren(...optionContents(option));
     if (help) {
