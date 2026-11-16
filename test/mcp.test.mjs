@@ -116,20 +116,24 @@ test('native MCP handshake, private context, queued replies, alternates and revi
     const setup = body => fetch(origin+'/api/setup/mcp',{method:'POST',
       headers:{origin,'Content-Type':'application/json'},body:JSON.stringify({sessionId,...body})});
     const waitForSetup = () => client.callTool({name:'wait_for_setup_request',arguments:{sessionId,waitSeconds:1}}).then(toolData);
-    const manuscript = {turnCount:2,hasChapters:true,passages:[{turn:2,excerpt:'APPROVED SETUP EXCERPT'}]};
-    const request = {action:'queue',mode:'chat',messages:[{role:'user',content:'Help me plan an import.'}],manuscript};
-    assert.equal((await setup(request)).status,400);
+    const manuscript = {turnCount:2,hasChapters:true,passages:[{turn:2,excerpt:'PREVIEWED SETUP EXCERPT'}]};
+    const contextNote = 'SETUP NOTES: The bridge is closed in winter.';
+    const request = {action:'queue',mode:'chat',messages:[{role:'user',content:'Help me plan an import.'}],
+      manuscript,context:contextNote};
+    assert.equal((await setup({...request,context:'x'.repeat(12_001)})).status,400);
     assert.equal(toolData(await client.callTool({name:'wait_for_setup_request',arguments:{sessionId,waitSeconds:1}})).status,'closed');
-    assert.equal((await setup({...request,reviewed:true})).status,200);
+    assert.equal((await setup(request)).status,200);
     const queuedSetup = await waitForSetup();
-    assert.match(queuedSetup.prompt[1].content,/APPROVED SETUP EXCERPT/);
+    assert.match(queuedSetup.prompt[1].content,/PREVIEWED SETUP EXCERPT/);
+    assert.ok(queuedSetup.prompt[1].content.includes(contextNote));
     assert.doesNotMatch(JSON.stringify(queuedSetup),/PRIVATE TEST MARKER/);
     const submitSetup = (requestId,response) => client.callTool({name:'submit_setup_response',arguments:{sessionId,requestId,...response}});
     assert.equal(toolData(await submitSetup(queuedSetup.requestId,{text:'What should we preserve?'})).status,'saved');
     assert.deepEqual(await (await setup({action:'status'})).json(),{status:'done',text:'What should we preserve?'});
-    assert.equal((await setup({action:'queue',mode:'draft',messages:[],manuscript,reviewed:true})).status,200);
+    assert.equal((await setup({action:'queue',mode:'draft',messages:[],manuscript,context:contextNote})).status,200);
     const draftRequest = await waitForSetup();
     assert.notEqual(queuedSetup.requestId,draftRequest.requestId);
+    assert.ok(draftRequest.prompt[1].content.includes(contextNote));
     assert.equal((await submitSetup(queuedSetup.requestId,{text:'Stale setup reply.'})).isError,true);
     const draft = {title:'The Harbor',lore:'A port city.',scenario:'',notes:'',cast:[],continuity:'',chapterStarts:[2]};
     assert.equal(toolData(await submitSetup(draftRequest.requestId,{draft})).status,'saved');

@@ -59,9 +59,9 @@ In **Book view**, use **Go to chapter** to jump between chapters. On a wide wind
 
 ## Import an existing story
 
-1. Choose **Stories → New story → Import an existing story**, or **Import a manuscript** in the setup chat. A long paste into the chat opens the import form with the text filled in. The limit is **100,000 words and 2 MB**. You can also choose a plain-text or Markdown file.
+1. Choose **Stories → New story → Import an existing story**, or **Import a manuscript** in the setup chat. Chat messages can be up to **6,000 characters**. If you paste more, choose **Use as manuscript** to open the import form with the text filled in. The manuscript limit is **100,000 words and 2 MB**. You can also choose a plain-text or Markdown file.
 2. Story Studio turns standalone chapter, turn and scene headings into native breaks. It also recognizes common Markdown scene dividers. Long passages are split locally at nearby paragraph or word boundaries. Existing chapter breaks take priority. For an unmarked story, review the suggested breaks or adjust them later from each turn’s **⋯** menu.
-3. Choose a setup model, then chat or click **Prepare setup draft**. The draft includes editable cast, setting and continuity notes. A model sees the chat and up to 16 short excerpts from across the story. Preview those excerpts before sending. MCP receives manuscript excerpts only if you mark them reviewed and non-explicit. For a completely local import, choose **Review without AI**.
+3. Choose **OpenRouter** or **MCP agent**. Open **Additional context** to add up to 12,000 characters of notes, reference material, or writing preferences alongside the manuscript. When you send a setup request, the selected model receives the chat, that context, and up to 16 previewable manuscript excerpts. The draft includes editable cast, setting, and continuity notes. Additional context is used during setup. The manuscript alone supplies the imported prose. For a completely local import, choose **Review without AI**.
 4. Review the draft and choose **Create story**. All original prose goes into a new story and appears in **Write** and **Book view**. The source headings are kept in Write and the library backup. Imported prose starts outside future MCP writing context unless you explicitly approve the full manuscript as non-explicit.
 
 ## Character & lore

@@ -14,6 +14,8 @@ const key = 'PRIVATE_SETUP_TEST_KEY';
 const seed = 'PRIVATE_SETUP_TEST_IDEA. A novelist inherits a map.';
 const question = 'What happens if the map changes overnight?';
 const clarification = 'It should change every day at sunrise.';
+const contextNote = 'PRIVATE_SETUP_TEST_CONTEXT. Maps are printed on blue paper.';
+const manuscript = {turnCount:2,hasChapters:true,passages:[{turn:2,excerpt:'The map changed at sunrise.'}]};
 const draft = {
   title:'The Morning Map', lore:'The map changes at sunrise.',
   scenario:'A novelist inherits the map.', notes:'Quiet suspense.',
@@ -26,6 +28,9 @@ test('setup input and output are bounded and reject invalid roles, fields and du
   assert.equal(setupMessages([{role:'system',content:seed}],'chat'),null);
   assert.equal(setupMessages([writer(seed),assistant(question)],'chat'),null);
   assert.equal(setupMessages([writer('x'.repeat(6001))],'chat'),null);
+  assert.ok(setupMessages([writer('x'.repeat(6000))],'chat'));
+  assert.equal(setupMessages([],'draft',undefined,'x'.repeat(12_001)),null);
+  assert.match(setupMessages([],'draft',undefined,contextNote)[1].content,/Maps are printed on blue paper/);
   const roles = Array.from({length:42},(_,i) => i % 2 ? assistant(question) : writer(seed));
   assert.equal(setupMessages(roles,'chat'),null);
   assert.ok(setupMessages(roles,'draft'));
@@ -45,12 +50,20 @@ test('setup chat uses the chosen model and extracts an unsaved draft with the st
   const mock = join(directory,'openrouter.mjs');
   await writeFile(mock,`
     import assert from 'node:assert/strict';
-    const {seed,question,clarification,draft,key} = ${JSON.stringify({seed,question,clarification,draft,key})};
+    const {seed,question,clarification,draft,key,contextNote,manuscript} = ${JSON.stringify({seed,question,clarification,draft,key,contextNote,manuscript})};
     globalThis.fetch = async (url, options) => {
       assert.equal(url,'https://openrouter.ai/api/v1/chat/completions');
       assert.equal(options.headers.authorization,'Bearer ' + key);
       const request = JSON.parse(options.body);
       assert.equal(request.provider.data_collection,'deny');
+      if (request.messages[1].content.includes(contextNote)) {
+        assert.ok(request.messages[1].content.includes('Additional setup context'));
+        assert.ok(request.messages[1].content.includes(JSON.stringify(manuscript)));
+        assert.equal(request.model,'deepseek/deepseek-v4.1-flash');
+        assert.ok(request.response_format.json_schema.schema.required.includes('continuity'));
+        const content = JSON.stringify({...draft,continuity:'The map changed.',chapterStarts:[]});
+        return Response.json({choices:[{finish_reason:'stop',message:{content}}]});
+      }
       assert.equal(request.messages[1].content,seed);
       if (request.messages.length > 2) {
         assert.deepEqual(request.messages[2],{role:'assistant',content:question});
@@ -88,9 +101,9 @@ test('setup chat uses the chosen model and extracts an unsaved draft with the st
       done.then(() => { throw Error('Server exited before listening.'); })
     ]);
     const origin = `http://127.0.0.1:${port}`;
-    const send = (mode,messages,requestOrigin = origin) => fetch(origin+'/api/setup',{
+    const send = (mode,messages,requestOrigin = origin,context = {}) => fetch(origin+'/api/setup',{
       method:'POST',headers:{origin:requestOrigin,'content-type':'application/json'},
-      body:JSON.stringify({mode,model:'fixture/brainstorm',key,messages})
+      body:JSON.stringify({mode,model:'fixture/brainstorm',key,messages,...context})
     });
     const first = await send('chat',[writer(seed)]);
     assert.equal(first.status,200);
@@ -102,6 +115,9 @@ test('setup chat uses the chosen model and extracts an unsaved draft with the st
     const prepared = await send('draft',[...conversation,assistant(question)]);
     assert.equal(prepared.status,200);
     assert.deepEqual(await prepared.json(),{draft});
+    const imported = await send('draft',[],origin,{manuscript,context:contextNote});
+    assert.equal(imported.status,200);
+    assert.deepEqual(await imported.json(),{draft:{...draft,continuity:'The map changed.',chapterStarts:[]}});
     assert.equal((await send('chat',[assistant(question)])).status,400);
     assert.equal((await send('chat',[writer(seed)],'https://example.com')).status,403);
     await assert.rejects(readFile(join(directory,'library.json')),{code:'ENOENT'});

@@ -5,7 +5,7 @@ import { mergeLibrary } from './sync.js';
 import { buildMessages, formatMessages, extraFields, getCast, narrator, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
 import { models, chapterCost, isModelId } from './models.js';
-import { dateWriterTurn, mcpOmissionReason, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
+import { dateWriterTurn, maxSetupContextCharacters, maxSetupMessageCharacters, mcpOmissionReason, queuedTurn, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
 
 const settingsFields = ['title', 'character', 'lore', 'notes', ...extraFields.filter(key => key !== 'personaName')];
 const castLabels = {name:'Name', nickname:'Aliases', description:'Description', personality:'Personality', scenario:'Scenario', examples:'Example dialogue'};
@@ -2032,6 +2032,8 @@ const setupProvider = $('#setupProvider');
 const setupModel = $('#setupModel');
 const setupKey = $('#setupKey');
 const setupMessage = $('#setupMessage');
+const setupContext = $('#setupContext');
+const setupAttach = $('#setupAttach');
 const setupConversation = $('#setupConversation');
 const setupChatError = $('#setupChatError');
 const setupFeedback = $('#setupFeedback');
@@ -2039,7 +2041,9 @@ const setupCast = $('#setupCast');
 const setupAddCharacter = $('#setupAddCharacter');
 const maxSetupCast = 8;
 const maxSetupExchanges = 21;
+const setupContextTooLong = 'Additional context can be up to 12,000 characters. Shorten it before sending.';
 let setupMessages = [], setupRequest, setupReviewBack = 'choice', setupImportBack = 'choice';
+let setupImportFromMessage = false;
 let setupManuscript, setupMcpSession, setupMcpQueued = false, setupSuggestedChapters = [];
 for (const model of models) setupModel.add(new Option(model.name,model.id));
 
@@ -2108,12 +2112,10 @@ function updateManuscriptReview() {
 
 function updateManuscriptSource() {
   $('#setupSource').hidden = !setupManuscript;
-  $('#setupAttach').hidden = Boolean(setupManuscript);
   $('#setupReviewLocally').hidden = !setupManuscript;
   const excerpts = $('#setupExcerpts');
   excerpts.replaceChildren();
   $('#setupSource details').open = false;
-  $('#setupShareManuscript').checked = false;
   if (!setupManuscript) return;
   const count = setupManuscript.turns.length;
   $('#setupSourceSummary').textContent = `${setupManuscript.words.toLocaleString()} words · ${count} ${count === 1 ? 'turn' : 'turns'}`;
@@ -2140,32 +2142,38 @@ function renderSetupChat(messages = setupMessages) {
 
 function syncSetupChat() {
   const pending = Boolean(setupRequest);
+  const content = setupMessage.value.trim();
+  const contextLength = setupContext.value.trim().length;
+  const tooLong = content.length > maxSetupMessageCharacters;
+  const contextTooLong = contextLength > maxSetupContextCharacters;
   const turnLimit = setupMessages.length >= 2 * maxSetupExchanges;
   const full = turnLimit ||
-    setupMessages.reduce((length,message) => length + message.content.length,0) + setupMessage.value.length > 36_000;
+    setupMessages.reduce((length,message) => length + message.content.length,0) + content.length > 36_000;
   const mcp = setupProvider.value === 'mcp';
-  const share = $('#setupShareManuscript');
+  const manuscriptAction = setupManuscript ? 'Replace manuscript' : 'Use as manuscript';
   setupProvider.disabled = pending;
   $('#setupModelField').hidden = mcp;
   $('#setupKeyField').hidden = mcp || Boolean(openRouterKey);
-  $('#setupShareField').hidden = !mcp;
-  share.disabled = pending;
   $('#setupProviderNote').textContent = mcp
-    ? 'Queue a request, then use the copied instructions in a connected MCP agent session. The agent receives this chat and any excerpts you approve.'
-    : 'OpenRouter receives this chat' + (setupManuscript ? ' and the previewed excerpts' : '') +
-      '. DeepSeek V4.1 Flash prepares the draft. Both use your OpenRouter credits.';
+    ? 'Queue a request, then use the copied instructions in a connected MCP agent session. The agent receives this chat, any additional context, and the previewed manuscript excerpts.'
+    : 'OpenRouter receives this chat, any additional context, and the previewed manuscript excerpts. DeepSeek V4.1 Flash prepares the draft. Both use your OpenRouter credits.';
   $('#setupAgentInstructions').hidden = !mcp || !setupMcpQueued;
   setupModel.disabled = pending;
   setupKey.disabled = pending;
   setupMessage.readOnly = pending || turnLimit;
-  $('#setupSend').disabled = pending || full || !setupMessage.value.trim();
-  $('#setupDraft').disabled = pending || (!setupMessages.length && !setupMessage.value.trim() &&
-    (!setupManuscript || (mcp && !share.checked)));
-  $('#setupAttach').disabled = pending;
+  setupContext.readOnly = pending;
+  $('#setupSend').disabled = pending || full || tooLong || contextTooLong || !content;
+  $('#setupDraft').disabled = pending || tooLong || contextTooLong ||
+    (!setupMessages.length && !content && !contextLength && !setupManuscript);
+  setupAttach.disabled = pending;
+  setupAttach.hidden = Boolean(setupManuscript) && !tooLong;
+  setupAttach.textContent = tooLong ? manuscriptAction : 'Import a manuscript';
   $('#setupReviewLocally').disabled = pending;
   $('#backSetupChat').disabled = pending;
   $('#setupSend').textContent = mcp ? 'Queue message' : 'Send';
-  if (!pending) setupFeedback.textContent = full ? 'Prepare the setup draft to continue.' : '';
+  if (!pending) setupFeedback.textContent = tooLong
+    ? `Chat messages can be up to 6,000 characters. Put notes under Additional context or choose ${manuscriptAction}.` :
+    contextTooLong ? setupContextTooLong : full ? 'Prepare the setup draft to continue.' : '';
 }
 
 function closeMcpSetup() {
@@ -2218,6 +2226,9 @@ $('#copySetupAgentPrompt').onclick = async () => {
 
 async function requestSetup(mode) {
   if (setupRequest) return;
+  const content = setupMessage.value.trim();
+  const context = setupContext.value.trim();
+  if (content.length > maxSetupMessageCharacters || context.length > maxSetupContextCharacters) return;
   const mcp = setupProvider.value === 'mcp';
   const key = openRouterKey || setupKey.value.trim();
   setupChatError.textContent = '';
@@ -2226,7 +2237,6 @@ async function requestSetup(mode) {
     (!setupModel.value ? setupModel : setupKey).focus();
     return;
   }
-  const content = setupMessage.value.trim();
   if (mode === 'chat' && (!content || setupMessages.length >= 2 * maxSetupExchanges)) return;
   const messages = content && setupMessages.length < 2 * maxSetupExchanges
     ? [...setupMessages,{role:'user',content}] : setupMessages;
@@ -2235,16 +2245,15 @@ async function requestSetup(mode) {
     return;
   }
   const request = new AbortController();
-  const reviewed = $('#setupShareManuscript').checked;
   const manuscript = setupManuscript && {turnCount:setupManuscript.turns.length,hasChapters:setupManuscript.hasChapters,
-    passages:mcp && !reviewed ? [] : setupManuscript.passages};
+    passages:setupManuscript.passages};
   setupRequest = request;
   if (mode === 'chat') renderSetupChat(messages);
   try {
     syncSetupChat();
     setupFeedback.textContent = mode === 'chat' ? 'Thinking…' : 'Preparing your setup draft…';
-    const payload = {mode,messages,manuscript};
-    const result = mcp ? await requestMcpSetup({...payload,reviewed},request)
+    const payload = {mode,messages,manuscript,context};
+    const result = mcp ? await requestMcpSetup(payload,request)
       : await api('/api/setup',{method:'POST',headers:{'Content-Type':'application/json'},signal:request.signal,
         body:JSON.stringify({...payload,model:setupModel.value,key})});
     if (setupRequest !== request || !setupDialog.open) return;
@@ -2280,7 +2289,9 @@ $('#newProject').onclick = () => {
   }
   setupMessages = [];
   setupChat.reset();
+  $('#setupContextDetails').open = false;
   setupImport.reset();
+  setupImportFromMessage = false;
   setupManuscript = undefined;
   $('#setupImportError').textContent = '';
   setupChatError.textContent = '';
@@ -2299,6 +2310,7 @@ setupDialog.addEventListener('close',() => {
   closeMcpSetup();
   setupKey.value = '';
   setupMessage.value = '';
+  setupContext.value = '';
   setupMessages = [];
   setupManuscript = undefined;
   setupImport.reset();
@@ -2314,13 +2326,28 @@ $('#setupManual').onclick = () => {
   setupStep('review');
 };
 $('#setupBrainstorm').onclick = () => { syncSetupChat(); setupStep('chat'); };
-$('#setupExisting').onclick = () => { setupImportBack = 'choice'; setupStep('import'); };
-$('#setupAttach').onclick = () => { setupImportBack = 'chat'; setupStep('import'); };
-$('#backSetupImport').onclick = () => setupStep(setupImportBack);
+$('#setupExisting').onclick = () => {
+  setupImportBack = 'choice';
+  setupImportFromMessage = false;
+  setupStep('import');
+};
+setupAttach.onclick = () => {
+  setupImportBack = 'chat';
+  setupImportFromMessage = setupMessage.value.trim().length > maxSetupMessageCharacters;
+  if (setupImportFromMessage) {
+    $('#setupManuscriptFile').value = '';
+    $('#setupManuscript').value = setupMessage.value;
+    $('#setupImportError').textContent = '';
+  }
+  setupStep('import');
+};
+$('#backSetupImport').onclick = () => {
+  setupStep(setupImportBack);
+  if (setupImportBack === 'chat') setupMessage.focus({preventScroll:true});
+};
 $('#backSetupChat').onclick = () => setupStep(setupManuscript ? 'import' : 'choice');
 $('#backSetupReview').onclick = () => setupStep(setupReviewBack);
 setupProvider.onchange = () => { closeMcpSetup(); syncSetupChat(); };
-$('#setupShareManuscript').onchange = syncSetupChat;
 $('#setupUseSuggestions').onchange = updateManuscriptReview;
 
 setupImport.onsubmit = async event => {
@@ -2339,6 +2366,8 @@ setupImport.onsubmit = async event => {
     const manuscript = parseManuscript(text);
     setupManuscript = {...manuscript,passages:manuscriptPassages(manuscript.turns),
       title:manuscript.title || file?.name.replace(/\.[^.]+$/u,'').slice(0,160) || ''};
+    if (setupImportFromMessage) setupMessage.value = '';
+    setupImportFromMessage = false;
     updateManuscriptSource();
     renderSetupChat();
     syncSetupChat();
@@ -2356,16 +2385,7 @@ $('#setupReviewLocally').onclick = () => {
   setupStep('review');
 };
 setupMessage.oninput = syncSetupChat;
-setupMessage.onpaste = event => {
-  const text = event.clipboardData?.getData('text/plain');
-  if (setupRequest || !text || text.length <= setupMessage.maxLength) return;
-  event.preventDefault();
-  setupImportBack = 'chat';
-  $('#setupManuscriptFile').value = '';
-  $('#setupManuscript').value = text;
-  $('#setupImportError').textContent = '';
-  setupStep('import');
-};
+setupContext.oninput = syncSetupChat;
 setupChat.onsubmit = event => { event.preventDefault(); void requestSetup('chat'); };
 $('#setupDraft').onclick = () => void requestSetup('draft');
 setupAddCharacter.onclick = () => addSetupCharacter().focus();

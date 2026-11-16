@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { diagnosticError } from './diagnostics.mjs';
 import { readSetupDraft, setupMessages } from './setup-chat.mjs';
+import { maxSetupContextCharacters } from './public/prompt.js';
 
 const sessions = new Map();
 const lifetime = 15 * 60_000;
@@ -14,7 +15,8 @@ const fail = (message,status = 400) => {
 const identifier = z.uuid();
 const requestShape = z.discriminatedUnion('action',[
   z.strictObject({action:z.literal('queue'),sessionId:identifier,mode:z.enum(['chat','draft']),
-    messages:z.array(z.unknown()).max(42),manuscript:z.unknown().optional(),reviewed:z.boolean().optional()}),
+    messages:z.array(z.unknown()).max(42),manuscript:z.unknown().optional(),reviewed:z.boolean().optional(),
+    context:z.string().max(maxSetupContextCharacters).optional()}),
   z.strictObject({action:z.literal('status'),sessionId:identifier}),
   z.strictObject({action:z.literal('cancel'),sessionId:identifier}),
   z.strictObject({action:z.literal('claim'),sessionId:identifier,agentId:identifier}),
@@ -39,10 +41,9 @@ export function setupQueue(input) {
   if (action === 'queue') {
     if (session && !session.result) fail('This setup session already has a pending request.',409);
     if (!session && sessions.size >= 12) fail('Too many setup sessions are open. Close one before continuing.',429);
-    const {mode,messages,manuscript,reviewed} = request;
-    const prompt = setupMessages(messages,mode,manuscript);
-    if (!prompt) fail('Check the setup discussion and manuscript excerpt lengths.');
-    if (manuscript?.passages.length && reviewed !== true) fail('Review the non-explicit excerpts before sending them to MCP.');
+    const {mode,messages,manuscript,context} = request;
+    const prompt = setupMessages(messages,mode,manuscript,context);
+    if (!prompt) fail('Check the setup discussion, additional context, and manuscript excerpt lengths.');
     sessions.set(sessionId,{requestId:randomUUID(),mode,manuscript,prompt,expires:now + lifetime});
     return {status:'waiting'};
   }

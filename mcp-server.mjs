@@ -27,7 +27,7 @@ const instructions = `Story Studio is a local fiction-writing app. Use the assem
 
 A queued turn authorizes writing and saving its reply. Follow the context's save instructions. If you decline, call decline_turn with a short reason so the queue clears. When asked to watch, loop on wait_for_queued_turn. Handle each queued result and call again after idle. Report skipped stories once. Stop when asked or when the app is unreachable.
 
-For a browser setup session, use wait_for_setup_request with the writer's session ID. Follow its brainstorming or draft prompt and call submit_setup_response, then wait again until closed. A setup draft is reviewed in the browser. Never open the full manuscript or library to supplement approved excerpts.
+For a browser setup session, use wait_for_setup_request with the writer's session ID. Follow its brainstorming or draft prompt and call submit_setup_response, then wait again until closed. A setup draft is reviewed in the browser. Use the supplied conversation, additional context, and previewed excerpts. Never open the full manuscript or library.
 
 For a direction given in chat, call get_story_context with that direction. If the tool returns a pending Studio request, use its story context and follow the chat direction for the draft you show in chat. Save the chat draft only when asked, and pass writerTurn for a new unsaved direction.
 
@@ -151,7 +151,7 @@ async function requestStudioSetup(payload, signal) {
 }
 
 tool('wait_for_setup_request',{
-  description:'Wait for work in the browser setup session named by the writer. Contains only their setup conversation and approved manuscript excerpts. Loop on idle and stop on closed.',
+  description:'Wait for work in the browser setup session named by the writer. Contains their setup conversation, additional context, and previewed manuscript excerpts. Loop on idle and stop on closed.',
   inputSchema:{sessionId:z.uuid(),waitSeconds:z.int().min(1).max(50).default(45)},
   annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}
 },async ({sessionId,waitSeconds},extra) => {

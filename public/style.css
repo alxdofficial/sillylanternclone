@@ -538,13 +538,15 @@ form textarea { resize: vertical; }
 .setup-source-review { padding-inline: 0; }
 .setup-source p, .setup-source-review p { margin: 0 0 5px; }
 .setup-source summary { cursor: pointer; width: fit-content; }
-.setup-source .context-toggle, .setup-source-review .context-toggle {
+.setup-source-review .context-toggle {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   margin: 7px 0;
 }
 #setupDialog .context-toggle input[type="checkbox"] { flex: none; width: auto; margin: 3px 0 0; }
+#setupContextDetails label { margin: 7px 0 0; }
+#setupContextDetails textarea { min-height: 56px; max-height: 20dvh; resize: vertical; }
 .setup-excerpts { list-style: none; max-height: 22dvh; overflow: auto; margin: 7px 0 0; padding: 0; }
 .setup-excerpts li { border-top: 1px solid var(--border); padding-top: 6px; }
 .setup-excerpts p, .manuscript-heading { overflow-wrap: anywhere; white-space: pre-wrap; }

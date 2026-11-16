@@ -235,11 +235,11 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
   return {text:text.trim(), truncated:finish === 'length'};
 }
 async function generateSetup(req,res,diagnostics) {
-  const {mode,model,key,messages,manuscript} = await body(req,250_000) || {};
-  const prompt = setupMessages(messages,mode,manuscript);
+  const {mode,model,key,messages,manuscript,context} = await body(req,250_000) || {};
+  const prompt = setupMessages(messages,mode,manuscript,context);
   if (!prompt) {
     diagnostics.code = 'INVALID_SETUP_CONVERSATION';
-    return json(res,400,{error:'Enter a setup message or prepare a draft from the discussion so far. The brainstorm allows up to 21 writer messages and 36,000 characters.'});
+    return json(res,400,{error:'Check the setup messages, manuscript excerpts, and additional context. Each chat message can be up to 6,000 characters, and additional context can be up to 12,000.'});
   }
   if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
     diagnostics.code = 'OPENROUTER_KEY_REQUIRED';

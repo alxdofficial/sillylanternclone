@@ -11,6 +11,8 @@ export const primarySpeaker = 'primary';
 export const narrator = Object.freeze({id:'story-studio:narrator', name:'Narrator'});
 export const maxAdditionalCharacters = 12;
 export const maxDirectionCharacters = 6000;
+export const maxSetupMessageCharacters = 6000;
+export const maxSetupContextCharacters = 12_000;
 export const castFields = ['name', 'nickname', 'description', 'personality', 'scenario', 'examples'];
 
 export function getCast(project) {

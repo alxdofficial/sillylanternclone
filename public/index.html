@@ -286,12 +286,16 @@
         <summary>Preview the manuscript excerpts</summary>
         <ol class="setup-excerpts" id="setupExcerpts"></ol>
       </details>
-      <label class="context-toggle" id="setupShareField"><input type="checkbox" id="setupShareManuscript"> Share excerpts I have reviewed as non-explicit with MCP</label>
     </section>
+    <details class="setup-source" id="setupContextDetails">
+      <summary>Additional context</summary>
+      <label for="setupContext">Notes or reference text <span>Up to 12,000 characters</span></label>
+      <textarea id="setupContext" rows="3" placeholder="Character notes, background, or writing preferences…"></textarea>
+    </details>
     <ol id="setupConversation" class="setup-conversation" aria-label="Brainstorm conversation" tabindex="0" hidden></ol>
     <div class="setup-chat-input">
       <label for="setupMessage" id="setupMessageLabel">What kind of story are you imagining?</label>
-      <textarea id="setupMessage" rows="2" maxlength="3000" placeholder="A premise, a character, or even just a mood…"></textarea>
+      <textarea id="setupMessage" rows="2" aria-describedby="setupFeedback" placeholder="A premise, a character, or even just a mood…"></textarea>
       <p id="setupFeedback" class="form-note" role="status"></p>
       <p id="setupChatError" class="form-note validation-message" role="alert"></p>
     </div>

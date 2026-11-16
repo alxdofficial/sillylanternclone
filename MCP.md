@@ -75,7 +75,7 @@ Open Story Studio first. Use the launcher, or ask the agent “Start Story Studi
 
 In the browser’s **New story** flow choose **MCP agent** beside **Chat with**. Queue the first message or setup draft, then use **Copy instructions for your agent** in a connected agent chat. The instructions include a temporary setup session ID. The agent handles that session while the browser dialog is open. A regular story watcher handles writing turns. Use a separate agent chat for setup if a watcher is already busy.
 
-The setup tools receive the conversation and only the manuscript excerpts the writer approved as non-explicit. They never receive the full source or an existing story library. When a draft is ready, the writer reviews it and creates the project in the browser. After updating Story Studio, open a fresh MCP session to discover the setup tools.
+When the writer queues a setup request, the tools receive the setup conversation, any additional context entered in the form, and the previewed manuscript excerpts. The full source and existing story library stay outside the setup tools. When a draft is ready, the writer reviews it and creates the project in the browser. After updating Story Studio, open a fresh MCP session to discover the setup tools.
 
 Saving a revised, MCP-eligible direction can queue a rewrite of the reply immediately after it. The agent receives the eligible transcript up to the revised direction. It rewrites the selected take in place and keeps the reply’s scene time. Existing accepted map changes stay in the story. Pending proposals for the rewritten take are cleared when the replacement is saved.
 
