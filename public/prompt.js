@@ -2,19 +2,20 @@
 // Chat Completion preset. Implemented independently; see RESEARCH.md.
 import { models, proseOutputLimit } from './models.js';
 
-export const extraFields = [
-  'characterName', 'characterNickname', 'personaName', 'personality', 'scenario', 'examples',
-  'authorNote', 'postHistory', 'loreRules', 'continuity'
-];
+export const storyTextFields = ['premise', 'authorNote', 'postHistory', 'loreRules', 'continuity'];
+export const legacyCastFields = ['characterName', 'characterNickname', 'character', 'personality', 'scenario', 'examples', 'personaName', 'persona'];
 
-export const primarySpeaker = 'primary';
 export const narrator = Object.freeze({id:'story-studio:narrator', name:'Narrator'});
-export const maxAdditionalCharacters = 12;
+// The largest older library could have thirteen stored cast members, a
+// separate character record, and a separate writer persona.
+export const maxCastMembers = 15;
 export const maxWriteWords = 8000;
 export const maxSetupWords = 20_000;
 export const maxSetupReplyCharacters = 6000;
 export const maxSetupRelationships = 24;
 export const countWords = text => text.match(/\S+/gu)?.length ?? 0;
+export const maxStoryFieldWords = 20_000;
+export const withinStoryFieldLimit = text => countWords(text) <= maxStoryFieldWords;
 
 export function setupInputWords(messages, context = '', draft = '') {
   return messages.reduce((words, {role,content}) => role === 'user' ? words + countWords(content) : words,
@@ -22,17 +23,92 @@ export function setupInputWords(messages, context = '', draft = '') {
 }
 export const castFields = ['name', 'nickname', 'description', 'personality', 'scenario', 'examples'];
 
-export function getCast(project) {
-  return [{
-    id:primarySpeaker,
-    name:project.characterName || 'Co-writer',
+const hasLegacyCast = project => legacyCastFields.some(field => Object.hasOwn(project,field)) || Object.hasOwn(project,'storyWriterId');
+
+export function migrateLegacyCast(project) {
+  if (!hasLegacyCast(project)) {
+    project.cast ??= [];
+    return project;
+  }
+  const members = (project.cast || []).map(member=>({...member}));
+  const previous = {
+    id:'primary',
+    name:project.characterName?.trim() || '',
     nickname:project.characterNickname || '',
-    description:project.character,
-    personality:project.personality,
-    scenario:project.scenario,
-    examples:project.examples
-  }, ...(project.cast || [])];
+    description:project.character || '',
+    personality:project.personality || '',
+    scenario:project.scenario || '',
+    examples:project.examples || ''
+  };
+  const formerSpeaker = project.messages?.find(turn=>turn.speakerId === previous.id && turn.speakerName)?.speakerName;
+  const connected = project.relationships?.some(({from,to})=>from === previous.id || to === previous.id);
+  if (!members.some(member=>member.id === previous.id) && (formerSpeaker || connected ||
+      [previous.name,previous.nickname,previous.description,previous.personality,previous.examples].some(value=>value.trim()))) {
+    previous.name ||= formerSpeaker || 'Co-writer';
+    members.unshift(previous);
+  }
+  const personaName = project.personaName?.trim() || '';
+  const personaDescription = project.persona?.trim() || '';
+  let separatePersona;
+  if (personaName || personaDescription) {
+    let member = members.find(candidate=>candidate.id === project.storyWriterId)
+      || (personaName && members.find(candidate=>candidate.name.trim().toLowerCase() === personaName.toLowerCase()));
+    if (!member) {
+      let id = 'writer';
+      while (members.some(candidate=>candidate.id === id)) id += '-writer';
+      member = {id,...Object.fromEntries(castFields.map(field=>[field,''])),name:personaName || 'Writer'};
+      members.push(member);
+      separatePersona = member;
+    }
+    member.description = [...new Set([member.description,personaDescription].filter(Boolean))].join('\n\n');
+  }
+  const author = members.find(member=>member.id === project.storyWriterId)?.name || personaName;
+  // Resolve old persona macros to their original names as the role is retired.
+  // Card-local {{char}} continues to resolve to that card's character.
+  const resolveProfile = (member, authorName = author) => {
+    if (authorName) for (const field of castFields.slice(2)) {
+      if (member[field]) member[field] = member[field].replace(/{{user}}/gi,()=>authorName);
+    }
+    return member;
+  };
+  members.forEach(member=>resolveProfile(member));
+  project.premise ||= previous.scenario;
+  const resolveStory = (text, formerLead = previous.name, authorName = author) => text.replace(/{{(char|user)}}/gi,(token,kind)=>
+    (kind.toLowerCase() === 'char' ? formerLead : authorName) || token);
+  for (const field of ['lore','notes',...storyTextFields]) {
+    if (typeof project[field] === 'string') project[field] = resolveStory(project[field]);
+  }
+  if (Array.isArray(project.graphHistory)) {
+    let formerLead = previous.name;
+    let formerAuthor = author;
+    project.graphHistory = project.graphHistory.map(snapshot=>{
+      const version = {...snapshot};
+      if (Array.isArray(snapshot.cast)) {
+        formerLead = snapshot.cast.find(member=>member.id === previous.id)?.name || formerLead;
+        formerAuthor = snapshot.cast.find(member=>member.id === project.storyWriterId)?.name || formerAuthor;
+        version.cast = snapshot.cast.map(member=>resolveProfile({...member},formerAuthor));
+        if (separatePersona) {
+          const existing = version.cast.find(member=>member.name.trim().toLowerCase() === separatePersona.name.toLowerCase());
+          if (existing) {
+            existing.description = [...new Set([existing.description,separatePersona.description].filter(Boolean))].join('\n\n');
+          } else {
+            version.cast.push({...separatePersona});
+          }
+        }
+      }
+      for (const field of ['lore','continuity']) {
+        if (typeof version[field] === 'string') version[field] = resolveStory(version[field],formerLead,formerAuthor);
+      }
+      return version;
+    });
+  }
+  project.cast = members;
+  for (const field of legacyCastFields) delete project[field];
+  delete project.storyWriterId;
+  return project;
 }
+
+export const getCast = project => (hasLegacyCast(project) ? migrateLegacyCast({...project}) : project).cast || [];
 
 export function resolveCastName(cast, value) {
   const name = value.trim().toLowerCase();
@@ -43,36 +119,9 @@ export function resolveCastName(cast, value) {
   return matches.length === 1 ? matches[0].id : null;
 }
 
-export function getWriter(project) {
-  const character = project.storyWriterId && getCast(project).find(member => member.id === project.storyWriterId);
-  return character || {name:project.personaName || '', description:project.persona || ''};
-}
-
-export function migratePersona(project) {
-  const {personaName:name, persona:description} = project;
-  if (project.storyWriterId || !(name?.trim() || description?.trim())) return project;
-  const cast = getCast(project);
-  let character = name && cast.find(member => member.name.trim().toLowerCase() === name.trim().toLowerCase());
-  if (!character) {
-    const ids = new Set(cast.map(member => member.id));
-    let id = 'writer';
-    while (ids.has(id)) id += '-writer';
-    character = {id, ...Object.fromEntries(castFields.map(field => [field,''])), name:name?.trim() || 'Writer'};
-    (project.cast ||= []).push(character);
-  }
-  const notes = [character.description,description].filter(Boolean);
-  const merged = [...new Set(notes)].join('\n\n');
-  if (character.id === primarySpeaker) project.character = merged;
-  else character.description = merged;
-  project.storyWriterId = character.id;
-  project.persona = project.personaName = '';
-  return project;
-}
-
 export function validCast(cast) {
-  // Older libraries may have both a full cast and a separate writer persona.
-  if (!Array.isArray(cast) || cast.length > maxAdditionalCharacters + 1) return false;
-  const ids = new Set([primarySpeaker]);
+  if (!Array.isArray(cast) || cast.length > maxCastMembers) return false;
+  const ids = new Set([narrator.id]);
   for (const character of cast) {
     if (!character || typeof character.id !== 'string' || !character.id || ids.has(character.id)) return false;
     if (!castFields.every(field => typeof character[field] === 'string' || (field === 'nickname' && character[field] === undefined)) || !character.name.trim()) return false;
@@ -197,16 +246,14 @@ function containsKeyword(text, key) {
 
 function activatedLore(rules, scan, expand) {
   const matched = [];
-  let remaining = 3200;
-  for (const line of clip(rules, 16000).split('\n').slice(0, 100)) {
+  for (const line of (rules || '').split('\n')) {
     const separator = line.indexOf('|');
     if (separator === -1) continue;
     const keys = line.slice(0, separator).split(',').map(key => key.trim()).filter(Boolean);
     const lore = expand(line.slice(separator + 1).trim());
     const active = keys.some(key => key === '*' || (key.length <= 100 && containsKeyword(scan, expand(key))));
-    if (!lore || !active || lore.length + 1 > remaining) continue;
+    if (!lore || !active) continue;
     matched.push(lore);
-    remaining -= lore.length + 1;
   }
   return matched.join('\n');
 }
@@ -406,6 +453,7 @@ export function storyEditContext(project) {
   };
   const state = {
     title:include(project.title,160),
+    ...(project.premise ? {premise:include(project.premise,4000)} : {}),
     world:include(project.lore,12000),
     notes:include(project.notes,4000),
     continuity:include(project.continuity,6000),
@@ -482,6 +530,16 @@ export function recentTurns(turns, limit = recentTokenCap, options) {
   return recent;
 }
 
+function endsWithin(text, tokens) {
+  let low = 8, high = text.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (estimate(clipEnds(text,middle)) <= tokens) low = middle;
+    else high = middle - 1;
+  }
+  return clipEnds(text,low);
+}
+
 function limitPrompt(messages, tokens) {
   if (!tokens) return messages;
   const result = [...messages];
@@ -497,7 +555,7 @@ function limitPrompt(messages, tokens) {
     if (longest === -1) break;
     const message = result[longest];
     const available = estimate(message.content) - (cost() - tokens) - 2;
-    const clipped = available > 45 ? prefixWithin(message.content, available) : '';
+    const clipped = available > 45 ? endsWithin(message.content,available) : '';
     if (clipped) result[longest] = {...message,content:clipped};
     else result.splice(longest,1);
   }
@@ -505,18 +563,13 @@ function limitPrompt(messages, tokens) {
 }
 
 export function buildMessages(project, instruction = '', mode = 'continue', {model = '', includeSensitive = false, openRouter = false} = {}) {
-  if (!project.storyWriterId && (project.personaName?.trim() || project.persona?.trim())) {
-    project = migratePersona({...project,cast:project.cast?.map(member=>({...member}))});
-  }
-  const [lead, ...otherCast] = getCast(project);
-  const name = project.characterName;
-  const char = clip(name, 100) || 'the co-writer';
-  const writer = getWriter(project);
-  const user = clip(writer.name, 100) || 'the writer';
-  const expand = value => value.replace(/{{(char|user)}}/gi, (_, name) => name.toLowerCase() === 'char' ? char : user);
+  if (hasLegacyCast(project)) project = migrateLegacyCast({...project});
+  const cast = getCast(project);
+  const expand = (value, character = 'the cast') => value.replace(/{{(char|user)}}/gi,
+    (_, name) => name.toLowerCase() === 'char' ? character : 'the author');
   const context = [];
   const add = (label, value, limit) => {
-    const text = clip(value, limit);
+    const text = limit ? clip(value, limit) : value?.trim();
     if (text) context.push({role:'system', content:label + ':\n' + expand(text)});
   };
   const modelLimit = writingPromptLimit(model);
@@ -532,40 +585,42 @@ export function buildMessages(project, instruction = '', mode = 'continue', {mod
   if (mode === 'replace') instructions.push('Write the replacement scene from the revised direction and the earlier story. Use the original reply time if given.');
   if (openRouter && model) instructions.push(`The output limit for this turn is ${proseOutputLimit(model).toLocaleString('en-US')} tokens.`);
   context.push({role:'system',content:instructions.join('\n\n')});
-  add('World setting', clipEnds(project.lore, 12000), 12000);
-  add('Character description', [clip(name, 100), clipEnds(lead.description, 11800)].filter(Boolean).join('\n'), 12000);
-  add('Character nickname', lead.nickname, 120);
-  add('Character personality', lead.personality, 1300);
-  add('Scenario', lead.scenario, 1700);
-  if (otherCast.length) {
-    const budget = Math.floor(9000 / otherCast.length) - 1;
-    add('Other cast', otherCast.map(member => {
-      const label = member.name + (member.nickname ? ' (' + member.nickname + ')' : '');
-      const details = [clipEnds(member.description,3000), clip(member.personality,500),
-        clip(member.scenario,500), clip(member.examples,500)].filter(Boolean).join('\n');
-      return clipEnds(label + ': ' + details.replace(/{{(?:char|user)}}/gi,
-        token => token.toLowerCase() === '{{char}}' ? member.name : user),budget);
-    }).join('\n'),9000);
+  add('World setting', project.lore);
+  add('Opening premise', project.premise);
+  if (cast.length) {
+    const perMember = Math.floor(modelLimit * 0.38 / cast.length);
+    context.push({role:'system',content:'Cast:'});
+    for (const member of cast) {
+      const name = clip(member.name,100);
+      const lines = [
+        ['Aliases',member.nickname],['Description',member.description],['Personality',member.personality],
+        ['Scenario',member.scenario === project.premise ? '' : member.scenario],
+        ['Example dialogue (style only)',member.examples]
+      ].filter(([,value])=>value?.trim()).map(([label,value])=>label + ': ' + expand(value.trim(),name));
+      // Give long profiles the same allowance while retaining the name of every entry.
+      const profile = limitPrompt([{role:'system',content:name},...lines.map(content=>({role:'system',content})),
+        {role:'user',content:''}],perMember).slice(0,-1).map(({content})=>content).join('\n');
+      context.push({role:'system',content:profile});
+    }
   }
   const clock = openRouter && isStoryTime(project.contextTime) ? project.contextTime : lastStoryTime(project);
   if (clock) add('Story clock', clock + (project.storyStartSource === 'estimate' ? ' (starting estimate; defer to explicit setting or author dates)' : ''), 130);
   if (isStoryTime(project.replyTime)) {
     add(mode === 'alternate' || mode === 'replace' ? 'Original reply time' : 'Dated writer turn', project.replyTime, 16);
   }
-  add('Story memory', project.continuity?.slice(-3000), 3000);
-  add('Writing notes', project.notes, 1500);
-  add('Relevant lore', activatedLore(project.loreRules, scan, expand), 3200);
-  add('Example dialogue (style only)', lead.examples, 2300);
+  add('Story memory', project.continuity);
+  add('Writing notes', project.notes);
+  add('Relevant lore', activatedLore(project.loreRules, scan, expand));
 
-  const note = clip(project.authorNote, 1200);
+  const note = project.authorNote?.trim();
   if (openRouter) {
-    add('Author’s note', note, 1200);
-    add('Post-history instructions', project.postHistory, 1400);
+    add('Author’s note', note);
+    add('Post-history instructions', project.postHistory);
   } else if (note) {
     history.splice(Math.max(0, history.length - 4), 0, {role:'system', content:'Author’s note:\n' + expand(note)});
   }
   context.push(...history);
-  if (!openRouter) add('Post-history instructions', project.postHistory, 1400);
+  if (!openRouter) add('Post-history instructions', project.postHistory);
 
   if (mode === 'alternate') {
     context.push({role:'user', content:'Write a different take for the latest author direction in the history. Keep the original scene time and established continuity.'});

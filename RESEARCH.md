@@ -77,7 +77,7 @@ The shared builder in `public/prompt.js` follows the block order in the upstream
 
 SillyTavern stores reusable character cards and lets the writer combine them into groups. Group members share history. The default Swap mode inserts the active member's card for that reply. Upstream also supports joined cards, muted members, and Natural, List, Pooled and Manual reply ordering. Its lorebooks can attach to a character, persona, chat, or global settings. See [SillyTavern groups](https://docs.sillytavern.app/usage/core-concepts/groupchats/) and [World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/).
 
-Story Studio now implements a story-local cast and explicit speaker selection. It retains the original speaker on swipes, preserves named turns in shared history, and uses the selected card for description, personality, scenario, and examples. The writer controls a character from the same cast. The selected writer character and world lore carry across replies. It does not attempt automatic reply order, joined cards, reusable global card profiles or scoped lorebook bindings.
+Story Studio keeps a single story-local cast. Each member has the same profile fields, and eligible profiles share the narrator's context budget. The writer supplies direction to the narrator. Older named turns retain their original attribution.
 
 ## Current integration and long-story context
 

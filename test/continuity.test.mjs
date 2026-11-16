@@ -146,3 +146,17 @@ test('metadata reads omit unknown stored fields and flag clipped state', () => {
   assert.deepEqual(profile.shortenedFields,['examples']);
   assert.match(profile.examples,/^First line\..*Last line\.$/s);
 });
+
+test('continuity can recover an entire long profile one page at a time', () => {
+  const personality = 'x'.repeat(11999) + '🗝️ ' + 'patient '.repeat(19999);
+  const project = {...story,cast:[{...story.cast[0],personality}]};
+  const query = {section:'cast',character:'Iona',field:'personality'};
+  let page = inspectContinuity(project,query);
+  assert.equal(page.nextOffset,11999);
+  let recovered = page.personality;
+  while (page.nextOffset !== undefined) {
+    page = inspectContinuity(project,{...query,offset:page.nextOffset});
+    recovered += page.personality;
+  }
+  assert.equal(recovered,personality);
+});

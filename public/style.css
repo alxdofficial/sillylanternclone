@@ -165,7 +165,6 @@ textarea { caret-color: #f0c6de; }
 .display-name-controls, .display-names-actions { display: flex; align-items: center; gap: 8px; }
 .display-name-controls .button { flex: none; }
 .display-names-actions { flex-wrap: wrap; margin-top: 12px; }
-.display-name { font-style: italic; }
 .save-status { color: var(--muted); font-size: 11px; line-height: 1.35; min-width: 0; }
 .story-heading-actions { display: flex; align-items: center; gap: 6px; }
 .story-actions { position: relative; }
@@ -314,6 +313,8 @@ textarea { caret-color: #f0c6de; }
 }
 .composer textarea::placeholder, .form-dialog ::placeholder { color: #bcb1b7; }
 .composer-bottom { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+#verifyComposerEditLabel { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; }
+#verifyComposerEdit { margin: 0; }
 .composer-bottom .button { white-space: nowrap; }
 .shortcut { margin-inline-start: auto; text-align: right; }
 #sendButton { margin-inline-start: auto; }

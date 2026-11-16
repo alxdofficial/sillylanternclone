@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
 import { agentOutputLimit, agentReasoning, canWriteSensitive, continuityModel, isAgentModel, isModelId, models, proseOutputLimit, setupChatOutputLimit, setupDraftModel, setupDraftOutputLimit } from './public/models.js';
-import { buildMessages, extraFields, getCast, getWriter, validCast, validRelationships, validSensitivity, isStoryTime, writeInputProblem } from './public/prompt.js';
+import { buildMessages, getCast, legacyCastFields, migrateLegacyCast, storyTextFields, validCast, validRelationships, validSensitivity, isStoryTime, writeInputProblem } from './public/prompt.js';
 import { maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory } from './examples/the-late-ferry.mjs';
 import { isWritingRefusal, stripWritingPreamble } from './openrouter-format.mjs';
@@ -42,11 +42,17 @@ function disconnectSignal(res) {
 }
 async function parseLibrary(path) {
   const text = await readFile(path,'utf8');
+  let library;
   try {
-    return JSON.parse(text);
+    library = JSON.parse(text);
   } catch {
     throw diagnosticError('LIBRARY_JSON_INVALID','The saved library is not valid JSON.');
   }
+  return migrateLibrary(library);
+}
+function migrateLibrary(library) {
+  for (const project of library.projects) migrateLegacyCast(project);
+  return library;
 }
 async function readSavedLibrary() {
   try {
@@ -153,7 +159,7 @@ function reportAgent(report) {
 }
 
 const libraryLimit = 16_000_000;
-function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && extraFields.every(k=>p[k]===undefined || typeof p[k]==='string') && ['character','persona','lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.sourcePrefix===undefined || typeof m.sourcePrefix==='string') && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
+function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && [...storyTextFields,...legacyCastFields].every(k=>p[k]===undefined || typeof p[k]==='string') && ['lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.length<=3000 && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.sourcePrefix===undefined || typeof m.sourcePrefix==='string') && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
 const openRouterStatusHints = {
   401:'Check your API key.',
   402:'Check your balance and key spending limit.',
@@ -363,7 +369,7 @@ if (['/api/state','/api/starter'].includes(url.pathname) && req.method === 'PUT'
     return json(res,400,{error:'Invalid story data.'});
   }
   if (starterOnly && value.id !== starterStoryId) return json(res,400,{error:'Invalid starter story.'});
-  const revision = await saveState(library, req.headers['if-match'], starterOnly);
+  const revision = await saveState(migrateLibrary(library), req.headers['if-match'], starterOnly);
   if (!revision) {
     diagnostics.code = 'REVISION_CONFLICT';
     return json(res,409,{error:'Another tab saved a newer library. Export your work in this tab before reloading.'});
@@ -373,14 +379,12 @@ if (['/api/state','/api/starter'].includes(url.pathname) && req.method === 'PUT'
 if (url.pathname === '/api/export' && req.method === 'POST') {
   const value = await body(req, libraryLimit);
   if (!validateState(value)) return json(res, 400, {error: 'Invalid story library.'});
-  const library = withoutStarter(value);
+  const library = migrateLibrary(withoutStarter(value));
   if (!library.projects.length) return json(res,400,{error:'Create a story before exporting. The demo is temporary.'});
   const files = {'library.json': strToU8(JSON.stringify(library, null, 2))};
   library.projects.forEach((project, index) => {
     const filename = project.title.replace(/[^\p{L}\p{N} -]/gu, '').trim().slice(0, 80) || 'Story';
-    const writer = getWriter(project);
-    const notes = [['Character', project.character], ['Writer character', writer.name], ['Lore', project.lore], ['Writing notes', project.notes]];
-    if (!project.storyWriterId && writer.description) notes.push(['Writer description',writer.description]);
+    const notes = [['Lore', project.lore], ['Opening premise', project.premise], ['Writing notes', project.notes]];
     const cast = getCast(project);
     const names = new Map(cast.map(member => [member.id,member.name]));
     const events = [...(project.relationships || [])]
@@ -389,12 +393,12 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
         storyTime?.replace('T',' '), turn ? `Turn ${turn}` : 'Setup', `${names.get(from) || from} → ${names.get(to) || to}: ${label}`
       ].filter(Boolean).join(' · '));
     const turns = project.messages.map(message => {
-      const label = message.role === 'user' ? writer.name || 'Writer' : message.speakerName || 'Co-writer';
+      const label = message.role === 'user' ? 'Writer' : message.speakerName || 'Narrator';
       return (message.storyTime ? message.storyTime.replace('T',' ') + ' · ' : '') + label + ':\n' + (message.sourcePrefix || '') + message.content;
     });
     files['Stories/' + (index + 1) + ' - ' + filename + '.txt'] = strToU8(
       [project.title, ...notes.filter(([,value]) => value).map(([label,value]) => label + ':\n' + value),
-        ...cast.slice(1).map(character => 'Cast: ' + character.name + '\n' + [character.description, character.personality, character.scenario].filter(Boolean).join('\n')),
+        ...cast.map(character => 'Cast: ' + character.name + '\n' + [character.nickname,character.description,character.personality,character.scenario,character.examples].filter(Boolean).join('\n')),
         ...(events.length ? ['Relationship timeline:\n' + events.join('\n')] : []), ...turns].join('\n\n')
     );
   });
@@ -410,11 +414,12 @@ if (url.pathname === '/api/setup/mcp' && req.method === 'POST') {
   return json(res,200,setupQueue(request));
 }
 if (url.pathname === '/api/generate' && req.method === 'POST') {
-  const {project,instruction,provider,model,key,mode='send',sensitive=false} = await body(req);
+  const {project,instruction,provider,model,key,mode='send',sensitive=false} = await body(req, libraryLimit);
   if (!validateState({activeId:project?.id,projects:[project]}) || typeof instruction !== 'string') {
     diagnostics.code = 'INVALID_STORY_REQUEST';
     return json(res,400,{error:'Invalid story request.'});
   }
+  migrateLegacyCast(project);
   if (provider !== 'openrouter' || !['send','alternate','replace'].includes(mode)) {
     diagnostics.code = 'UNSUPPORTED_GENERATION_MODE';
     return json(res,400,{error:'Unsupported browser generation mode.'});

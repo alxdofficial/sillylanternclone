@@ -80,6 +80,7 @@
           <p id="composerEditStatus" class="route-hint" role="status" hidden></p>
           <label id="instructionLabel" for="instruction" class="sr-only">What happens next?</label>
           <textarea id="instruction" rows="2" placeholder="Write the next beat or tell the narrator what happens…"></textarea>
+          <label class="context-toggle" id="verifyComposerEditLabel" hidden><input id="verifyComposerEdit" type="checkbox"> I’ve verified this text is non-explicit</label>
           <div class="composer-bottom">
             <button class="button subtle" id="pasteReply">Add reply</button>
             <button class="button subtle" id="cancelAgentEdit" hidden>Cancel request</button>
@@ -117,7 +118,7 @@
       </section>
       <section class="display-names-view" id="displayNamesView" role="tabpanel" aria-labelledby="displayNamesTab" hidden>
         <form class="display-names-form" id="displayNamesForm">
-          <p class="form-note" id="displayNamesHint">Match names as written. This browser shows replacements in italics in Write and Book view. Edits, copies, exports, and AI use the original names.</p>
+          <p class="form-note" id="displayNamesHint">Match names as written. This browser shows replacements in Write and Book view. Edits, copies, exports, and AI use the original names.</p>
           <table class="display-names-table" aria-describedby="displayNamesHint">
             <thead><tr><th scope="col">Original name</th><th scope="col">Display name</th></tr></thead>
             <tbody id="displayNamesRows"></tbody>
@@ -180,6 +181,7 @@
           <p class="form-note" id="graphStatus" role="status"></p>
         </div>
         <svg id="castGraph" viewBox="0 0 720 510" aria-label="Character relationship graph" role="group"></svg>
+        <p id="emptyCast" class="form-note" hidden>Add a character to start the cast.</p>
         <p class="graph-key">Select a character or line to inspect it. A numbered line has multiple events.</p>
       </div>
       <aside id="graphInspector" class="graph-inspector" aria-labelledby="inspectorHeading" hidden>
@@ -194,16 +196,6 @@
         <div id="graphProfile" hidden>
         <div id="cardTools"></div>
         <p class="form-note" id="cardHint"></p>
-        <div id="primaryEditor" data-id="primary">
-          <label>Name<input name="characterName" data-field="name" maxlength="100"></label>
-          <label>Aliases <span>Separate with commas</span><input name="characterNickname" data-field="nickname" maxlength="100"></label>
-          <label>Description<textarea name="character" data-field="description" rows="4"></textarea></label>
-          <label>Personality<textarea name="personality" data-field="personality" rows="2"></textarea></label>
-          <details class="profile-details"><summary>Scenario and example dialogue</summary>
-            <label>Scenario<textarea name="scenario" data-field="scenario" rows="3"></textarea></label>
-            <label>Example dialogue<textarea name="examples" data-field="examples" rows="4"></textarea></label>
-          </details>
-        </div>
         <div id="castEditors"></div>
         </div>
         <div id="relationshipEditor" hidden>
@@ -230,6 +222,7 @@
     </section>
     <section role="tabpanel" id="writingPanel" aria-labelledby="writingTab" hidden>
       <label>Story title<input name="title" maxlength="160"></label>
+      <label>Opening premise<textarea name="premise" rows="3"></textarea></label>
       <label>Writing notes<textarea name="notes" rows="4"></textarea></label>
       <details class="profile-details"><summary>Author’s note and post-history instructions</summary>
         <label>Author’s note<textarea name="authorNote" rows="3"></textarea></label>
@@ -248,9 +241,9 @@
     <header class="dialog-top"><h2 id="editHeading">Time and context</h2><button type="button" class="icon" id="closeEdit" aria-label="Close">×</button></header>
     <div class="dialog-body">
       <label>In-story date and time <span>Optional for manually written turns.</span><input id="editStoryTime" type="datetime-local" step="60"></label>
-      <label>MCP context<select id="turnSensitivity" aria-describedby="editContextNote editSensitivityStatus"><option value="include">Include as non-explicit</option><option value="omit">Omit as explicit or unverified</option></select></label>
+      <label>AI context<select id="turnSensitivity" aria-describedby="editContextNote editSensitivityStatus"><option value="include">Include as non-explicit</option><option value="omit">Keep context censored</option></select></label>
       <p id="editSensitivityStatus" class="form-note" role="status" hidden></p>
-      <p id="editContextNote" class="form-note">OpenRouter sets this automatically. Choose Omit to mark a turn explicit. Unverified turns are omitted from MCP automatically.</p>
+      <p id="editContextNote" class="form-note">OpenRouter labels new turns automatically. General AI prompts leave out explicit or unverified text. Approved graph facts can still carry forward.</p>
       <label class="context-toggle"><input id="excludeTurn" type="checkbox"> Exclude this turn’s text from all AI prompts</label>
     </div>
     <footer class="dialog-actions"><button type="button" class="button subtle" id="cancelEdit">Cancel</button><button class="button primary">Save turn</button></footer>
@@ -366,12 +359,12 @@
         <label class="context-toggle"><input type="checkbox" id="setupReviewedAll"> I reviewed the full manuscript as non-explicit. Allow it in future MCP context.</label>
       </section>
       <label>Story title <input id="setupTitle" maxlength="160" required></label>
-      <label>Opening premise <textarea id="setupScenario" rows="2" maxlength="1700" placeholder="What is happening as the story starts?"></textarea></label>
-      <label>World &amp; setting <textarea id="setupLore" rows="2" maxlength="4000" placeholder="Where and when does it take place?"></textarea></label>
+      <label>Opening premise <textarea id="setupScenario" rows="2" placeholder="What is happening as the story starts?"></textarea></label>
+      <label>World &amp; setting <textarea id="setupLore" rows="2" placeholder="Where and when does it take place?"></textarea></label>
       <label>Story start <input id="setupStartAt" type="datetime-local" aria-describedby="setupStartHint"></label>
       <p class="form-note" id="setupStartHint">Starting relationships share this in-story date and time.</p>
-      <label>Writing notes <textarea id="setupNotes" rows="2" maxlength="1500" placeholder="Tone, point of view, or anything the narrator should know"></textarea></label>
-      <label id="setupContinuityField" hidden>Story continuity <textarea id="setupContinuity" rows="2" maxlength="3600" placeholder="Established events and facts for continuing the story"></textarea></label>
+      <label>Writing notes <textarea id="setupNotes" rows="2" placeholder="Tone, point of view, or anything the narrator should know"></textarea></label>
+      <label id="setupContinuityField" hidden>Story continuity <textarea id="setupContinuity" rows="2" placeholder="Established events and facts for continuing the story"></textarea></label>
       <fieldset class="setup-cast">
         <legend>Cast</legend>
         <div id="setupCast"></div>

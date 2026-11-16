@@ -84,9 +84,9 @@ The **Story timeline** on the left groups setup, dated scenes, and relationship 
 
 Hover over a character or line for a preview in the right pane. Click or tap it to keep its details open and edit.
 
-- **+ Character** creates a profile. Click a node to edit its name, aliases, description, and optional personality, scenario, and sample dialogue. The profile also supports importing basic details from a JSON character card. Removing a supporting character removes their relationship events when you save. Their existing dialogue stays in the transcript.
+- **+ Character** creates a profile. Every character uses the same profile and editing controls. Click a node to edit its name, aliases, description, and optional personality, scenario, and sample dialogue. You can also import a JSON character card. Removing a character removes their relationship events when you save. Their existing dialogue stays in the transcript.
 - **+ Relationship** lets you select two characters in the order of the event. Write one sentence describing what happened and choose its **In-story date and time**. Several events between the same two characters share a graph line. Its count shows how many are saved. Click the line to edit or delete individual events. **Undo last deletion** is available in the inspector before you save.
-- **World** holds the setting, start date and time, short continuity facts under **Story memory**, and optional keyword lore. Enter one rule per line, such as `harbor, dock | The tide cuts off the old footpath.` Use `* | lore` for a rule that is always active. **Writing** holds prose directions, style notes, and the title.
+- **World** holds the setting, start date and time, short continuity facts under **Story memory**, and optional keyword lore. Enter one rule per line, such as `harbor, dock | The tide cuts off the old footpath.` Use `* | lore` for a rule that is always active. **Writing** holds the opening premise, prose directions, style notes, and the title. Long-form character, world, and writing fields accept up to 20,000 words each. Model prompts still fit the selected model's input budget.
 
 Relationship events have an in-story timestamp to the minute, for example `1998-10-24 18:30`, as well as a source turn. All setup events share the **Story start** time. MCP and OpenRouter can infer the scene and event times from the story. Story Studio uses estimates when needed. Set the start in **World** and correct event times in the graph if the story has a specific date, time jump, or flashback.
 
@@ -104,7 +104,7 @@ Labels are model judgments and can be wrong. If classification fails, Story Stud
 
 To continue with a general model after a sensitive scene:
 
-1. Check the badges on both the writer turn and the reply. Use **⋯ → Time and context** to correct a label. Select **Exclude this turn’s text from all AI prompts** to withhold the text from every route, including Cydonia.
+1. Check the badges on both the writer turn and the reply. **Context censored** means general AI prompts skip that text while approved continuity can still carry forward. After revising prose with **Edit**, you can check **I’ve verified this text is non-explicit** before saving. You can also review a label from **⋯ → Time and context**. Select **Exclude this turn’s text from all AI prompts** to withhold the text from every route, including Cydonia.
 2. Keep any needed continuity in a short, non-explicit relationship event or **World → Story memory**. Check nearby turns and notes for copies of the sensitive prose.
 3. Clear **Sensitive scene**, select your writing route, check **Prompt**, and send the next direction. Start a fresh native agent session if the previous session already saw the original text.
 
@@ -112,7 +112,7 @@ The saved library and exports include the original passages. Story Studio filter
 
 ## Display names
 
-On the **Display names** tab, put the original character or place name on the left and the name you want to see on the right. Use the exact capitalization from the story. Save the table, then return to **Write** or **Book view**. Matching names appear in italics. The table belongs to this story in this browser. Editors, copied and exported prose, graph data, and model context use the original names.
+On the **Display names** tab, put the original character or place name on the left and the name you want to see on the right. Use the exact capitalization from the story. Save the table, then return to **Write** or **Book view**. Replacements use the same typography as the surrounding prose. The table belongs to this story in this browser. Editors, copied and exported prose, graph data, and model context use the original names.
 
 ## Back up and move your library
 

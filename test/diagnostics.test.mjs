@@ -102,7 +102,7 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       if (source.authorDirection === 'invalid proposals' && observation.role !== 'tool') {
         return finish('record_scene',{...metadata,updates:[...metadata.updates,
           {kind:'relationship',from:'PRIVATE_INVALID_NAME',to:'OTHER_INVALID_NAME',label:'They talk.'},
-          {kind:'relationship',from:'Co-writer',to:'Co-writer',label:'They talk.'}
+          {kind:'relationship',from:'The Keeper',to:'The Keeper',label:'They talk.'}
         ]},'bad-proposal');
       }
       if (source.authorDirection === 'invalid proposals') {
@@ -144,7 +144,7 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     assert.equal(invalid.status,400);
     const generate = (model, instruction = fixture, mode = 'send', sensitive = false, signal) => fetch(origin+'/api/generate',{
       method:'POST',headers,signal,body:JSON.stringify({
-        project:{id:fixture,title:fixture,character:'',persona:'',lore:'The ferry is moored.',notes:'',messages:[
+        project:{id:fixture,title:fixture,cast:[{id:'keeper',name:'The Keeper',description:'',personality:'',scenario:'',examples:''}],lore:'The ferry is moored.',notes:'',messages:[
           {role:'assistant',content:'PRIVATE_HISTORY',contentSensitivity:'explicit'},
           {role:'assistant',content:'ALL_ROUTE_MARKER',excludeFromContext:true}
         ],

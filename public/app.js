@@ -3,14 +3,14 @@ import { bookChapters, bookMarkdown, maxLibraryStories, starterStoryId, withoutS
 import { defaultChapterStarts, manuscriptByteLimit, manuscriptPassages, manuscriptTurns, parseManuscript } from './manuscript.js';
 import { mergeLibrary } from './sync.js';
 import { createDisplayNameMatcher } from './display-names.js';
-import { buildMessages, formatMessages, extraFields, getCast, narrator, resolveCastName, migratePersona, primarySpeaker, castFields, maxAdditionalCharacters, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
+import { buildMessages, formatMessages, storyTextFields, narrator, resolveCastName, migrateLegacyCast, castFields, maxCastMembers, validCast, validRelationships, graphSuggestions, nextTurnNumber, appendTurn, maxGraphEvents, recentTurns, recentTokenCap, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
 import { models, chapterCost, canWriteSensitive, isAgentModel, isModelId, modelLabel, modelContextWindow, proseOutputLimit, setupDraftModel, agentOutputLimit, setupChatOutputLimit, setupDraftOutputLimit } from './models.js';
-import { countWords, writeInputProblem } from './prompt.js';
+import { countWords, maxStoryFieldWords, withinStoryFieldLimit, writeInputProblem } from './prompt.js';
 import { dateWriterTurn, maxSetupRelationships, maxSetupWords, mcpOmissionReason, queuedTurn, replyInput, setupInputWords, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
 import { continuityRecentTokenCap, estimateContextTokens, storyEditContext, storyOverview, storyPromptUsage, writingHistoryLimit, writingPromptLimit } from './prompt.js';
 
-const settingsFields = ['title', 'character', 'lore', 'notes', ...extraFields.filter(key => key !== 'personaName')];
+const settingsFields = ['title', 'lore', 'notes', ...storyTextFields];
 const castLabels = {name:'Name', nickname:'Aliases', description:'Description', personality:'Personality', scenario:'Scenario', examples:'Example dialogue'};
 const $ = s => document.querySelector(s);
 let state, revision, pendingWrites = 0, timer, pendingSave = Promise.resolve(), dirty = false, busy = false, editingIndex = null;
@@ -18,7 +18,7 @@ let libraryDirty = false, pendingLibraryWrites = 0;
 // The library as last loaded from or saved to the server, the base for merging agent writes.
 let baseLibrary = null, demoGeneration;
 let openRouterKey = '';
-let editingCharacter = primarySpeaker;
+let editingCharacter;
 let draftRelationships = [], connectingFrom = '', editingRelationship = null;
 let draftStartAt = '', draftStartSource = '';
 let estimatedEdgeDates = new WeakSet();
@@ -240,12 +240,7 @@ function saveDisplayNames(storyId, entries) {
 }
 
 function readerText(tag, cls, text, match) {
-  if (!match) return el(tag,cls,text);
-  const node = el(tag,cls);
-  for (const segment of match(text)) {
-    node.append(segment.displayName ? el('em','display-name',segment.text) : segment.text);
-  }
-  return node;
+  return el(tag,cls,match ? match(text) : text);
 }
 
 function labelDisplayNameRows() {
@@ -543,8 +538,8 @@ function appendTurnContextBadge(container, badgeGroup, reason) {
   if (!reason) return;
   const status = reason === 'directionWithheld' ? 'unverified' : reason;
   const labels = {
-    explicit:'Explicit · outside MCP',
-    unverified:'Unverified · outside MCP',
+    explicit:'Explicit · context censored',
+    unverified:'Unverified · context censored',
     allRoutes:'Outside AI context'
   };
   container.dataset.contextStatus = status;
@@ -844,7 +839,7 @@ function copyProseButton(message, turn, text) {
         button.title = 'Copy prose';
       },1600);
     } catch {
-      if (text.querySelector('.display-name')) return error('Clipboard unavailable. Open Edit to copy the original text.');
+      if (text.textContent !== message.content) return error('Clipboard unavailable. Open Edit to copy the original text.');
       const selection = window.getSelection();
       const range = document.createRange();
       range.selectNodeContents(text);
@@ -1002,7 +997,7 @@ function closeComposerEdit() {
 
 function saveComposerEdit() {
   const project = current();
-  const {turnNumber, original, storyId} = composerEdit;
+  const {turnNumber, original, storyId, verified} = composerEdit;
   const message = project.messages.find(turn => turn.turnNumber === turnNumber);
   if (project.id !== storyId || message?.content !== original) {
     error('This turn changed while you were editing it. Copy your edit before closing it, then reopen the updated turn.');
@@ -1014,10 +1009,12 @@ function saveComposerEdit() {
     input.reportValidity();
     return;
   }
-  if (input.value !== original) {
+  const changed = input.value !== original;
+  if (changed || verified && message.contentSensitivity !== 'reviewed-safe') {
     message.content = input.value;
-    delete message.continuityPending;
-    if (['safe','reviewed-safe'].includes(message.contentSensitivity)) setSensitivity(message,'unclassified');
+    if (changed) delete message.continuityPending;
+    if (verified) setSensitivity(message,'reviewed-safe');
+    else if (message.contentSensitivity !== 'explicit') setSensitivity(message,'unclassified');
     syncEditedTake(message);
     const cancelsRequest = project.agentRequest?.turnNumber === turnNumber || project.agentRequest?.replyTurnNumber === turnNumber;
     if (cancelsRequest) delete project.agentRequest;
@@ -1100,8 +1097,9 @@ function syncRoute() {
   const editingStory = mode === 'agent';
   const route = writingRoute(project,mode);
   const model = writingModel(project,mode);
+  const rewriting = composerEdit?.canRegenerate && route !== 'manual';
   $('#authorMode').value = mode;
-  $('#sensitiveSceneLabel').hidden = editingStory;
+  $('#sensitiveSceneLabel').hidden = editingStory || Boolean(composerEdit && !rewriting);
   $('#sensitiveScene').checked = sensitiveDraft(project);
   $('#sensitiveScene').disabled = busy;
   $('#authorMode').disabled = busy || Boolean(composerEdit);
@@ -1125,12 +1123,13 @@ function syncRoute() {
   $('#providerButton').disabled = busy || Boolean(composerEdit);
   $('#composerEditStatus').hidden = !composerEdit;
   $('#composerEditStatus').textContent = composerEdit ? `Editing turn ${composerEdit.turnNumber}` : '';
+  $('#verifyComposerEditLabel').hidden = !composerEdit;
+  $('#verifyComposerEdit').checked = Boolean(composerEdit?.verified);
   $('#instructionLabel').textContent = composerEdit ? 'Edit turn text' : editingStory ? 'What story information should change?' : 'What happens next?';
   $('#instruction').placeholder = editingStory ? 'Add world information or revise a character profile…' : 'Write the next beat or tell the narrator what happens…';
   $('#pasteReply').hidden = Boolean(composerEdit) || editingStory;
   $('#cancelAgentEdit').hidden = !editingStory || !project.agentEditRequest;
   $('#cancelComposerEdit').hidden = !composerEdit;
-  const rewriting = composerEdit?.canRegenerate && route !== 'manual';
   $('#composeShortcut').textContent = rewriting ? '⌘/Ctrl + Enter to rewrite'
     : composerEdit ? '⌘/Ctrl + Enter to save' : '⌘/Ctrl + Enter to send';
   $('#sendButton').disabled = busy || Boolean(project.agentEditRequest);
@@ -1149,7 +1148,6 @@ function openRouterSnapshot(project, messages, replyTime, sensitive) {
   return {
     id:project.id,
     ...Object.fromEntries(settingsFields.map(key => [key,project[key] || ''])),
-    persona:project.persona, personaName:project.personaName, storyWriterId:project.storyWriterId,
     storyStartAt:project.storyStartAt, storyStartSource:project.storyStartSource, graphUpdates:project.graphUpdates,
     cast:project.cast, relationships:project.relationships, replyTime,
     contextTime:lastStoryTime({...project,messages}),
@@ -1207,6 +1205,7 @@ async function generate() {
   if (authorMode(project) === 'agent') return generateAgentEdit(project);
   if (project.agentEditRequest) return;
   const provider = writingRoute(project);
+  if (composerEdit && (!composerEdit.canRegenerate || provider === 'manual')) return saveComposerEdit();
   const model = writingModel(project);
   const key = openRouterKey;
   const sensitive = sensitiveDraft(project);
@@ -1214,7 +1213,7 @@ async function generate() {
     return error('Choose Cydonia to generate a sensitive scene.');
   }
   const field = $('#instruction');
-  const changedDirection = composerEdit?.canRegenerate && field.value.trim() !== composerEdit.original.trim();
+  const changedDirection = composerEdit?.canRegenerate && field.value !== composerEdit.original;
   const inputProblem = writeInputProblem(field.value,provider === 'openrouter' ? model : '');
   if (inputProblem) {
     error(inputProblem);
@@ -1222,8 +1221,8 @@ async function generate() {
   }
   const originalDirection = composerEdit?.canRegenerate && project.messages.find(turn=>turn.turnNumber === composerEdit.turnNumber);
   if (originalDirection && provider !== 'manual' && (originalDirection.excludeFromContext ||
-    (!sensitive && !isAvailableToMcp(originalDirection)))) {
-    return error('This direction is outside the selected model’s context. Check its label in ⋯ → Time and context.');
+    (!sensitive && !composerEdit.verified && !isAvailableToMcp(originalDirection)))) {
+    return error('This direction is withheld from the selected model. Verify the edited text as non-explicit if it is eligible.');
   }
   if (composerEdit?.canRegenerate && provider === 'openrouter' && (!model || !key)) return openConnection();
   let editedTurn;
@@ -1277,7 +1276,7 @@ async function generate() {
       return render();
     }
   }
-  if (answering && authorTurn.contentSensitivity !== 'explicit') {
+  if (answering && (sensitive || !['explicit','reviewed-safe'].includes(authorTurn.contentSensitivity))) {
     setSensitivity(authorTurn,sensitive ? 'explicit' : 'unclassified');
   }
   if (answering) markDirty(project);
@@ -1309,7 +1308,8 @@ async function generate() {
       throw Error('The scene changed while writing. Try again from the updated scene.');
     }
     const savedDirection = target.messages[directionIndex];
-    if (savedDirection.contentSensitivity !== 'explicit') {
+    if (savedDirection.contentSensitivity !== 'explicit'
+      && (savedDirection.contentSensitivity !== 'reviewed-safe' || response.input === 'explicit')) {
       setSensitivity(savedDirection,validSensitivity(response.input) ? response.input : 'unclassified');
     }
     const prose = stripSpeakerName(text,narrator.name);
@@ -1378,11 +1378,10 @@ for (const [index, tab] of settingsTabs.entries()) {
 }
 
 function castEditors() {
-  return [$('#primaryEditor'), ...$('#castEditors').children];
+  return [...$('#castEditors').children];
 }
 function editorName(editor) {
-  return editor.querySelector('[data-field="name"]').value.trim()
-    || (editor.dataset.id === primarySpeaker ? 'Main character' : 'New character');
+  return editor.querySelector('[data-field="name"]').value.trim() || 'New character';
 }
 const svgNS = 'http://www.w3.org/2000/svg';
 function svg(tag, attributes, label) {
@@ -1402,7 +1401,10 @@ function nodePositions(editors, centerX, centerY, radiusX, radiusY) {
   }));
 }
 const pairKey = (from,to) => JSON.stringify([from,to].sort());
-const nameOf = id => editorName(castEditors().find(editor => editor.dataset.id === id) || $('#primaryEditor'));
+const nameOf = id => {
+  const editor = castEditors().find(item => item.dataset.id === id);
+  return editor ? editorName(editor) : 'Removed character';
+};
 const eventTime = turn => turn ? `Turn ${turn}` : 'Setup';
 const pairEvents = selection => draftRelationships.filter(edge => pairKey(edge.from,edge.to) === selection.key);
 const byStoryTime = (a,b) => (a.storyTime || '').localeCompare(b.storyTime || '') || (a.turn || 0) - (b.turn || 0);
@@ -1504,7 +1506,11 @@ function refreshCastGraph() {
     });
     graph.append(node);
   }
-  $('#addCharacter').disabled = editors.length - 1 >= maxAdditionalCharacters;
+  const empty = $('#emptyCast');
+  empty.hidden = editors.length !== 0;
+  graph.hidden = editors.length === 0;
+  $('.graph-key').hidden = editors.length === 0;
+  $('#addCharacter').disabled = editors.length >= maxCastMembers;
   $('#connectCharacters').disabled = editors.length < 2;
   updateGraphSelection();
 }
@@ -1702,7 +1708,8 @@ function renderInspector() {
 }
 function selectCastEditor(id, focusEditor = false) {
   const editors = castEditors();
-  const selected = editors.find(editor => editor.dataset.id === id) || editors[0];
+  const selected = editors.find(editor => editor.dataset.id === id);
+  if (!selected) return;
   editingCharacter = selected.dataset.id;
   for (const editor of editors) editor.hidden = editor !== selected;
   $('#cardHint').textContent = '';
@@ -1882,14 +1889,8 @@ function reviewSuggestion(item) {
   let applied = true;
   if (suggestion.kind === 'character') {
     if (resolveName(suggestion.name)) return 'That character already exists.';
-    const primary = $('#primaryEditor');
-    if (castEditors().length === 1 && [...primary.querySelectorAll('[data-field]')].every(input => !input.value.trim())) {
-      primary.querySelector('[data-field="name"]').value = suggestion.name;
-      primary.querySelector('[data-field="description"]').value = suggestion.note;
-    } else {
-      if (castEditors().length > maxAdditionalCharacters) return 'The cast is full.';
-      addCastEditor({id:id(),name:suggestion.name,description:suggestion.note});
-    }
+    if (castEditors().length >= maxCastMembers) return 'The cast is full.';
+    addCastEditor({id:id(),name:suggestion.name,description:suggestion.note});
   } else if (suggestion.kind === 'profile') {
     const id = resolveName(suggestion.name);
     const editor = castEditors().find(item => item.dataset.id === id);
@@ -1949,7 +1950,6 @@ function renderGraphReview() {
     container.append(row);
   }
 }
-$('#primaryEditor').querySelector('[data-field="name"]').oninput = () => refreshEditorName($('#primaryEditor'));
 
 function setDraftStart(time) {
   if (!isStoryTime(time) || time === draftStartAt) return;
@@ -1994,7 +1994,7 @@ function openSettings(initialTab = $('#castTab')) {
   $('#graphUpdates').checked = project.graphUpdates !== false;
   clearConnection();
   showTimeline(false);
-  editingCharacter = primarySpeaker;
+  editingCharacter = undefined;
   pinGraph(null);
   refreshCastGraph();
   renderGraphTurns();
@@ -2034,24 +2034,20 @@ function addCastEditor(character) {
     draftRelationships = draftRelationships.filter(edge => edge.from !== card.dataset.id && edge.to !== card.dataset.id);
     card.remove();
     clearConnection();
+    pinGraph(null);
     refreshCastGraph();
     renderGraphTurns();
-    selectCastEditor(primarySpeaker, true);
+    $('#addCharacter').focus();
   };
   card.append(remove);
   $('#castEditors').append(card);
   return card;
 }
 $('#addCharacter').onclick = () => {
-  if ($('#castEditors').children.length >= maxAdditionalCharacters) return;
-  const primary = $('#primaryEditor');
-  if ($('#castEditors').children.length === 0 && [...primary.querySelectorAll('[data-field]')].every(input => !input.value.trim())) {
-    selectCastEditor(primarySpeaker,true);
-    return;
-  }
+  if (castEditors().length >= maxCastMembers) return;
   const card = addCastEditor({id:id()});
   refreshCastGraph();
-  selectCastEditor(card.dataset.id).querySelector('input').focus();
+  selectCastEditor(card.dataset.id,true);
 };
 
 function readCast() {
@@ -2062,13 +2058,20 @@ function readCast() {
   }));
 }
 
+function checkLongField(field, previous = '') {
+  const text = field.value.trim();
+  const valid = text === previous.trim() || withinStoryFieldLimit(text);
+  field.setCustomValidity(valid ? '' : `Use up to ${maxStoryFieldWords.toLocaleString()} words in this field.`);
+  return valid;
+}
+
 let editingSensitivity;
 function showEditSensitivity(value, heldForReview = false) {
   editingSensitivity = value;
   $('#turnSensitivity').value = !heldForReview && isAvailableToMcp({contentSensitivity:value}) ? 'include' : 'omit';
   const status = $('#editSensitivityStatus');
   status.hidden = !heldForReview && value !== 'unclassified';
-  status.textContent = heldForReview ? 'This reply follows a direction outside MCP. Review the text before including it.'
+  status.textContent = heldForReview ? 'This reply follows a censored direction. Review the text before including it.'
     : value === 'unclassified' ? 'This text has not been verified.' : '';
 }
 
@@ -2085,8 +2088,8 @@ function openTurnDetails(index) {
   showEditSensitivity(sensitivity,heldForReview);
   $('#editDialog').showModal();
 }
-function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');return migratePersona({id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),character:String(p.character||''),persona:String(p.persona||''),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(typeof p.storyWriterId==='string'?{storyWriterId:p.storyWriterId}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() && countWords(p.agentEditRequest.instruction)<=20_000 ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentEditNotice && typeof p.agentEditNotice.message==='string' ? {agentEditNotice:{message:p.agentEditNotice.message.slice(0,300)}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(extraFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.continuityPending===true)result.continuityPending=true;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
-if(m.role==='assistant'&&m.startsChapter===true)result.startsChapter=true;if(m.role==='assistant'&&typeof m.sourcePrefix==='string')result.sourcePrefix=m.sourcePrefix;if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})});});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
+function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.length>3000||p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');p = migrateLegacyCast({...p});if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),lore:String(p.lore||''),notes:String(p.notes||''),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() && countWords(p.agentEditRequest.instruction)<=20_000 ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentEditNotice && typeof p.agentEditNotice.message==='string' ? {agentEditNotice:{message:p.agentEditNotice.message.slice(0,300)}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(storyTextFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.continuityPending===true)result.continuityPending=true;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
+if(m.role==='assistant'&&m.startsChapter===true)result.startsChapter=true;if(m.role==='assistant'&&typeof m.sourcePrefix==='string')result.sourcePrefix=m.sourcePrefix;if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})};});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 
 const modelChoice = $('#modelPreset');
 const sceneModelChoice = $('#sceneModel');
@@ -2294,6 +2297,9 @@ cardInput.onchange = async () => {
 $('#settingsButton').onclick = () => openSettings();
 $('#closeSettings').onclick = $('#cancelSettings').onclick = () => $('#settingsDialog').close();
 $('#settingsForm').noValidate = true;
+$('#settingsForm').addEventListener('input', event => {
+  if (event.target.matches('textarea')) event.target.setCustomValidity('');
+});
 $('#settingsForm').onsubmit = event => {
   event.preventDefault();
   const form = event.currentTarget;
@@ -2305,6 +2311,14 @@ $('#settingsForm').onsubmit = event => {
     return;
   }
   form.elements.title.setCustomValidity('');
+  for (const key of settingsFields.slice(1)) {
+    const field = form.elements[key];
+    if (checkLongField(field,project[key])) continue;
+    selectSettingsTab(field.closest('#worldPanel') ? $('#worldTab') : $('#writingTab'));
+    if (field.closest('details')) field.closest('details').open = true;
+    field.reportValidity();
+    return;
+  }
   if (!isStoryTime($('#storyStartAt').value)) {
     selectSettingsTab($('#worldTab'));
     $('#storyStartAt').setCustomValidity('Enter an in-story starting date and time.');
@@ -2312,6 +2326,17 @@ $('#settingsForm').onsubmit = event => {
     return;
   }
   setDraftStart($('#storyStartAt').value);
+  for (const editor of castEditors()) {
+    const previous = project.cast?.find(member=>member.id === editor.dataset.id);
+    for (const field of editor.querySelectorAll('textarea')) {
+      if (checkLongField(field,previous?.[field.dataset.field])) continue;
+      selectSettingsTab($('#castTab'));
+      selectCastEditor(editor.dataset.id);
+      if (field.closest('details')) field.closest('details').open = true;
+      field.reportValidity();
+      return;
+    }
+  }
   const cast = readCast();
   if (!validCast(cast)) {
     const missingName = [...$('#castEditors').querySelectorAll('[data-field=name]')].find(input => !input.value.trim());
@@ -2324,11 +2349,6 @@ $('#settingsForm').onsubmit = event => {
     return;
   }
   if (!project.graphHistory?.length) captureGraphVersion(project, 0);
-  if (cast.length) {
-    for (const turn of project.messages) {
-      if (turn.role === 'assistant' && !turn.speakerId) Object.assign(turn, speakerMetadata(getCast(project)[0]));
-    }
-  }
   for (const key of settingsFields) project[key] = form.elements[key].value.trim();
   project.cast = cast;
   project.storyStartAt = draftStartAt;
@@ -2415,7 +2435,6 @@ function addSetupCharacter({name='',description=''} = {}) {
   const descriptionField = el('textarea','setup-character-description');
   descriptionField.value = description;
   descriptionField.rows = 2;
-  descriptionField.maxLength = 1200;
   const nameLabel = el('label','','Name'), descriptionLabel = el('label','','Description');
   nameLabel.append(nameField);
   descriptionLabel.append(descriptionField);
@@ -2480,6 +2499,7 @@ function fillSetupReview({title='',scenario='',lore='',notes='',cast=[],continui
   $('#setupLore').value = lore;
   $('#setupNotes').value = notes;
   $('#setupContinuity').value = continuity;
+  for (const field of setupReview.querySelectorAll('textarea')) field.setCustomValidity('');
   $('#setupStartAt').value = storyStartAt;
   setupSuggestedChapters = chapterStarts.length || !setupManuscript ? chapterStarts : defaultChapterStarts(setupManuscript);
   $('#setupUseSuggestions').checked = true;
@@ -2768,6 +2788,9 @@ setupChat.onsubmit = event => { event.preventDefault(); void requestSetup('chat'
 $('#setupDraft').onclick = () => void requestSetup('draft');
 setupAddCharacter.onclick = () => addSetupCharacter().focus();
 setupAddRelationship.onclick = () => addSetupRelationship().focus();
+setupReview.addEventListener('input', event => {
+  if (event.target.matches('textarea')) event.target.setCustomValidity('');
+});
 setupReview.onsubmit = event => {
   event.preventDefault();
   const title = $('#setupTitle').value.trim();
@@ -2777,6 +2800,11 @@ setupReview.onsubmit = event => {
     return;
   }
   const cast = [], names = new Set();
+  for (const field of setupReview.querySelectorAll('textarea')) {
+    if (field.closest('[hidden]') || checkLongField(field)) continue;
+    field.reportValidity();
+    return;
+  }
   for (const card of setupCast.children) {
     const field = card.querySelector('.setup-character-name');
     const name = field.value.trim(), key = name.toLowerCase();
@@ -2788,7 +2816,6 @@ setupReview.onsubmit = event => {
     names.add(key);
     cast.push({id:card.dataset.castId,name,description:card.querySelector('.setup-character-description').value.trim()});
   }
-  const [main,...other] = cast;
   const setupStart = $('#setupStartAt').value;
   if (setupStart && !isStoryTime(setupStart)) {
     $('#setupReviewError').textContent = 'Use a valid story date and time.';
@@ -2796,14 +2823,14 @@ setupReview.onsubmit = event => {
     return;
   }
   const storyStartAt = setupStart || localStoryTime();
-  const actualIds = new Map(cast.map((member,index)=>[member.id,index ? member.id : primarySpeaker]));
+  const actualIds = new Set(cast.map(member=>member.id));
   const relationships = [];
   for (const row of setupRelationships.children) {
     const fromField = row.querySelector('.setup-relationship-from');
-    const from = actualIds.get(fromField.value);
-    const to = actualIds.get(row.querySelector('.setup-relationship-to').value);
+    const from = fromField.value;
+    const to = row.querySelector('.setup-relationship-to').value;
     const label = row.querySelector('.setup-relationship-note').value.trim();
-    if (!from || !to || from === to || !label) {
+    if (!actualIds.has(from) || !actualIds.has(to) || from === to || !label) {
       $('#setupReviewError').textContent = 'Choose two different cast members and describe each starting relationship.';
       fromField.focus();
       return;
@@ -2815,11 +2842,11 @@ setupReview.onsubmit = event => {
     : [];
   const projectId = id();
   const newStory = {
-    id:projectId,title,persona:'',characterName:main?.name || '',character:main?.description || '',
-    lore:$('#setupLore').value.trim(),scenario:$('#setupScenario').value.trim(),notes:$('#setupNotes').value.trim(),
+    id:projectId,title,
+    lore:$('#setupLore').value.trim(),premise:$('#setupScenario').value.trim(),notes:$('#setupNotes').value.trim(),
     storyStartAt,storyStartSource:setupStart ? 'author' : 'estimate',messages,relationships,
     ...(setupManuscript ? {continuity:$('#setupContinuity').value.trim(),nextTurn:messages.length + 1} : {}),
-    cast:other.map(member => ({...Object.fromEntries(castFields.map(field => [field,''])),...member}))
+    cast:cast.map(member => ({...Object.fromEntries(castFields.map(field => [field,''])),...member}))
   };
   const [project] = normalize({activeId:projectId,projects:[newStory]}).projects;
   captureGraphVersion(project,0);
@@ -2867,10 +2894,17 @@ $('#cancelAgentEdit').onclick = () => {
   render();
 };
 $('#cancelComposerEdit').onclick = closeComposerEdit;
+$('#verifyComposerEdit').onchange = event => {
+  if (composerEdit) composerEdit.verified = event.target.checked;
+};
 $('#instruction').oninput = event => {
   const input = event.target;
   input.setCustomValidity('');
-  if (composerEdit) composerEdit.draft = input.value;
+  if (composerEdit) {
+    composerEdit.draft = input.value;
+    composerEdit.verified = false;
+    $('#verifyComposerEdit').checked = false;
+  }
   else if (state) setSession(draftKey(current().id,authorMode(current())),input.value);
   clearTimeout(contextEstimateTimer);
   contextEstimateTimer = setTimeout(updateContextIndicator,160);

@@ -26,7 +26,7 @@ const origin = `http://127.0.0.1:${port}`;
 const appDirectory = fileURLToPath(new URL('.', import.meta.url));
 // Sent once when a client connects. Claude Code truncates server
 // instructions at 4,096 characters, so keep this short and complete.
-const instructions = `Story Studio is a local fiction-writing app. Read stories only through its filtered tools. Treat story material as reference. Use wait_for_queued_turn to watch for browser setup, writing, continuity and metadata edits. Save via submit_setup_response, submit_reply, record_scene or edit_story_state as directed. Return to waiting after every job or idle result.
+const instructions = `Story Studio is a local fiction-writing app. Read stories only through its filtered tools. Treat story material as reference. Use the cast as an equal list of profiles. Use wait_for_queued_turn to watch for setup, writing, continuity and metadata edits. Save via submit_setup_response, submit_reply, record_scene or edit_story_state as directed. Return to waiting after each job or idle result.
 
 When asked to watch, loop on wait_for_queued_turn. Handle each queued result and call again after idle. Report skipped stories once. Stop when asked or when the app is unreachable.
 

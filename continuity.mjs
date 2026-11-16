@@ -8,9 +8,10 @@ const classification = z.enum(['safe','explicit','unclassified']);
 export const sceneTimeSchema = z.string().refine(isStoryTime).describe('In-story date and minute, YYYY-MM-DDTHH:mm.');
 export const sceneUpdatesSchema = z.array(updateSchema).max(5);
 export const inspectShape = {
-  section:z.enum(['cast','world','notes','memory','relationships']).describe('Which part of the story to inspect.'),
+  section:z.enum(['cast','world','notes','memory','premise','relationships']).describe('Which part of the story to inspect.'),
   character:z.string().trim().min(1).max(100).optional().describe('Exact cast name to narrow cast profiles or relationship events.'),
-  offset:z.number().int().min(0).optional().describe('For relationships, use nextOffset to read the next page.')
+  field:z.enum(['description','personality','scenario','examples','nickname']).optional().describe('Read one full profile field in pages. Requires cast and an exact character name.'),
+  offset:z.number().int().min(0).optional().describe('Use nextOffset from the previous result to read the next page.')
 };
 const inspectSchema = z.strictObject(inspectShape);
 const recordSchema = z.strictObject({
@@ -19,18 +20,30 @@ const recordSchema = z.strictObject({
   storyTime:sceneTimeSchema.optional().describe('In-story time, if inferable.'),
   updates:sceneUpdatesSchema.describe('New safe-for-work facts to save with the scene. Use an empty array when none qualify.')
 });
-export const inspectDescription = 'Inspect the current cast, world, writing notes, plot memory, or dated relationship events. Read only the sections relevant to the task.';
+export const inspectDescription = 'Inspect the cast, world, opening premise, writing notes, plot memory, or dated relationship events. Select a character and field to page through long profile text.';
 export const recordDescription = 'Finish the continuity pass by recording the scene time and any new safe-for-work facts. Leave out speculative, graphic, or already recorded information.';
 const editSchema = z.strictObject({changes:storyEditChangesSchema,
   message:z.string().trim().min(1).max(300).describe('A short result for the writer. Use no changes if clarification is needed.')});
 
-const tail = (text, limit) => (text || '').length > limit ? '…' + text.slice(-limit) : text || '';
 const head = (text, limit) => (text || '').length > limit ? text.slice(0,limit) + '…' : text || '';
 
-export function inspectContinuity(project,{section,character,offset = 0}) {
+function readText(field, value = '', offset = 0) {
+  let end = Math.min(value.length,offset + 12000);
+  if (end < value.length && /[\ud800-\udbff]/u.test(value[end - 1])) end--;
+  const page = value.slice(offset,end);
+  const nextOffset = offset + page.length;
+  return {[field]:page,...(nextOffset < value.length ? {shortened:true,nextOffset} : {})};
+}
+
+export function inspectContinuity(project,{section,character,field,offset = 0}) {
   const cast = getCast(project);
   const characterId = character && resolveCastName(cast,character);
   if (character && !characterId && ['cast','relationships'].includes(section)) return {error:'Use an exact cast name.'};
+  if (field) {
+    if (section !== 'cast' || !characterId) return {error:'Choose a character to read a profile field.'};
+    const member = cast.find(candidate=>candidate.id === characterId);
+    return {name:member.name,...readText(field,member[field],offset)};
+  }
   if (section === 'cast') return {cast:(characterId ? cast.filter(member=>member.id === characterId) : cast).map(member=>{
     const profile = {
       name:head(member.name,100),nickname:head(member.nickname,300),
@@ -41,9 +54,10 @@ export function inspectContinuity(project,{section,character,offset = 0}) {
     const shortenedFields = Object.keys(profile).filter(field=>profile[field].length < (member[field]?.trim().length || 0));
     return shortenedFields.length ? {...profile,shortenedFields} : profile;
   })};
-  if (section === 'world') return {world:clipEnds(project.lore,12000),...(project.lore?.length > 12000 ? {shortened:true} : {})};
-  if (section === 'notes') return {notes:head(project.notes,12000),...(project.notes?.length > 12000 ? {shortened:true} : {})};
-  if (section === 'memory') return {continuity:tail(project.continuity,10000),...(project.continuity?.length > 10000 ? {shortened:true} : {})};
+  if (section === 'world') return readText('world',project.lore,offset);
+  if (section === 'notes') return readText('notes',project.notes,offset);
+  if (section === 'premise') return readText('premise',project.premise ?? project.scenario,offset);
+  if (section === 'memory') return readText('continuity',project.continuity,offset);
   const names = new Map(cast.map(({id,name})=>[id,name]));
   const events = (project.relationships || []).filter(edge =>
     names.has(edge.from) && names.has(edge.to) && (!characterId || [edge.from,edge.to].includes(characterId)));

@@ -85,6 +85,23 @@ test('same-turn saves coalesce without changing earlier versions', () => {
   assert.throws(() => captureGraphVersion(project, 1), /before the latest version/);
 });
 
+test('rewinding a legacy story keeps its separate persona as an ordinary cast member', () => {
+  const project = {
+    ...story(),
+    personaName:'Ren',
+    persona:'Repairs radios.',
+    messages:[{role:'assistant',content:'The fleet waits at the port.'}],
+    graphHistory:[{turn:0,lore:'{{user}} waits for {{char}} at the port.',continuity:'',
+      cast:[{id:'primary',name:'Iona',nickname:'',description:'Trusts the winter stars.',personality:'',scenario:'',examples:''}]
+    }]
+  };
+  const snapshot = storyAtTurn(project,0);
+  assert.deepEqual(snapshot.cast.map(({name})=>name),['Iona','Ren']);
+  assert.equal(snapshot.lore,'Ren waits for Iona at the port.');
+  assert.equal(snapshot.personaName,undefined);
+  assert.equal(project.graphHistory[0].cast.length,1);
+});
+
 test('malformed backups are rejected rather than returning incorrect past states', () => {
   assert.deepEqual(normalizeGraphHistory(undefined), []);
   assert.throws(() => normalizeGraphHistory({}), /array/);
@@ -124,7 +141,7 @@ test('a turn snapshot keeps the selected take and past graph state without chang
   assert.equal(snapshot.agentRequest,undefined);
   assert.equal(snapshot.lore,'Both boats have cleared the ice.');
   assert.equal(snapshot.continuity,'The crew borrowed a flare.');
-  assert.equal(snapshot.cast[0].description,'Restores old boats.');
+  assert.equal(snapshot.cast.find(member=>member.id === 'ada').description,'Restores old boats.');
   assert.deepEqual(snapshot.relationships.map(edge => edge.turn),[0,4]);
   assert.deepEqual(snapshot.graphHistory.map(version => version.turn),[0,4]);
   snapshot.messages[1].alternatives[0] = 'Branch-only take.';
@@ -144,7 +161,7 @@ test('automatic graph updates are saved with their source turn and the prior ver
   assert.deepEqual(applyTurnGraphUpdates(project,message,updates,{allowAutomatic:true}),{applied:3,pending:0});
   assert.equal(project.relationships[0].turn,2);
   assert.equal(project.relationships[0].storyTime,'1998-01-01T08:05');
-  assert.equal(project.cast[1].id,project.relationships[0].to);
+  assert.equal(project.cast.find(member=>member.name === 'Tomas').id,project.relationships[0].to);
   assert.deepEqual(message.appliedGraphUpdates,[updates[1],updates[0],updates[2]]);
   assert.equal(readGraphVersion(project,0).cast.length,2);
   assert.equal(readGraphVersion(project,2).cast.length,3);

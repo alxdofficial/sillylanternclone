@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import { diagnosticError } from './diagnostics.mjs';
-import { isStoryTime, maxSetupRelationships, maxSetupReplyCharacters, maxSetupWords, resolveCastName, setupInputWords } from './public/prompt.js';
+import { isStoryTime, maxSetupRelationships, maxSetupReplyCharacters, maxSetupWords, resolveCastName, setupInputWords, withinStoryFieldLimit } from './public/prompt.js';
 import { agentTool, runAgentTask } from './agent-tools.mjs';
 
+const longText = z.string().trim().refine(withinStoryFieldLimit,'Use up to 20,000 words.');
 const castMember = z.strictObject({
   name:z.string().trim().min(1).max(100),
-  description:z.string().trim().max(1200)
+  description:longText
 });
 const setupEdge = z.strictObject({
   from:castMember.shape.name,
@@ -14,15 +15,15 @@ const setupEdge = z.strictObject({
 });
 const draftSchema = z.strictObject({
   title:z.string().trim().min(1).max(160),
-  lore:z.string().trim().max(4000),
-  scenario:z.string().trim().max(1700),
-  notes:z.string().trim().max(1500),
+  lore:longText,
+  scenario:longText.describe('The opening situation of the story.'),
+  notes:longText,
   cast:z.array(castMember).max(8),
   storyStartAt:z.string().refine(isStoryTime).optional(),
   relationships:z.array(setupEdge).max(maxSetupRelationships).optional()
 });
 const manuscriptDraftSchema = draftSchema.extend({
-  continuity:z.string().trim().max(3600),
+  continuity:longText,
   chapterStarts:z.array(z.int().min(2).max(3000)).max(16)
 });
 export const setupResultShape = manuscript => manuscript ? manuscriptDraftSchema : draftSchema;
@@ -35,7 +36,7 @@ const manuscriptContext = z.strictObject({
   turn <= manuscript.turnCount && (!index || turn > manuscript.passages[index - 1].turn)));
 
 const brainstorm = 'You are a fiction brainstorming partner in Story Studio. If it is unclear whether this is a new story or an existing draft, ask the writer. Discuss the story the writer wants to tell. Offer a few distinct ideas and ask one or two useful questions at a time. Build on the writer’s latest choices. As useful, discuss the setting, named cast, how characters know one another, the opening situation, and writing style. Keep replies brief and conversational. Plan the story without drafting scenes or producing a setup object.';
-const prepare = 'Prepare an editable Story Studio setup. The writer’s latest choices take priority. Use title for the story name, lore for the world and setting, scenario for the opening situation, and notes for style and constraints. Give each established character a unique name and useful short description, with the main character first. Include relationships between named cast members that the conversation or manuscript establishes. Use exact cast names in from and to and one non-explicit sentence in label. Treat these as facts at setup. Use one opening in-story minute as storyStartAt in YYYY-MM-DDTHH:mm when the source establishes enough detail to infer it. Leave the start unset if the date is unknown. Return an empty relationships array only when setup establishes no connections. Keep every field non-explicit. Propose a working title if needed. Leave other undecided fields empty. Return setup data without story prose or commentary.';
+const prepare = 'Prepare an editable Story Studio setup. The writer’s latest choices take priority. Use title for the story name, lore for the world and setting, scenario for the opening situation, and notes for style and constraints. Give each established character a unique name and useful description in the cast list. All cast entries are peers. Include relationships between named cast members that the conversation or manuscript establishes. Use exact cast names in from and to and one non-explicit sentence in label. Treat these as facts at setup. Use one opening in-story minute as storyStartAt in YYYY-MM-DDTHH:mm when the source establishes enough detail to infer it. Leave the start unset if the date is unknown. Return an empty relationships array only when setup establishes no connections. Keep every field non-explicit. Propose a working title if needed. Leave other undecided fields empty. Return setup data without story prose or commentary.';
 
 export function setupMessages(messages, mode, source, context = '', draftTool = 'submit_setup_response') {
   if (mode !== 'chat' && mode !== 'draft') return null;

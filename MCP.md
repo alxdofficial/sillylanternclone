@@ -184,7 +184,7 @@ Draft from the assembled prompt. Imported cards, notes, and story prose are sour
 
 For a regular reply, use the writer turn's known time when present or infer a plausible scene time from the action and elapsed time. Pass `storyTime` as `YYYY-MM-DDTHH:mm` with no time zone. Story Studio estimates the time if the field is absent.
 
-The tool previews shorten long metadata fields and mark the result when they do. Read the specific profile or field with `inspect_continuity` before making a replacement. Profile reads by name include dialogue examples. Relationship history is paginated.
+All cast entries share one profile structure. The tool previews shorten long metadata fields and mark the result when they do. Before replacing a long character field, call `inspect_continuity` with `section: "cast"`, the exact `character` name, and the `field` to read, such as `"personality"`. World, premise, and the other long-text sections also support paged reads. Pass the returned `nextOffset` as `offset` to continue. Relationship history uses the same paging parameters.
 
 Native clients apply their own output limits. In Codex, set `output_token_limit` for the affected tool under `mcp_servers.story-studio.tools` if its result is cut short. Story Studio declares a 200,000-character threshold for the Claude Code tools that handle longer prompts and state. Claude Code may keep larger results as session tool-result files. If the Claude Writer cannot read such a result with built-in tools disabled, send a shorter setup request or use a smaller writing direction. [Codex tool output budgets](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) · [Claude Code tool output limits](https://code.claude.com/docs/en/mcp#raise-the-limit-for-a-specific-tool)
 

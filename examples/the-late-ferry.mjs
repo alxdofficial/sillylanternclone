@@ -3,8 +3,6 @@ import { starterStoryId } from '../public/library.js';
 // Authored and exported through Story Studio. See TESTING.md.
 const starter = {
   "title": "The Late Ferry",
-  "character": "A former deckhand now dispatching the night ferry. She has to explain the delay to waiting passengers and to the skipper, and she feels the weight of every clearance she grants. She works from the dispatch desk, tracks the radio, and keeps the incident book within reach. Her stake is her authority on the night watch and the harbor's trust in her judgment.",
-  "persona": "",
   "lore": "Bellwether is a small working harbor with a late ferry crossing to Alder Island. The terminal is a modest, practical building where passengers wait on benches after the last squall has moved through. The harbor runs on paper: clothbound incident books kept at dispatch, duplicate weather readings preserved in grease pencil, radio traffic, and payphones. The east beacon is supposed to flash once at regular intervals to mark the channel; tonight it flashes twice and goes dark. A rain squall has just passed, and the cause of the beacon fault is still unknown. Departure is tightly controlled: the skipper needs clearance from dispatch, and no ferry leaves the dock without it. The night is quiet, wet, and ordinary in every way except for the details that do not line up.\nTurn 4: The gate motor is fed from the north panel; the breaker for it is third from the left, and the gate can be cranked open by hand once the motor is isolated.\nTurn 6: At 00:07 the weather desk's duplicate record put the beacon irregularity at 23:41, lasting eighteen seconds; station pressure 1012 mb, wind southwest at eight knots.",
   "notes": "Keep close third person, past tense, grounded technical detail, and quiet suspense. The opening clue should stay small: a beacon fault, a gap in the paper log, nothing solved on the first night. The ferry must remain moored for now. Treat harbor work as procedural and specific — clearance, radio checks, signboards, gate circuits, weather duplicates. Do not name or hint at a culprit. Avoid explicit content.",
   "relationships": [
@@ -69,6 +67,15 @@ const starter = {
   "storyStartSource": "author",
   "cast": [
     {
+      "id": "primary",
+      "name": "Lina Park",
+      "nickname": "",
+      "description": "A former deckhand now dispatching the night ferry. She has to explain the delay to waiting passengers and to the skipper, and she feels the weight of every clearance she grants. She works from the dispatch desk, tracks the radio, and keeps the incident book within reach. Her stake is her authority on the night watch and the harbor's trust in her judgment.",
+      "personality": "",
+      "scenario": "It is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified.",
+      "examples": ""
+    },
+    {
       "id": "c87bf87c-691c-492c-aaf7-adc8adf164e6",
       "name": "Sam Bell",
       "nickname": "",
@@ -114,12 +121,6 @@ const starter = {
       "examples": ""
     }
   ],
-  "characterName": "Lina Park",
-  "characterNickname": "",
-  "personaName": "",
-  "personality": "",
-  "scenario": "It is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified.",
-  "examples": "",
   "authorNote": "",
   "postHistory": "",
   "loreRules": "",
@@ -380,7 +381,8 @@ const starter = {
       "continuity": "Turn 2: At 23:41 the departure board in the terminal flickered and died, and the east beacon flashed twice then went dark.\nTurn 4: Sam isolated the gate motor's breaker, opened the gate with the manual key, and radioed Tomas that the gate is clear; the ferry remains moored pending Lina's clearance and a working east beacon.\nTurn 4: Noor reported the east beacon's two-flash pattern over the radio, and Mae relayed it to the waiting passengers.\nTurn 6: The dispatch incident book has a clean gap between 23:30 and 23:45: several lines neatly struck through with a felt pen, exactly where a beacon fault entry should have been. The page is not torn, just crossed out.\nTurn 6: Lina told the waiting passengers only what she could verify: the east beacon had a brief glitch, the ferry departs once the beacon is confirmed working, and the payphones are available for calls home. The ferry remains firmly moored."
     }
   ],
-  "nextTurn": 7
+  "nextTurn": 7,
+  "premise": "It is 23:40 on 1998-10-24. The ferry is tied up at Bellwether and the passengers are waiting in the terminal. Dispatch expects the east beacon to flash once at regular intervals, but it flashes twice and goes dark. Lina Park must explain the delay while the harbor's paper trail — the clothbound incident book and the duplicated weather readings — begins to show a gap. Noor Haddad's duplicate entries and the missing incident-book page connect through the timing knot: the beacon's logged failure window is narrow, while the missing page covers a wider stretch. The ferry stays moored while the cast discovers the missing page through their ordinary jobs. The cause remains unknown and no culprit is identified."
 };
 
 export function createStarterStory() {

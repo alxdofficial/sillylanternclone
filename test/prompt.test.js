@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMessages, formatMessages, splitAgentReply, migratePersona, isStoryTime, recordStoryTime } from '../public/prompt.js';
+import { buildMessages, formatMessages, splitAgentReply, migrateLegacyCast, isStoryTime, recordStoryTime } from '../public/prompt.js';
 
 const story = {
   characterName: 'Iona', personaName: 'Ren',
@@ -19,8 +19,8 @@ const story = {
 test('prompt orders context around role-preserved history and the current direction', () => {
   const messages = buildMessages(story, 'Ren checks the BRASS COMPASS by the monkey statue. a+b');
   const text = formatMessages(messages);
-  const order = ['World setting', 'Character description', 'Character personality',
-    'Scenario', 'Other cast', 'Relevant lore', 'Example dialogue', 'Turn 1', 'Author’s note', 'Turn 2',
+  const order = ['World setting', 'Opening premise', 'Cast:', 'Personality',
+    'Example dialogue', 'Relevant lore', 'Turn 1', 'Author’s note', 'Turn 2',
     'Turn 5', 'Post-history instructions', 'Ren checks'];
   for (let i = 1; i < order.length; i++) {
     assert.ok(text.indexOf(order[i-1]) >= 0 && text.indexOf(order[i]) > text.indexOf(order[i-1]), order[i]);
@@ -43,6 +43,22 @@ test('recent prose keeps the newest turns under the estimated token cap', () => 
   assert.ok(Buffer.byteLength(text) < 49_000);
   assert.doesNotMatch(text, /Turn 0:/);
   assert.match(text, /Turn 79:/);
+});
+
+test('the narrator includes peer profiles and writing notes beyond the old per-field caps', () => {
+  const prose = 'A detailed observation. '.repeat(360);
+  const project = {
+    cast:[
+      {id:'iona',name:'Iona',description:prose + 'IONA_PROFILE_END',personality:prose + 'IONA_PERSONALITY_END'},
+      {id:'ren',name:'Ren',description:prose + 'REN_PROFILE_END',personality:prose + 'REN_PERSONALITY_END'}
+    ],
+    notes:prose + 'WRITING_NOTES_END',
+    messages:[]
+  };
+  const prompt = formatMessages(buildMessages(project,'Keep the ferry at the dock.'));
+  for (const label of ['IONA_PROFILE_END','IONA_PERSONALITY_END','REN_PROFILE_END','REN_PERSONALITY_END','WRITING_NOTES_END']) {
+    assert.ok(prompt.includes(label),label);
+  }
 });
 
 test('alternate directions are separate from stored conversation', () => {
@@ -73,8 +89,8 @@ test('narration uses the cast and retains legacy attribution without a character
   assert.match(prompt, /Mara knows the tide calendar/);
   assert.match(prompt, /Mara: Look east/);
   assert.match(prompt, /\[ASSISTANT\]\s+Iona: A lantern/);
-  assert.match(prompt, /Character description:\s+Iona\s+Iona keeps the station lit/);
-  assert.match(prompt, /Other cast:\s+Mara: Mara knows the tide calendar/);
+  assert.match(prompt, /Cast:\s+\[SYSTEM\]\s+Iona\s+Description: Iona keeps the station lit/);
+  assert.match(prompt, /\[SYSTEM\]\s+Mara\s+Description: Mara knows the tide calendar/);
   assert.doesNotMatch(prompt, /Mara keeps the station lit/);
 });
 
@@ -174,13 +190,15 @@ test('story time validates dates, shares the setup anchor, and rolls over at mid
 });
 
 test('a saved persona becomes one ordinary cast member in prompts', () => {
-  const project = migratePersona({...story, cast:[{id:'ren',name:'Ren',description:'Repairs radios.'}]});
-  assert.equal(project.storyWriterId,'ren');
-  assert.equal(project.persona,'');
-  assert.equal(project.cast.length,1);
+  const project = migrateLegacyCast({...story, cast:[{id:'ren',name:'Ren',description:'Repairs radios.'}]});
+  assert.equal(project.storyWriterId,undefined);
+  assert.equal(project.persona,undefined);
+  assert.equal(project.characterName,undefined);
+  assert.deepEqual(project.cast.map(({id,name})=>[id,name]),[['primary','Iona'],['ren','Ren']]);
+  assert.equal(migrateLegacyCast(project),project);
   const prompt = formatMessages(buildMessages(project));
-  assert.match(prompt,/Other cast:\nRen: Repairs radios\./);
-  assert.doesNotMatch(prompt,/Writer character:/);
+  assert.match(prompt,/Ren\s+Description: Repairs radios\./);
+  assert.doesNotMatch(prompt,/Writer character:|Other cast:/);
 });
 
 test('MCP compatibility parser does not save an incomplete graph block as prose', () => {

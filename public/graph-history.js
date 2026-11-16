@@ -1,4 +1,4 @@
-import { castFields, getCast, graphSuggestions, maxAdditionalCharacters, maxGraphEvents, primarySpeaker, relationshipTime, resolveCastName, validCast } from './prompt.js';
+import { castFields, getCast, graphSuggestions, maxCastMembers, maxGraphEvents, migrateLegacyCast, relationshipTime, resolveCastName, validCast } from './prompt.js';
 
 const sections = ['cast', 'lore', 'continuity'];
 const castKeys = new Set(['id', ...castFields]);
@@ -11,7 +11,7 @@ const copyCast = cast => cast.map(member => ({
 }));
 
 function validCastSnapshot(cast) {
-  if (!Array.isArray(cast) || cast[0]?.id !== primarySpeaker || !validCast(cast.slice(1))) return false;
+  if (!validCast(cast)) return false;
   return cast.every(member => member && Object.keys(member).every(key => castKeys.has(key))
     && castFields.every(field => typeof member[field] === 'string')
     && member.name.trim());
@@ -93,7 +93,7 @@ export function storyAtTurn(project, index) {
   const ending = project.messages[index];
   if (!ending) throw new RangeError('That story turn is no longer available.');
   const turn = ending.turnNumber || index + 1;
-  const story = structuredClone(project);
+  const story = migrateLegacyCast(structuredClone(project));
   story.messages.length = index + 1;
   story.nextTurn = turn + 1;
   delete story.agentRequest;
@@ -103,20 +103,12 @@ export function storyAtTurn(project, index) {
 
   const version = readGraphVersion(story,turn);
   if (version) {
-    const [primary, ...cast] = version.cast;
-    story.characterName = primary.name;
-    story.characterNickname = primary.nickname;
-    story.character = primary.description;
-    story.personality = primary.personality;
-    story.scenario = primary.scenario;
-    story.examples = primary.examples;
-    story.cast = cast;
+    story.cast = version.cast;
     story.lore = version.lore;
     story.continuity = version.continuity;
   }
   if (story.graphHistory) story.graphHistory = story.graphHistory.filter(entry => entry.turn <= turn);
   const castIds = new Set(getCast(story).map(member => member.id));
-  if (!castIds.has(story.storyWriterId)) delete story.storyWriterId;
   if (story.relationships) story.relationships = story.relationships.filter(edge =>
     (edge.turn || 0) <= turn && castIds.has(edge.from) && castIds.has(edge.to));
   return story;
@@ -160,18 +152,14 @@ function addDatedFact(previous = '', note, turn) {
 // Return true for a change, false for a duplicate, and null for a proposal
 // that still needs the writer's attention (for example, a full cast).
 export function applyGraphUpdate(project, update, turn) {
+  migrateLegacyCast(project);
   const cast = getCast(project);
   const resolve = name => resolveCastName(cast,name);
   if (update.kind === 'character') {
     if (resolve(update.name)) return null;
-    if (cast.length === 1 && ![project.characterName,project.characterNickname,project.character,project.personality,project.scenario,project.examples].some(Boolean)) {
-      project.characterName = update.name;
-      project.character = update.note;
-    } else {
-      if (cast.length > maxAdditionalCharacters) return null;
-      const member = Object.fromEntries(castFields.map(field=>[field,'']));
-      (project.cast ||= []).push({...member,id:globalThis.crypto.randomUUID(),name:update.name,description:update.note});
-    }
+    if (cast.length >= maxCastMembers) return null;
+    const member = Object.fromEntries(castFields.map(field=>[field,'']));
+    (project.cast ||= []).push({...member,id:globalThis.crypto.randomUUID(),name:update.name,description:update.note});
     return true;
   }
   if (update.kind === 'relationship') {
@@ -187,11 +175,10 @@ export function applyGraphUpdate(project, update, turn) {
   if (update.kind === 'profile') {
     const id = resolve(update.name);
     if (!id) return null;
-    const member = id === primarySpeaker ? project : project.cast.find(entry=>entry.id === id);
-    const field = id === primarySpeaker ? 'character' : 'description';
-    const text = addDatedFact(member[field],update.note,turn);
-    if (member[field] === text) return false;
-    member[field] = text;
+    const member = cast.find(entry=>entry.id === id);
+    const text = addDatedFact(member.description,update.note,turn);
+    if (member.description === text) return false;
+    member.description = text;
     return true;
   }
   const field = update.kind === 'world' ? 'lore' : 'continuity';

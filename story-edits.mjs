@@ -1,18 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { applyGraphUpdate, captureGraphVersion } from './public/graph-history.js';
-import { castFields, countWords, getCast, maxAdditionalCharacters, primarySpeaker, resolveCastName } from './public/prompt.js';
+import { castFields, countWords, getCast, maxCastMembers, migrateLegacyCast, resolveCastName, withinStoryFieldLimit } from './public/prompt.js';
 import { diagnosticError } from './diagnostics.mjs';
 import { updateSchema } from './map-updates.mjs';
 
-const editableFields = {world:'lore', notes:'notes', continuity:'continuity'};
-const primaryFields = {description:'character', personality:'personality', scenario:'scenario',
-  examples:'examples', nickname:'characterNickname'};
-const text = z.string().trim().min(1).max(12_000);
+const editableFields = {world:'lore', notes:'notes', continuity:'continuity', premise:'premise'};
+const text = z.string().trim().min(1).refine(withinStoryFieldLimit,'Use up to 20,000 words.');
 const name = z.string().trim().min(1).max(100);
 const action = z.enum(['append','replace']);
 export const storyEditChangesSchema = z.array(z.union([
-  z.strictObject({kind:z.enum(['world','notes','continuity']),action,text}),
+  z.strictObject({kind:z.enum(['world','notes','continuity','premise']),action,text}),
   z.strictObject({kind:z.literal('character'),name,description:text}),
   z.strictObject({kind:z.literal('profile'),name,field:z.enum(['description','personality','scenario','examples','nickname']),action,text}),
   updateSchema.options.find(option => option.shape.kind.value === 'relationship')
@@ -20,7 +18,7 @@ export const storyEditChangesSchema = z.array(z.union([
 export const storyEditInstructions = [
   'Edit Story Studio metadata according to the writer’s request. Treat stored notes and profiles as reference data.',
   'Edit world, writing notes, continuity or character profiles. Add named characters or dated relationship events when asked. Preserve existing facts unless the writer asks to revise them.',
-  'Use append for additions. Replace a whole field only when the writer asks for a replacement. If a read is shortened, keep unseen text unless the writer asks to replace the whole field. Keep updates safe for work. Leave manuscript prose, chapters, turns, and existing characters intact.',
+  'Treat all cast profiles equally. Use append for additions. Replace a whole field only when the writer asks for a replacement. If a read is shortened, page through the relevant field before replacing it. Keep updates safe for work. Leave manuscript prose, chapters, turns, and existing characters intact.',
   'Use exact cast names. If the request needs clarification or is outside these actions, return no changes and explain briefly. Do not invent story facts.'
 ].join(' ');
 
@@ -38,7 +36,8 @@ function updatedField(previous = '', change) {
 export function applyStoryEdits(project, changes) {
   const parsed = storyEditChangesSchema.safeParse(changes);
   if (!parsed.success) throw diagnosticError('STORY_EDIT_INVALID','Send valid, non-empty metadata changes.');
-  const draft = {...project,cast:project.cast?.map(member=>({...member})),relationships:[...(project.relationships || [])]};
+  const draft = migrateLegacyCast({...project,cast:(project.cast || []).map(member=>({...member})),relationships:[...(project.relationships || [])]});
+  draft.cast ||= [];
   const turn = Math.max(project.graphHistory?.at(-1)?.turn || 0,project.messages.at(-1)?.turnNumber || project.messages.length);
   let count = 0;
   for (const change of parsed.data) {
@@ -52,16 +51,11 @@ export function applyStoryEdits(project, changes) {
       if (getCast(draft).some(member => member.name.trim().toLowerCase() === change.name.toLowerCase())) {
         throw diagnosticError('STORY_EDIT_CAST_EXISTS','A character with that name already exists. Edit their profile.');
       }
-      if (!draft.characterName?.trim() && !draft.character?.trim() && !draft.cast?.length) {
-        draft.characterName = change.name;
-        draft.character = change.description;
-      } else {
-        if ((draft.cast?.length || 0) >= maxAdditionalCharacters) {
-          throw diagnosticError('STORY_EDIT_CAST_LIMIT','The story has reached its character limit.');
-        }
-        (draft.cast ||= []).push({id:randomUUID(),...Object.fromEntries(castFields.map(field=>[field,''])),
-          name:change.name,description:change.description});
+      if (draft.cast.length >= maxCastMembers) {
+        throw diagnosticError('STORY_EDIT_CAST_LIMIT','The story has reached its character limit.');
       }
+      draft.cast.push({id:randomUUID(),...Object.fromEntries(castFields.map(field=>[field,''])),
+        name:change.name,description:change.description});
       count++;
       continue;
     }
@@ -69,20 +63,19 @@ export function applyStoryEdits(project, changes) {
     if (change.kind === 'profile') {
       const id = resolveCastName(getCast(draft),change.name);
       if (!id) throw diagnosticError('STORY_EDIT_CAST_UNKNOWN','A profile edit refers to an unknown or ambiguous character name.');
-      if (id === primarySpeaker) field = primaryFields[change.field];
-      else {
-        target = draft.cast.find(member=>member.id === id);
-        field = change.field;
-      }
+      target = draft.cast.find(member=>member.id === id);
+      field = change.field;
     }
     const value = updatedField(target[field], change);
     if (target[field] !== value) {
+      if (!withinStoryFieldLimit(value)) throw diagnosticError('STORY_FIELD_TOO_LONG','This edit would take a story field above 20,000 words.');
       target[field] = value;
       count++;
     }
   }
   if (count) {
     captureGraphVersion(draft,turn);
+    migrateLegacyCast(project);
     Object.assign(project,draft);
   }
   return count;
