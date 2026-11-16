@@ -58,6 +58,8 @@ test('agents watch for writing and metadata edits, decline requests, and get che
     }));
     const instructions = client.getInstructions();
     assert.ok(instructions.length < 4096, 'Claude Code truncates server instructions at 4,096 characters');
+    assert.match(instructions.slice(0,512),/only through its filtered tools/);
+    assert.match(instructions.slice(0,512),/wait_for_queued_turn/);
     assert.match(instructions, /wait_for_queued_turn/);
     assert.match(instructions, /decline_turn/);
     const {tools} = await client.listTools();

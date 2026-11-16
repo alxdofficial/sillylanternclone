@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { continuityMessages,inspectContinuity,runContinuity } from '../continuity.mjs';
-import { recentTokenCap, recentTurns } from '../public/prompt.js';
+import { continuityMessages,inspectContinuity,runContinuity,runStoryEdit } from '../continuity.mjs';
+import { recentTokenCap, recentTurns, storyEditContext } from '../public/prompt.js';
 
 const sceneTime = '1998-10-25T00:13';
 const world = 'A ferry shelter at the pier.';
@@ -113,4 +113,36 @@ test('unresponsive or malformed tool sequences cannot record a scene', async () 
     return assistant(call('inspect_continuity',{section:'memory'},'lookup-' + ++calls));
   },()=>{}),{diagnosticCode:'CONTINUITY_NOT_RECORDED'});
   assert.equal(calls,4);
+});
+
+test('a parallel final edit is retried as a single batch before any metadata changes', async () => {
+  const project = {...story};
+  const worldEdit = {kind:'world',action:'append',text:'There is a signal bell.'};
+  const notesEdit = {kind:'notes',action:'append',text:'Use short sentences.'};
+  const saved = await runStoryEdit(project,'Add a bell and change the writing notes.',async messages => {
+    if (messages.length === 2) return assistant(
+      call('edit_story_state',{changes:[worldEdit],message:'Bell added.'},'world-edit'),
+      call('edit_story_state',{changes:[notesEdit],message:'Notes updated.'},'notes-edit')
+    );
+    assert.equal(project.lore,world);
+    assert.equal(project.notes,undefined);
+    assert.deepEqual(messages.slice(-2).map(({tool_call_id})=>tool_call_id),['world-edit','notes-edit']);
+    for (const feedback of messages.slice(-2)) assert.match(JSON.parse(feedback.content).error,/one final tool call/);
+    return assistant(call('edit_story_state',{changes:[worldEdit,notesEdit],message:'Both edits applied.'},'combined'));
+  });
+  assert.equal(saved.count,2);
+  assert.match(project.lore,/signal bell/);
+  assert.equal(project.notes,'Use short sentences.');
+});
+
+test('metadata reads omit unknown stored fields and flag clipped state', () => {
+  const examples = 'First line. ' + 'x'.repeat(3500) + ' Last line.';
+  const project = {...story,lore:'x'.repeat(20000),cast:[{...story.cast[0],examples,privateAttachment:'UNKNOWN_FIELD_SENTINEL'}]};
+  const state = storyEditContext(project);
+  assert.equal(state.shortened,true);
+  assert.ok(state.world.length <= 12000);
+  assert.doesNotMatch(JSON.stringify(state),/UNKNOWN_FIELD_SENTINEL|WITHHELD/);
+  const {cast:[profile]} = inspectContinuity(project,{section:'cast',character:'Iona'});
+  assert.deepEqual(profile.shortenedFields,['examples']);
+  assert.match(profile.examples,/^First line\..*Last line\.$/s);
 });

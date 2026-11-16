@@ -96,7 +96,7 @@ The continuity pass can update characters, world details, relationships, and sto
 
 The composer’s **Context** indicator shows an estimated input-token total and the selected model’s published window when available. Open it for the breakdown, the app’s history budget, and in Story mode the exact assembled prompt. Agent shows its initial context before any tool lookups. In the setup wizard, the estimate covers chat, additional context, and previewed manuscript excerpts, alongside the separate word limit. MCP clients control their own model window. For a user-added model, the window is unknown until independently verified.
 
-The shared prompt builder includes the selected character, other cast, setting, applicable lore, and recent eligible prose. It limits recent prose to an estimated 16,000 tokens, with a smaller allowance on models with known shorter windows. Older prose stays in the transcript. The prompt uses the remaining budget for the saved relationship timeline. It includes every event when they fit. For larger timelines, it prioritizes events involving characters named in recent turns or the current direction, then newer events, and presents the selected events chronologically. Facts you keep in story memory also carry forward.
+The narrator prompt includes the cast, setting, applicable lore, and recent eligible prose. It limits recent prose to an estimated 16,000 tokens, with a smaller allowance on models with shorter budgets. Older prose stays in the transcript. The prompt uses the remaining budget for relationship events. When the full timeline exceeds that budget, Story Studio favors events involving characters mentioned in the current scene, then newer events, and presents the selected events chronologically. Saved story-memory facts also carry forward.
 
 For a sensitive scene, choose **Story → OpenRouter → Cydonia 24B v4.1** and check **Sensitive scene** before sending. Story Studio marks that direction explicit and allows Cydonia to see eligible sensitive history for that request. DeepSeek V4.1 Flash sees the new direction and draft for classification and continuity. General models and MCP receive eligible prose plus approved, non-explicit graph facts. Use the checkbox before sending because automatic classification happens after the artist receives your direction. [OpenRouter context and tools](MODELS.md#what-story-studio-sends-and-expects)
 
@@ -108,7 +108,7 @@ To continue with a general model after a sensitive scene:
 2. Keep any needed continuity in a short, non-explicit relationship event or **World → Story memory**. Check nearby turns and notes for copies of the sensitive prose.
 3. Clear **Sensitive scene**, select your writing route, check **Prompt**, and send the next direction. Start a fresh native agent session if the previous session already saw the original text.
 
-The saved library and exports include the original passages. MCP agents are told never to read them, the local app or the open page directly, because explicit text in an agent's context can trip its provider's safety limits. The Claude Writer enforces this by giving Claude no file, shell or web tools. See [what the agent can see](MCP.md#keep-the-agent-to-what-story-studio-shows-it). Character cards, world notes, story memory and relationship events are eligible for MCP context, so keep them non-explicit. Model and provider policies apply to generation. See [verified test results](TESTING.md) for what was exercised with a simulated provider and what was tried in a live agent session.
+The saved library and exports include the original passages. Story Studio filters its own prompts and MCP tool results. Use a dedicated writing session and keep it within those tools. A general-purpose agent may still have file, shell, or browser access that can reach the original text. The optional Claude Writer starts Claude Code with its built-in tools disabled. Keep character cards, world notes, story memory, and relationship events non-explicit because they can enter model context separately from the transcript. [MCP permissions and context](MCP.md#keep-the-agent-to-what-story-studio-shows-it)
 
 ## Back up and move your library
 
@@ -124,7 +124,7 @@ Open **Finder → Go → Go to Folder** and enter `~/Library/Logs/Story Studio`.
 | --- | --- |
 | `setup.log` | The runtime download, dependency install, server readiness, and launcher failures with their stage and exit code. |
 | `server.log` | Startup, saves, exports, and both OpenRouter passes with routing, usage, and classification diagnostics. |
-| `mcp.log` | Watcher activity, tool outcomes, the context sent for each handoff, and counts of omitted turns by reason. |
+| `mcp.log` | Watcher activity, tool outcomes, and context counts for each handoff, including what was omitted by reason. |
 
 For example, this shows the latest server events as they arrive.
 

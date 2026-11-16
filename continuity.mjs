@@ -31,13 +31,19 @@ export function inspectContinuity(project,{section,character,offset = 0}) {
   const cast = getCast(project);
   const characterId = character && resolveCastName(cast,character);
   if (character && !characterId && ['cast','relationships'].includes(section)) return {error:'Use an exact cast name.'};
-  if (section === 'cast') return {cast:(characterId ? cast.filter(member=>member.id === characterId) : cast).map(member=>({
-    name:member.name,nickname:member.nickname,description:clipEnds(member.description,characterId ? 12000 : 500),
-    ...(characterId ? {personality:head(member.personality,2000),scenario:head(member.scenario,2500)} : {})
-  }))};
-  if (section === 'world') return {world:clipEnds(project.lore,12000)};
-  if (section === 'notes') return {notes:head(project.notes,12000)};
-  if (section === 'memory') return {continuity:tail(project.continuity,10000)};
+  if (section === 'cast') return {cast:(characterId ? cast.filter(member=>member.id === characterId) : cast).map(member=>{
+    const profile = {
+      name:head(member.name,100),nickname:head(member.nickname,300),
+      description:clipEnds(member.description,characterId ? 12000 : 500),
+      ...(characterId ? {personality:head(member.personality,2000),scenario:head(member.scenario,2500),
+        examples:clipEnds(member.examples,3500)} : {})
+    };
+    const shortenedFields = Object.keys(profile).filter(field=>profile[field].length < (member[field]?.trim().length || 0));
+    return shortenedFields.length ? {...profile,shortenedFields} : profile;
+  })};
+  if (section === 'world') return {world:clipEnds(project.lore,12000),...(project.lore?.length > 12000 ? {shortened:true} : {})};
+  if (section === 'notes') return {notes:head(project.notes,12000),...(project.notes?.length > 12000 ? {shortened:true} : {})};
+  if (section === 'memory') return {continuity:tail(project.continuity,10000),...(project.continuity?.length > 10000 ? {shortened:true} : {})};
   const names = new Map(cast.map(({id,name})=>[id,name]));
   const events = (project.relationships || []).filter(edge =>
     names.has(edge.from) && names.has(edge.to) && (!characterId || [edge.from,edge.to].includes(characterId)));

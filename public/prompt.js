@@ -395,6 +395,31 @@ export function writingHistoryLimit(model) {
   return Math.max(0,Math.min(recentTokenCap,writingPromptLimit(model) - 2900));
 }
 
+export function storyEditContext(project) {
+  let shortened = false;
+  const include = (value = '', limit) => {
+    if (typeof value !== 'string') return '';
+    if (value.length <= limit) return value;
+    shortened = true;
+    return clipEnds(value,limit);
+  };
+  const state = {
+    title:include(project.title,160),
+    world:include(project.lore,12000),
+    notes:include(project.notes,4000),
+    continuity:include(project.continuity,6000),
+    cast:getCast(project).map(member => ({
+      name:include(member.name,100),
+      nickname:include(member.nickname,300),
+      description:include(member.description,1100),
+      personality:include(member.personality,500),
+      scenario:include(member.scenario,500),
+      examples:include(member.examples,400)
+    }))
+  };
+  return shortened ? {...state,shortened:true} : state;
+}
+
 export function storyOverview(project) {
   return {
     knownTime:project.replyTime || project.contextTime || lastStoryTime(project) || '',

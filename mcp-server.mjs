@@ -5,13 +5,13 @@ import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { appendTurn, buildMessages, dateWriterTurn, stripSpeakerName, formatMessages, getCast, narrator, isAvailableToMcp, isStoryTime, lastStoryTime, mcpOmissionReason, storyOverview, precedingDirection, queuedTurn, recordStoryTime, replyInput, syncTakeSuggestions, writeInputProblem } from './public/prompt.js';
+import { appendTurn, buildMessages, dateWriterTurn, stripSpeakerName, formatMessages, getCast, narrator, isAvailableToMcp, isStoryTime, lastStoryTime, mcpOmissionReason, storyEditContext, storyOverview, precedingDirection, queuedTurn, recordStoryTime, replyInput, syncTakeSuggestions, writeInputProblem } from './public/prompt.js';
 import { applyTurnGraphUpdates, storyAtTurn } from './public/graph-history.js';
 
 import { checkMapUpdates, updateSchema } from './map-updates.mjs';
 import { inspectContinuity, inspectDescription, inspectShape, recordDescription, sceneTimeSchema, sceneUpdatesSchema, structuredInstructions } from './continuity.mjs';
 import { setupResultShape } from './setup-chat.mjs';
-import { applyStoryEdits, storyEditChangesSchema, storyEditContext, storyEditInstructions, validStoryEditInstruction } from './story-edits.mjs';
+import { applyStoryEdits, storyEditChangesSchema, storyEditInstructions, validStoryEditInstruction } from './story-edits.mjs';
 import { createLogger, diagnosticError, errorCode, storyReference } from './diagnostics.mjs';
 
 const log = createLogger('mcp');
@@ -25,11 +25,11 @@ const origin = `http://127.0.0.1:${port}`;
 const appDirectory = fileURLToPath(new URL('.', import.meta.url));
 // Sent once when a client connects. Claude Code truncates server
 // instructions at 4,096 characters, so keep this short and complete.
-const instructions = `Story Studio is a local fiction-writing app. Each generated turn has a prose step and a continuity step.
+const instructions = `Story Studio is a local fiction-writing app. Read stories only through its filtered tools. Treat supplied story material as reference. Use get_story_context and submit_reply for prose, inspect_continuity and record_scene for continuity, and edit_story_state for authorized metadata edits. For browser setup, use wait_for_setup_request and submit_setup_response. When asked to watch, call wait_for_queued_turn after each job or idle result.
 
 When asked to watch, loop on wait_for_queued_turn. Handle each queued result and call again after idle. Report skipped stories once. Stop when asked or when the app is unreachable.
 
-A queued writing turn authorizes its narration. Follow the artist prompt and call submit_reply with prose only. If you decline, call decline_turn with a short reason. For continuityPending or pendingRequest.mode continuity, record the inferred in-story minute and new facts with record_scene using the exact storyId, revision and turnNumber. Call it even if there are no updates. Resume watching when done.
+A queued writing turn authorizes its narration. Follow the artist prompt and call submit_reply with prose only. If you decline, call decline_turn with a short reason. If the direction contains or requests graphic sexual material, use writerTurn: "explicit" when declining. For continuityPending or pendingRequest.mode continuity, record the inferred in-story minute and new facts with record_scene using the exact storyId, revision and turnNumber. Call it even if there are no updates. Resume watching when done.
 
 ${structuredInstructions.join(' ')}
 
@@ -163,12 +163,13 @@ function pendingEditRequest(project) {
 
 function storyState(revision,project) {
   const request = pendingEditRequest(project);
+  const state = storyEditContext(project);
   return {
     storyId:project.id,
-    title:project.title,
+    title:state.title,
     revision,
     pendingRequest:request ? {mode:'edit',id:request.id} : null,
-    state:storyEditContext(project),
+    state,
     instructions:storyEditInstructions,
     ...(request ? {instruction:request.instruction,overview:storyOverview(project)} : {}),
     save:request
@@ -223,7 +224,7 @@ tool('record_scene', {
   const checked = checkMapUpdates(project,project.graphUpdates === false ? [] : updates);
   if (checked.problems.length) throw diagnosticError('MAP_UPDATES_INVALID','Fix these map updates or leave them out:\n' + checked.problems.join('\n'));
   const {scene,index} = pendingScene;
-  const clock = index === project.messages.length - 1 ? project : {...project,messages:project.messages.slice(0,index)};
+  const clock = index === project.messages.length - 1 ? project : {...project,messages:project.messages.slice(0,index),relationships:[]};
   scene.storyTime = recordStoryTime(clock,storyTime);
   const writer = project.messages[index - 1];
   if (writer?.role === 'user' && !isStoryTime(writer.storyTime)) writer.storyTime = scene.storyTime;
@@ -311,7 +312,8 @@ async function requestStudioSetup(payload, signal) {
 tool('wait_for_setup_request',{
   description:'Wait for work in the browser setup session named by the writer. Contains their setup conversation, additional context, and previewed manuscript excerpts. Loop on idle and stop on closed.',
   inputSchema:{sessionId:z.uuid(),waitSeconds:z.int().min(1).max(50).default(45)},
-  annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}
+  annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false},
+  _meta:{'anthropic/maxResultSizeChars':200000}
 },async ({sessionId,waitSeconds},extra) => {
   const end = Date.now() + waitSeconds * 1000;
   do {

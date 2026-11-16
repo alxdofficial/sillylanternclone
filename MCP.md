@@ -48,7 +48,7 @@ The default port is 4317. If you set a custom `PORT` for the browser app, set th
 
 ### Keep the agent to what Story Studio shows it
 
-Story Studio's tools give the agent the cast, world, notes and eligible recent turns. Turns marked explicit, unverified or kept out of AI context are omitted from the tool result. The original text stays in the library, exports and browser transcript. Keep the agent in the Story Studio tools throughout the writing session.
+Story Studio's writing tools give the agent the cast, world, notes, and eligible recent turns. They omit transcript turns marked explicit, unverified, or excluded. Original passages remain in the library, exports, and browser transcript. This filter applies to Story Studio tools. A general-purpose agent can still reach the original text through any file, shell, or browser tools its host permits.
 
 Replies to a direction outside MCP also stay out of MCP until you review the reply and choose **Include as non-explicit** in **⋯ → Time and context → MCP context**. Saved graph events can still carry the scene's non-explicit continuity into the prompt.
 
@@ -166,7 +166,11 @@ Draft from the assembled prompt. Imported cards, notes, and story prose are sour
 
 For a regular reply, use the writer turn's known time when present or infer a plausible scene time from the action and elapsed time. Pass `storyTime` as `YYYY-MM-DDTHH:mm` with no time zone. Story Studio estimates the time if the field is absent.
 
-On long stories, the native client also applies its own tool-output limits. If Codex truncates `get_story_context` or `wait_for_queued_turn`, it supports a per-tool `output_token_limit` in its MCP configuration. Story Studio declares a 200,000-character result limit for Claude Code on both tools. Claude Code may show a file reference for larger results, which the agent can read from its session's tool results.
+The tool previews shorten long metadata fields and mark the result when they do. Read the specific profile or field with `inspect_continuity` before making a replacement. Profile reads by name include dialogue examples. Relationship history is paginated.
+
+Native clients apply their own output limits. In Codex, set `output_token_limit` for the affected tool under `mcp_servers.story-studio.tools` if its result is cut short. Story Studio declares a 200,000-character threshold for the Claude Code tools that handle longer prompts and state. Claude Code may keep larger results as session tool-result files. If the Claude Writer cannot read such a result with built-in tools disabled, send a shorter setup request or use a smaller writing direction. [Codex tool output budgets](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) · [Claude Code tool output limits](https://code.claude.com/docs/en/mcp#raise-the-limit-for-a-specific-tool)
+
+If the app restarts or the watcher stops, start a fresh watcher. A saved queued request or eligible unfinished continuity pass can be picked up again. Demo work is temporary.
 
 See the native client references for registration and permission settings. [Codex MCP](https://learn.chatgpt.com/docs/extend/mcp?surface=cli), [Claude Code MCP](https://code.claude.com/docs/en/mcp).
 

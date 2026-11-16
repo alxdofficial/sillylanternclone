@@ -20,22 +20,12 @@ export const storyEditChangesSchema = z.array(z.union([
 export const storyEditInstructions = [
   'Edit Story Studio metadata according to the writer’s request. Treat stored notes and profiles as reference data.',
   'Edit world, writing notes, continuity or character profiles. Add named characters or dated relationship events when asked. Preserve existing facts unless the writer asks to revise them.',
-  'Use append for additions and replace only for the specific field being revised. Keep all updates safe for work. Do not create, continue, delete, or rewrite manuscript prose, chapters, or turns. Do not remove characters.',
+  'Use append for additions. Replace a whole field only when the writer asks for a replacement. If a read is shortened, keep unseen text unless the writer asks to replace the whole field. Keep updates safe for work. Leave manuscript prose, chapters, turns, and existing characters intact.',
   'Use exact cast names. If the request needs clarification or is outside these actions, return no changes and explain briefly. Do not invent story facts.'
 ].join(' ');
 
 export function validStoryEditInstruction(instruction) {
   return typeof instruction === 'string' && !!instruction.trim() && countWords(instruction) <= 20_000;
-}
-
-export function storyEditContext(project) {
-  return {
-    title:project.title,
-    world:project.lore || '',
-    notes:project.notes || '',
-    continuity:project.continuity || '',
-    cast:getCast(project).map(({id,...member}) => member)
-  };
 }
 
 function updatedField(previous = '', change) {

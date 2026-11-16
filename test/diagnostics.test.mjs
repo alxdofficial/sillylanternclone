@@ -47,6 +47,13 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
         assert.equal(request.provider.require_parameters,undefined);
         assert.match(request.messages[0].content,/For a scene, begin directly in the story/);
         assert.doesNotMatch(request.messages[0].content,/JSON Schema|Classify authorDirection/);
+        if (request.messages.at(-1).content.endsWith('abandon fixture')) {
+          process.stdout.write('fixture artist started\\n');
+          await new Promise((resolve,reject) => options.signal.addEventListener('abort',() => {
+            process.stdout.write('fixture artist canceled\\n');
+            reject(options.signal.reason);
+          },{once:true}));
+        }
         if (request.messages.at(-1).content.startsWith('turn turn turn ')) {
           assert.ok(request.messages.at(-1).content.endsWith('PRIVATE_DIRECTION_SUFFIX'));
         }
@@ -135,8 +142,8 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
     const headers = {origin,'content-type':'application/json'};
     const invalid = await fetch(origin+'/api/state',{method:'PUT',headers,body:fixture});
     assert.equal(invalid.status,400);
-    const generate = (model, instruction = fixture, mode = 'send', sensitive = false) => fetch(origin+'/api/generate',{
-      method:'POST',headers,body:JSON.stringify({
+    const generate = (model, instruction = fixture, mode = 'send', sensitive = false, signal) => fetch(origin+'/api/generate',{
+      method:'POST',headers,signal,body:JSON.stringify({
         project:{id:fixture,title:fixture,character:'',persona:'',lore:'The ferry is moored.',notes:'',messages:[
           {role:'assistant',content:'PRIVATE_HISTORY',contentSensitivity:'explicit'},
           {role:'assistant',content:'ALL_ROUTE_MARKER',excludeFromContext:true}
@@ -145,6 +152,15 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
         instruction, key:fixture, provider:'openrouter',model,mode,sensitive
       })
     });
+    const controller = new AbortController();
+    const artistStarted = once(child.stdout,'data',{signal:AbortSignal.timeout(5000)});
+    const abandoned = assert.rejects(generate('fixture/prose','abandon fixture','send',false,controller.signal),{name:'AbortError'});
+    assert.match(String((await artistStarted)[0]),/fixture artist started/);
+    const artistCanceled = once(child.stdout,'data',{signal:AbortSignal.timeout(5000)});
+    controller.abort();
+    await abandoned;
+    assert.match(String((await artistCanceled)[0]),/fixture artist canceled/);
+
     const success = await generate('fixture/prose');
     const draft = await success.json();
     const {updates, ...expected} = scene;
@@ -207,6 +223,8 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
       await delay(25);
     }
     const events = contents.trim().split('\n').map(line=>JSON.parse(line));
+    assert.ok(events.some(event=>event.event==='generation_disconnected' &&
+      event.endpoint==='/api/generate' && !event.metadata));
     assert.ok(events.some(event=>event.event==='started' && event.port===port));
     assert.ok(events.some(event=>event.code==='INVALID_JSON' && event.status===400));
     const failure = events.find(event=>event.code==='OPENROUTER_HTTP_ERROR');

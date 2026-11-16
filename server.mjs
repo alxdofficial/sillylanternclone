@@ -33,6 +33,12 @@ let starter = createStarterStory();
 let starterSelected = false;
 let starterGeneration = randomUUID();
 const json=(res,status,body)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(body));};
+function disconnectSignal(res) {
+  const controller = new AbortController();
+  if (res.destroyed) controller.abort();
+  else res.once('close',() => { if (!res.writableFinished) controller.abort(); });
+  return controller.signal;
+}
 async function parseLibrary(path) {
   const text = await readFile(path,'utf8');
   try {
@@ -163,14 +169,16 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
   const details = diagnostics[stage] = {model:modelIds.has(model) ? model : 'custom',maxOutputTokens};
   log('info','generation_started',{requestId:diagnostics.requestId,storyRef:diagnostics.storyRef,
     provider:'openrouter',stage,...details});
+  const timeout = AbortSignal.timeout(tools ? 45_000 : maxOutputTokens > 2048 ? 240_000 : 120_000);
+  const upstreamSignal = signal ? AbortSignal.any([signal,timeout]) : timeout;
+  const timedOut = error => errorCode(error) === 'TIMEOUT' || upstreamSignal.reason?.name === 'TimeoutError';
   let response;
   try {
-    const timeout = AbortSignal.timeout(tools ? 45_000 : maxOutputTokens > 2048 ? 240_000 : 120_000);
     response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       redirect: 'error',
       headers: {authorization: 'Bearer ' + key, 'content-type': 'application/json'},
-      signal:signal ? AbortSignal.any([signal,timeout]) : timeout,
+      signal:upstreamSignal,
       body: JSON.stringify({
         model,
         messages,
@@ -181,9 +189,8 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
     });
   } catch (error) {
     details.durationMs = Date.now() - started;
-    const timeout = errorCode(error) === 'TIMEOUT';
-    throw diagnosticError(timeout ? 'OPENROUTER_TIMEOUT' : 'OPENROUTER_CONNECTION_FAILED',
-      timeout ? 'OpenRouter took too long to reply.' : 'Could not connect to OpenRouter.');
+    if (timedOut(error)) throw diagnosticError('OPENROUTER_TIMEOUT','OpenRouter took too long to reply.');
+    throw diagnosticError('OPENROUTER_CONNECTION_FAILED','Could not connect to OpenRouter.');
   }
   details.durationMs = Date.now() - started;
   diagnostics[metadata ? 'metadataUpstreamStatus' : 'upstreamStatus'] = details.status = response.status;
@@ -194,7 +201,8 @@ async function generateOpenRouter(messages, model, key, diagnostics, {
   let result;
   try {
     result = await response.json();
-  } catch {
+  } catch (error) {
+    if (timedOut(error)) throw diagnosticError('OPENROUTER_TIMEOUT','OpenRouter took too long to finish the reply.');
     throw diagnosticError('OPENROUTER_INVALID_RESPONSE','OpenRouter returned an unreadable response.');
   } finally {
     details.durationMs = Date.now() - started;
@@ -262,14 +270,13 @@ async function generateSetup(req,res,diagnostics) {
   diagnostics.provider = 'openrouter';
   diagnostics.mode = mode;
   diagnostics.model = modelIds.has(selected) ? selected : 'custom';
-  const request = new AbortController();
-  res.once('close',() => { if (!res.writableFinished) request.abort(); });
+  const signal = disconnectSignal(res);
   try {
-    const complete = drafting ? storyToolCompletion(selected,key,diagnostics,'setup-draft',request.signal,setupDraftOutputLimit)
-      : messages => generateOpenRouter(messages,selected,key,diagnostics,{stage:'setup-chat',maxOutputTokens:setupChatOutputLimit,signal:request.signal});
+    const complete = drafting ? storyToolCompletion(selected,key,diagnostics,'setup-draft',signal,setupDraftOutputLimit)
+      : messages => generateOpenRouter(messages,selected,key,diagnostics,{stage:'setup-chat',maxOutputTokens:setupChatOutputLimit,signal});
     return json(res,200,await runSetup(prompt,mode,manuscript,complete));
   } catch (error) {
-    if (request.signal.aborted) return;
+    if (signal.aborted) return;
     diagnostics.code = errorCode(error,'SETUP_GENERATION_FAILED');
     return json(res,502,{error:error.diagnosticCode ? error.message : 'Story Studio could not prepare a setup reply.'});
   }
@@ -302,18 +309,17 @@ async function generateStoryEdits(req,res,diagnostics) {
   const project = structuredClone(library.projects[index]);
   if (project.agentEditRequest) return json(res,409,{error:'Cancel the queued MCP edit before sending another request.'});
   Object.assign(diagnostics,{provider:'openrouter',mode:'story-edit',storyRef:storyReference(storyId),model});
-  const request = new AbortController();
-  res.once('close',() => { if (!res.writableFinished) request.abort(); });
+  const signal = disconnectSignal(res);
   try {
-    const result = await runStoryEdit(project,instruction,storyToolCompletion(model,key,diagnostics,'story-edit',request.signal));
-    if (request.signal.aborted) return;
+    const result = await runStoryEdit(project,instruction,storyToolCompletion(model,key,diagnostics,'story-edit',signal));
+    if (signal.aborted) return;
     project.agentEditNotice = {message:result.message};
     library.projects[index] = project;
     if (!await saveState(library,revision,false)) return json(res,409,{error:'The story changed before saving the edit. Try again from the latest version.'});
     diagnostics.appliedEdits = result.count;
     return json(res,200,result);
   } catch (failure) {
-    if (request.signal.aborted) return;
+    if (signal.aborted) return;
     diagnostics.code = errorCode(failure,'STORY_EDIT_FAILED');
     return json(res,502,{error:failure.diagnosticCode ? failure.message : 'Story Studio could not edit the story metadata.'});
   }
@@ -406,6 +412,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
   diagnostics.provider = 'openrouter';
   diagnostics.mode = mode;
   diagnostics.storyRef = storyReference(project.id);
+  const signal = disconnectSignal(res);
   try {
     if (typeof key !== 'string' || !/^[!-~]{1,512}$/.test(key)) {
       diagnostics.code = 'OPENROUTER_KEY_REQUIRED';
@@ -427,7 +434,8 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     diagnostics.model = modelIds.has(model) ? model : 'custom';
     diagnostics.outputFormat = 'text';
     const messages = buildMessages(project,instruction,mode,{model,includeSensitive:sensitive,openRouter:true});
-    const output = await generateOpenRouter(messages,model,key,diagnostics);
+    const output = await generateOpenRouter(messages,model,key,diagnostics,{signal});
+    if (signal.aborted) return;
     const text = stripWritingPreamble(output.text);
     if (text !== output.text) diagnostics.prosePreambleRemoved = true;
     if (/^\[(?:removed|redacted)\][.!]?$/i.test(text)) {
@@ -441,13 +449,14 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     try {
       diagnostics.metadataModel = continuityModel;
       const parsed = await runContinuity(project,instruction,text,{suggest,truncated:output.truncated,mode,sensitive},
-        storyToolCompletion(continuityModel,key,diagnostics,'metadata'),
+        storyToolCompletion(continuityModel,key,diagnostics,'metadata',signal),
         rejections => {
           diagnostics.mapUpdateRejections = rejections;
           diagnostics.invalidMapUpdates = rejections.length;
         });
       Object.assign(draft,parsed);
     } catch (e) {
+      if (signal.aborted) return;
       diagnostics.metadataCode = errorCode(e,'OPENROUTER_METADATA_FAILED');
       draft.metadataFailed = true;
     }
@@ -457,6 +466,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     diagnostics.unverifiedLabels = draft.input === 'unclassified' || draft.reply === 'unclassified';
     return json(res, 200, draft);
   } catch (e) {
+    if (signal.aborted) return;
     diagnostics.code = errorCode(e,'GENERATION_FAILED');
     return json(res,e.status || 500,{error:e.diagnosticCode ? e.message : 'Story Studio could not generate a reply.'});
   }
@@ -476,7 +486,7 @@ const server = http.createServer(async (req,res) => {
     log(level,status >= 400 ? 'request_failed' : 'request_completed',{...diagnostics,status,durationMs:Date.now()-started});
   });
   res.once('close', () => {
-    if (!res.writableFinished && ['/api/generate','/api/setup'].includes(diagnostics.endpoint)) {
+    if (!res.writableFinished && ['/api/generate','/api/setup','/api/story-edits'].includes(diagnostics.endpoint)) {
       log('warn','generation_disconnected',{...diagnostics,durationMs:Date.now()-started});
     }
   });

@@ -7,7 +7,7 @@ import { buildMessages, formatMessages, extraFields, getCast, narrator, resolveC
 import { models, chapterCost, canWriteSensitive, isAgentModel, isModelId, modelLabel, modelContextWindow, proseOutputLimit, setupDraftModel, agentOutputLimit, setupChatOutputLimit, setupDraftOutputLimit } from './models.js';
 import { countWords, writeInputProblem } from './prompt.js';
 import { dateWriterTurn, maxSetupWords, mcpOmissionReason, queuedTurn, replyInput, setupInputWords, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
-import { continuityRecentTokenCap, estimateContextTokens, storyOverview, storyPromptUsage, writingHistoryLimit, writingPromptLimit } from './prompt.js';
+import { continuityRecentTokenCap, estimateContextTokens, storyEditContext, storyOverview, storyPromptUsage, writingHistoryLimit, writingPromptLimit } from './prompt.js';
 
 const settingsFields = ['title', 'character', 'lore', 'notes', ...extraFields.filter(key => key !== 'personaName')];
 const castLabels = {name:'Name', nickname:'Aliases', description:'Description', personality:'Personality', scenario:'Scenario', examples:'Example dialogue'};
@@ -2736,8 +2736,7 @@ function composerContext() {
   if (mode === 'agent') {
     const {recentTurns,...overview} = storyOverview(project);
     const request = project.agentEditRequest?.instruction || $('#instruction').value.trim();
-    const story = route === 'mcp' ? {overview,title:project.title,world:project.lore,notes:project.notes,
-      continuity:project.continuity,cast:getCast(project).map(({id,...member})=>member)} : overview;
+    const story = route === 'mcp' ? {overview,state:storyEditContext(project)} : overview;
     parts = [
       {label:route === 'mcp' ? 'Story state and cast' : 'Cast names and story time',tokens:estimateContextTokens(JSON.stringify(story))},
       {label:'Recent eligible story turns',tokens:recentTurns.length ? estimateContextTokens(JSON.stringify(recentTurns)) : 0},

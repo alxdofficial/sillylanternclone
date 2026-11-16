@@ -1,6 +1,12 @@
 # Research and architecture notes
 
-Research checked 15 November 2026. This describes the design space, not a claim that every feature is in the prototype.
+The upstream research below records the 15 November 2026 review. Use the [README](README.md), [MCP guide](MCP.md), and [model guide](MODELS.md) for current operating instructions.
+
+## Current architecture
+
+Story Studio runs on the writer's Mac. The selected artist drafts a scene using the story prompt. OpenRouter runs a separate DeepSeek continuity task after drafting, and local MCP clients use the corresponding prose and continuity tools. Direct edits and setup use the same structured workflow with task-specific scope. The model chooses which scoped information to inspect. Story Studio checks tool arguments and the library revision before saving. Setup stages a proposal for the writer to review before creation.
+
+The design combines a short, selected history with on-demand reads of state. This keeps the writing route predictable and lets the editor inspect more context when useful. The app withholds marked transcript passages according to route. Imported excerpts, user-authored state, and the surrounding native chat have their own scope and limits. [Context engineering guidance](https://www.anthropic.com/research/effective-context-engineering-for-ai-agents) · [MCP tools specification](https://modelcontextprotocol.io/specification/latest/server/tools)
 
 ## How SillyTavern helps a writer
 
@@ -21,21 +27,21 @@ SillyTavern is [AGPL-3.0](https://github.com/SillyTavern/SillyTavern). Reusing i
 
 Compatibility is a concrete future feature, not a yes/no promise. Character Card V1 uses flat fields; V2 puts them in a `data` envelope and adds fields like examples, alternate greetings and `character_book`. Cards are often PNGs with base64 JSON in a `chara` metadata chunk; V3 also uses `ccv3`. The [V2 card specification](https://github.com/malfoyslastname/character-card-spec-v2/blob/main/spec_v2.md) calls out semantics, including lorebook activation, alternate greetings, metadata that must stay out of prompts, and preservation of unknown extensions. A real importer should retain the original data, warn about unsupported fields, bound file and decompression sizes, treat imported instructions as untrusted, and test real files. Importing a name and description alone is not full compatibility. Worldbook, chat and persona imports are separate formats and need their own tests.
 
-## Model access
+## Model access options considered during the initial research
 
 **Codex.** The official CLI supports [non-interactive `codex exec`](https://learn.chatgpt.com/docs/non-interactive-mode), and by default it reuses its saved sign-in. The [authentication documentation](https://learn.chatgpt.com/docs/auth) distinguishes ChatGPT subscription access from usage-billed API-key access; check `codex login status` rather than assume which is active. Usage is subject to the account's limits and service rules, and a writing model can still decline or alter material under provider policies. Officially supported [Codex app-server](https://learn.chatgpt.com/docs/app-server) is a richer integration for asynchronous events, streaming, cancellation, approvals and session lifecycle; OpenAI recommends [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server) for apps that want users to see and control their account access. For an initial private local prototype, the CLI is a lower-complexity bridge. A product intended for other users should investigate the current app-server sign-in requirements and avoid copying a person's local auth cache.
 
 **Claude.** Anthropic's [help article](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) says that signed-in `claude -p`, Agent SDK and third-party app usage currently draw from subscription limits; it also discusses plan-linked API credits for some tiers. Its [legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance) says developers must not offer Claude.ai login in their own applications or route requests through plan credentials on behalf of users, while distinguishing the hosting of an unmodified Claude Code binary with end users authenticating directly. These statements are not straightforward to reconcile for every product design. Do not embed login, handle tokens or promise that a custom bridge is permitted without resolving the specific use case with Anthropic and rechecking current terms. Running Claude Code directly as an end user is a separate flow. This prototype should not imply Claude is supported unless actually implemented and verified.
 
-## Is MCP the right tool?
+## Why the project chose MCP for local agent access
 
-[MCP](https://modelcontextprotocol.io/docs/learn/architecture) connects an AI host to tools and resources; it is not a model, subscription, authentication bypass, or substitute for a generation engine. A story MCP server could expose narrow operations like `get_story_bible`, `search_lore`, `read_scene`, or `propose_revision` to either CLI. Read-only tools and explicit approval before any write are sensible defaults. It becomes valuable when multiple agents or clients need the same story library, dynamic retrieval, or structured actions. For one local application with a small selected story and a deterministic context builder, sending the chosen context directly is simpler to inspect and test; add MCP only when its interoperability provides real value.
+[MCP](https://modelcontextprotocol.io/docs/learn/architecture) lets local agent clients discover a shared set of story tools using their own model access and sign-in. Story Studio exposes narrowly scoped reads and separate writes. A queued direction authorizes saving the new reply, and setup retains a browser review step. OpenRouter can run the same style of workflow directly through its API without needing an MCP client.
 
 ## Operational limits and next steps
 
 - A coding agent is not a dedicated prose API: response time, token usage, style, refusal behavior and context limits may differ. Test with Jess's real use cases.
 - A read-only CLI sandbox does not mean the model is unable to read local files. Prompt instructions are not a security boundary; isolate the process, narrow tools/permissions, avoid untrusted public access and don't run arbitrary imported scripts. Story text is sent to the provider in generation requests.
-- Prioritize export/backup, revisions, selectable context, clear generation errors, and easy onboarding. Then evaluate selective lore, alternatives, branches, character-card interoperability and a formal MCP server based on what Jess actually uses.
+- The initial prototype priorities included export and backup, revisions, editable context, useful errors, and onboarding. The [current feature guide](README.md) covers the features that shipped. The compatibility notes below describe the narrower scope of the SillyTavern import and presentation work.
 
 ## OpenRouter as an optional, separately configured backend
 

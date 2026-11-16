@@ -8,6 +8,7 @@ export function agentTool(name,description,schema,handle) {
 
 export async function runAgentTask({messages,completions,action,reads = [],text,code,failure}) {
   const tools = [...reads,...(action ? [action] : [])].map(entry=>entry.definition);
+  const finalName = action?.definition.function.name;
   for (let round=0; round<4; round++) {
     const response = await completions(messages,tools);
     if (text && typeof response?.text === 'string') return text(response);
@@ -17,12 +18,15 @@ export async function runAgentTask({messages,completions,action,reads = [],text,
       new Set(calls.map(call=>call.id)).size !== calls.length) break;
     messages.push(response);
     const results = [];
+    const multipleFinalCalls = finalName && calls.filter(call=>call.function?.name === finalName).length > 1;
     for (const call of calls) {
       let args;
       try { args = JSON.parse(call.function.arguments); } catch { /* Return an argument error below. */ }
       let result = {error:'Use an available tool and match its argument schema.'};
       const selected = [action,...reads].find(entry=>entry?.definition.function.name === call.function?.name);
-      if (selected) {
+      if (multipleFinalCalls && selected === action) {
+        result = {error:'Send one final tool call. Combine all intended changes into that call.'};
+      } else if (selected) {
         const parsed = selected.schema.safeParse(args);
         if (parsed.success) {
           const outcome = selected.handle(parsed.data);
