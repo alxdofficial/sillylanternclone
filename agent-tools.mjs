@@ -6,7 +6,7 @@ export function agentTool(name,description,schema,handle) {
   return {schema,handle,definition:{type:'function',function:{name,description,parameters}}};
 }
 
-export async function runAgentTask({messages,completions,action,reads = [],text,code,failure,prefixLength}) {
+export async function runAgentTask({messages,completions,action,reads = [],text,code,failure,prefixLength,onActionFeedback}) {
   const tools = [...reads,...(action ? [action] : [])].map(entry=>entry.definition);
   const finalName = action?.definition.function.name;
   for (let round=0; round<4; round++) {
@@ -42,6 +42,7 @@ export async function runAgentTask({messages,completions,action,reads = [],text,
           result = {error:'Match the tool argument schema.',fields:[...new Set(parsed.error.issues.map(issue=>issue.path.join('.') || 'arguments'))].slice(0,12)};
         }
       }
+      if (selected && selected === action) onActionFeedback?.(result,args);
       results.push({role:'tool',tool_call_id:call.id,content:JSON.stringify(result)});
     }
     messages.push(...results);

@@ -105,7 +105,8 @@ export function buildAgentContext(project,{system,request,model,outputLimit} = {
 export const storyEditInstructions = [
   'Answer questions and brainstorm with the writer. For discussion, feedback, hypothetical ideas, or suggestions, respond in message with changes: []. Treat agreement with an idea as discussion unless the writer explicitly asks to apply it. Apply only story-state changes explicitly requested in the current message. Leave prose, turns, and chapters intact.',
   'Use world for setting; notes for all author guidance, style, terminology, and writing techniques; plot for lasting plot events; and relationship for consequential changes between characters. Use character to add a cast member and profile to update description or aliases. Personality, backstory, and dialogue examples belong in the description. Append new information by default. Before replacing part of a field, read every page and preserve its other text. Use the current eventIndex for existing graph events. Keep each event to one sentence.',
-  'Preserve established facts and remove characters or events only when the writer explicitly asks. If the requested change is ambiguous or unsupported, return no changes and explain briefly.'
+  'Preserve established facts and remove characters or events only when the writer explicitly asks. If the requested change is ambiguous or unsupported, return no changes and explain briefly.',
+  'Read every tool result. An edit rejected by the tool makes no changes. Use its feedback and inspect missing facts to correct and retry the edit. If you cannot complete the request, submit changes: [] and explain the limitation in message. Describe only the changes in your final batch, and always include a visible reply in message.'
 ].join(' ');
 
 export const structuredInstructions = [
