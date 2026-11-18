@@ -101,7 +101,9 @@ test('direct providers draft and exchange native tool results without crossing c
         const input = JSON.stringify(body.input);
         const feedback = body.input.at(-1);
         let result = edit;
-        if (input.includes('Local-only example.')) {
+        if (input.includes('Insert a short dock scene.')) {
+          result = {changes:[],manuscript:[{kind:'insert_scene',text:'A boat returned to the dock.'}],message:'A scene is ready to review.'};
+        } else if (input.includes('Local-only example.')) {
           result = {changes:[],message:'No story changes.',historySafe:false};
         } else if (input.includes('Concurrent edit example.')) {
           const origin = 'http://127.0.0.1:' + process.env.PORT;
@@ -209,6 +211,27 @@ test('direct providers draft and exchange native tool results without crossing c
     const afterConflict = (await (await fetch(origin+'/api/state')).json()).projects.find(story=>story.id === activeId);
     assert.equal(afterConflict.title,'A concurrent change');
     assert.deepEqual(afterConflict.agentHistory,afterRejected.agentHistory);
+    const forProposal = await fetch(origin+'/api/state');
+    const proposal = await send({...openai,storyId:activeId,revision:forProposal.headers.get('etag'),
+      instruction:'Insert a short dock scene.'},'/api/story-edits');
+    assert.equal(proposal.status,200);
+    const {proposalId} = await proposal.json();
+    assert.ok(proposalId);
+    const beforeApproval = await fetch(origin+'/api/state');
+    const approvalRevision = beforeApproval.headers.get('etag');
+    const application = decision=>fetch(origin+'/api/story-edits',{method:'PUT',
+      headers:{origin,'content-type':'application/json'},
+      body:JSON.stringify({storyId:activeId,revision:approvalRevision,proposalId,decision})});
+    const applied = await application('apply');
+    assert.equal(applied.status,200);
+    assert.deepEqual(await applied.json(),{count:1});
+    const retried = await application('apply');
+    assert.equal(retried.status,200);
+    assert.deepEqual(await retried.json(),{count:1});
+    assert.equal((await application('dismiss')).status,409);
+    const approved = (await (await fetch(origin+'/api/state')).json()).projects.find(story=>story.id === activeId);
+    assert.equal(approved.messages.filter(message=>message.content === 'A boat returned to the dock.').length,1);
+
     const mismatched = await send({project,instruction:'Ring the bell.',...openai,model:claude.model});
     assert.equal(mismatched.status,400);
     const keyMissing = await send({project,instruction:'Ring the bell.',...openai,

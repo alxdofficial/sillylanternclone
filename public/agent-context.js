@@ -27,11 +27,11 @@ export function normalizeAgentHistory(value) {
     Number.isSafeInteger(entry?.afterTurn) && entry.afterTurn >= 0 &&
     typeof entry.request === 'string' && typeof entry.message === 'string' &&
     Number.isSafeInteger(entry.count) && entry.count >= 0
-  ).map(({afterTurn,request,message,count,changes,historySafe,proposal,resolution})=>({
+  ).map(({afterTurn,request,message,count,changes,historySafe,proposal,resolution,proposalId})=>({
     afterTurn,request,message,count,...(typeof changes === 'string' ? {changes} : {}),
     ...(historySafe === undefined || historySafe === true ? {} : {historySafe:false}),
     ...(proposal ? {proposal:normalizeProposal(proposal)} : {}),
-    ...(['applied','dismissed'].includes(resolution) ? {resolution} : {})
+    ...(['applied','dismissed'].includes(resolution) ? {resolution,...(typeof proposalId === 'string' ? {proposalId} : {})} : {})
   }));
 }
 

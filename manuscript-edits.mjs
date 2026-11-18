@@ -6,7 +6,7 @@ import { restoreDraftText } from './public/draft-comparison.js';
 import { ensureGraphBaseline, captureGraphVersion } from './public/graph-history.js';
 import { nextTurnNumber } from './public/prompt.js';
 import { sceneIndex } from './public/revision.js';
-import { manuscriptChapters, normalizeSceneBoard, readingChapterBreak, toggleReadingChapter } from './public/scene-board.js';
+import { lastProseTurn, manuscriptChapters, normalizeSceneBoard, readingChapterBreak, toggleReadingChapter } from './public/scene-board.js';
 import { applyStoryEdits, storyEditChangesSchema } from './story-edits.mjs';
 
 const turn = z.int().positive().describe('Stable prose turn from inspect_manuscript.');
@@ -58,21 +58,28 @@ export function manuscriptReader(project,reads) {
     });
 }
 
+function contiguousPages(pages) {
+  const runs = [];
+  for (const [start,text] of [...pages].sort(([a],[b])=>a-b)) {
+    const previous = runs.at(-1);
+    const end = previous && previous.start + previous.text.length;
+    if (previous && start <= end) previous.text += text.slice(end-start);
+    else runs.push({start,text});
+  }
+  return runs;
+}
+
 export function requireManuscriptReads(operations,reads) {
   for (const edit of operations) {
     if (edit.kind !== 'revise_scene') continue;
     const read = reads.scenes.get(edit.turn);
     if (!read?.pages.size) throw failure('Read the target scene with inspect_manuscript before revising it.');
-    if (edit.anchor && ![...read.pages.values()].some(page=>page.includes(edit.anchor))) {
+    const runs = contiguousPages(read.pages);
+    if (edit.anchor && !runs.some(({text})=>text.includes(edit.anchor))) {
       throw failure('Use an exact anchor from the text read with inspect_manuscript.');
     }
-    if (!edit.anchor) {
-      let end = 0;
-      for (const [start,text] of [...read.pages].sort(([a],[b])=>a-b)) {
-        if (start > end) break;
-        end = Math.max(end,start+text.length);
-      }
-      if (end < read.length) throw failure('Read the remaining scene pages before a full rewrite, or use an exact passage anchor.');
+    if (!edit.anchor && (runs[0].start !== 0 || runs[0].text.length < read.length)) {
+      throw failure('Read the remaining scene pages before a full rewrite, or use an exact passage anchor.');
     }
   }
 }
@@ -87,7 +94,7 @@ function chapterOrder(project) {
   return manuscriptChapters(project).map(chapter=>chapter.map(scene=>scene.turn));
 }
 
-function changeOrder(project,chapters,number,beforeTurn,newChapter) {
+function changeOrder(project,chapters,number,beforeTurn,newChapter,nextChapterAfter = project.sceneBoard?.nextChapterAfter) {
   const target = beforeTurn === undefined ? chapters.length-1 : chapters.findIndex(scenes=>scenes.includes(beforeTurn));
   if (beforeTurn !== undefined && target < 0) throw failure('Use an existing destination scene turn from inspect_manuscript.');
   if (!chapters.length) chapters.push([number]);
@@ -95,15 +102,17 @@ function changeOrder(project,chapters,number,beforeTurn,newChapter) {
     const chapter = chapters[target];
     const position = beforeTurn === undefined ? chapter.length : chapter.indexOf(beforeTurn);
     if (!newChapter) chapter.splice(position,0,number);
-    else if (!position) chapter.unshift(number);
+    else if (!position) chapters.splice(target,0,[number]);
     else chapters.splice(target+1,0,[number,...chapter.splice(position)]);
   }
-  setBoard(project,{...project.sceneBoard,chapters});
+  setBoard(project,{...project.sceneBoard,chapters,nextChapterAfter});
 }
 
 function removeScenes(project,numbers) {
   const adjustGraph = [...(project.plotEvents || []),...(project.relationships || [])].some(event=>numbers.has(event.turn));
   if (adjustGraph) ensureGraphBaseline(project);
+  const chapters = chapterOrder(project).map(chapter=>chapter.filter(turn=>!numbers.has(turn)));
+  const keepUpcoming = Boolean(project.sceneBoard?.nextChapterAfter);
   const next = nextTurnNumber(project);
   // Give older messages stable numbers before removing an entry that could shift their position.
   project.messages = project.messages.map((message,index)=>({...message,turnNumber:message.turnNumber || index+1}))
@@ -114,7 +123,7 @@ function removeScenes(project,numbers) {
   }
   if (numbers.has(project.agentRequest?.replyTurnNumber)) delete project.agentRequest;
   if ([project.agentNotice?.turnNumber,project.agentNotice?.replyTurnNumber].some(turn=>numbers.has(turn))) delete project.agentNotice;
-  setBoard(project,project.sceneBoard);
+  setBoard(project,{...project.sceneBoard,chapters,nextChapterAfter:keepUpcoming ? lastProseTurn(project) : undefined});
   if (adjustGraph) captureGraphVersion(project,Math.max(next-1,project.graphHistory.at(-1)?.turn || 0));
 }
 
@@ -133,8 +142,10 @@ function applyOperation(project,operation) {
     project.messages.push({role:'assistant',standalone:true,content:operation.text,turnNumber:number,
       contentSensitivity:'unclassified',continuityNeedsReview:true});
     project.nextTurn = number + 1;
-    const newChapter = operation.newChapter || beforeTurn === undefined && Boolean(project.sceneBoard?.nextChapterAfter);
-    changeOrder(project,chapters,number,beforeTurn,newChapter);
+    const upcoming = Boolean(project.sceneBoard?.nextChapterAfter);
+    const extending = beforeTurn === undefined;
+    const newChapter = operation.newChapter || extending && upcoming;
+    changeOrder(project,chapters,number,beforeTurn,newChapter,upcoming && !extending ? number : null);
     return {title:`Insert prose ${destinationLabel}${newChapter ? ' with a chapter break' : ''}`,after:operation.text};
   }
   if (kind === 'revise_scene') {
@@ -152,7 +163,8 @@ function applyOperation(project,operation) {
     }
     if (!content.trim()) throw failure('Use delete_scene to remove the entire scene.');
     if (content === original) return null;
-    restoreDraftText(project,target,original,{content});
+    try { restoreDraftText(project,target,original,{content}); }
+    catch (error) { throw failure(error.message); }
     return {title:`${label} · New take`,before:operation.anchor || original,after:operation.text};
   }
   if (kind === 'delete_scene') {
@@ -221,6 +233,30 @@ function manuscriptRevision(project) {
   return createHash('sha256').update(JSON.stringify(book,stableKeys)).digest('hex');
 }
 
+const indexedGraphEdits = {
+  edit_plot:'plotEvents',remove_plot:'plotEvents',edit_relationship:'relationships',remove_relationship:'relationships'
+};
+
+function remapGraphIndices(project,draft,metadata) {
+  if (project.messages.length === draft.messages.length &&
+      (project.plotEvents?.length ?? 0) === (draft.plotEvents?.length ?? 0) &&
+      (project.relationships?.length ?? 0) === (draft.relationships?.length ?? 0)) return metadata;
+  const surviving = new Set(draft.messages.map((message,index)=>message.turnNumber || index+1));
+  const removed = new Set(project.messages.map((message,index)=>message.turnNumber || index+1)
+    .filter(turn=>!surviving.has(turn)));
+  if (!removed.size) return metadata;
+  return metadata.map(change=>{
+    const field = indexedGraphEdits[change.kind];
+    if (!field) return change;
+    const original = project[field] || [];
+    if (!original[change.eventIndex] || removed.has(original[change.eventIndex].turn)) {
+      throw failure('A graph edit targets an event removed by this manuscript change. Omit that graph edit or choose another event.');
+    }
+    const eventIndex = original.slice(0,change.eventIndex).filter(event=>!removed.has(event.turn)).length;
+    return {...change,eventIndex};
+  });
+}
+
 function plan(project,operations,metadata) {
   const draft = structuredClone(project);
   const previews = [];
@@ -233,7 +269,7 @@ function plan(project,operations,metadata) {
     const preview = applyOperation(draft,operation);
     if (preview) previews.push(preview);
   }
-  const count = metadata.length ? applyStoryEdits(draft,metadata) : 0;
+  const count = metadata.length ? applyStoryEdits(draft,remapGraphIndices(project,draft,metadata)) : 0;
   if (previews.length) delete draft.storyFlow;
   return {draft,previews,count};
 }
@@ -269,6 +305,7 @@ export function applyManuscriptProposal(project,id) {
   const accepted = draft.agentHistory.find(item=>item.proposal?.id === id);
   accepted.resolution = 'applied';
   accepted.count = applied;
+  accepted.proposalId = id;
   delete accepted.proposal;
   return {project:draft,count:applied};
 }

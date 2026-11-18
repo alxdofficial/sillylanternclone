@@ -152,7 +152,7 @@ export async function runStoryEdit(project,instruction,complete,model) {
       }
     });
   return await runAgentTask({messages,completions:complete,reads:[continuityReader(project),manuscriptReader(project,manuscriptReads)],action,
-    roundLimit:()=>manuscriptReads.used ? 8 : 4,
+    roundLimit:()=>manuscriptReads.used ? 8 : 4,retryMissingAction:true,
     prefixLength:context.prefixLength,
     onActionFeedback(feedback,args) {
       if (!Array.isArray(args?.changes) || args.changes.length || args.manuscript?.length) rejectedEdit = feedback.error;

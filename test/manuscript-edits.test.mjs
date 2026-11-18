@@ -103,3 +103,53 @@ test('chapter edits and passage removal are applied without renumbering survivin
   assert.deepEqual(manuscriptChapters(project).map(chapter=>chapter.map(scene=>scene.turn)),[[3],[1]]);
   assert.equal(project.messages[0].content,'The ferry waited.');
 });
+
+test('a deleted chapter opener preserves the chapter and shifts surviving graph indices correctly',()=>{
+  const story=book();
+  story.messages[1].startsChapter=true;
+  story.plotEvents=[
+    {turn:2,note:'The bell was first heard.'},
+    {turn:3,note:'The second signal arrived.'},
+    {turn:1,note:'The ferry waited.'}
+  ];
+  const edits=[{kind:'delete_scene',turn:2}];
+  const proposal=proposeManuscriptEdit(story,edits,[{kind:'edit_plot',eventIndex:1,note:'The captain heard the second signal.'}]);
+  story.agentHistory=[{proposal}];
+  const {project}=applyManuscriptProposal(story,proposal.id);
+  assert.deepEqual(manuscriptChapters(project).map(chapter=>chapter.map(scene=>scene.turn)),[[1],[3]]);
+  assert.deepEqual(project.plotEvents.map(event=>event.note),['The captain heard the second signal.','The ferry waited.']);
+  assert.throws(()=>proposeManuscriptEdit(story,edits,[{kind:'edit_plot',eventIndex:0,note:'A new title'}]),/targets an event removed/);
+});
+
+test('an insertion starts its own chapter before an opener and preserves a queued final chapter divider',()=>{
+  const story=book();
+  story.messages[1].startsChapter=true;
+  story.sceneBoard={nextChapterAfter:3};
+  const proposal=proposeManuscriptEdit(story,[{kind:'insert_scene',newChapter:true,beforeTurn:1,text:'New opening.'}],[]);
+  story.agentHistory=[{proposal}];
+  const {project}=applyManuscriptProposal(story,proposal.id);
+  assert.deepEqual(manuscriptChapters(project).map(chapter=>chapter.map(scene=>scene.turn)),[[4],[1],[2,3]]);
+  assert.equal(project.sceneBoard.nextChapterAfter,4);
+  const append=proposeManuscriptEdit(project,[{kind:'insert_scene',text:'Another opening.'}],[]);
+  project.agentHistory.push({proposal:append});
+  const {project:extended}=applyManuscriptProposal(project,append.id);
+  assert.deepEqual(manuscriptChapters(extended).map(chapter=>chapter.map(scene=>scene.turn)),[[4],[1],[2,3],[5]]);
+  assert.equal(extended.sceneBoard.nextChapterAfter,undefined);
+});
+
+test('Agent retries a prose edit after a plain reply and accepts a read anchor across consecutive pages',async()=>{
+  const story=book();
+  story.messages[0].content='x'.repeat(5998)+'anchor ends here.';
+  let round=0;
+  const result=await runStoryEdit(story,'Replace the words “anchor ends” with “signal starts”.',async messages=>{
+    round++;
+    if (round === 1) return {role:'assistant',content:'I know what to change.'};
+    if (round === 2) {
+      assert.match(messages.at(-1).content,/required edit_story_state/);
+      return call('inspect_manuscript',{turn:1},round);
+    }
+    if (round === 3) return call('inspect_manuscript',{turn:1,offset:JSON.parse(messages.at(-1).content).nextOffset},round);
+    return call('edit_story_state',final([{kind:'revise_scene',turn:1,anchor:'anchor ends',text:'signal starts'}]),round);
+  },'claude-sonnet-5-5');
+  assert.ok(result.proposalId);
+});
