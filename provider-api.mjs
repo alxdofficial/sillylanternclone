@@ -115,7 +115,8 @@ export const providerAdapters = new Map([
     url:'https://api.openai.com/v1/responses',
     headers:key=>({authorization:'Bearer ' + key}),
     request({model,messages,maxOutputTokens,tools,prefixLength,stage}) {
-      const cacheAt = cacheBoundary(messages,prefixLength,stage,true);
+      const explicitCache = model === 'gpt-6.1-terra';
+      const cacheAt = explicitCache ? cacheBoundary(messages,prefixLength,stage,true) : -1;
       const input = messages.flatMap((message,index)=>{
         if (message[nativeOutput]) return message[nativeOutput];
         if (message.role === 'tool') return {type:'function_call_output',call_id:message.tool_call_id,output:message.content};
@@ -126,7 +127,7 @@ export const providerAdapters = new Map([
       });
       return {model,input,max_output_tokens:maxOutputTokens,store:false,
         reasoning:{effort:tools ? 'low' : 'none'},
-        ...(batchStage(stage) ? {prompt_cache_options:{mode:'explicit'}} : {}),
+        ...(explicitCache && batchStage(stage) ? {prompt_cache_options:{mode:'explicit'}} : {}),
         ...(tools ? {
           tools:tools.map(({function:definition})=>({type:'function',...definition,strict:false})),
           tool_choice:'auto',parallel_tool_calls:false,include:['reasoning.encrypted_content']

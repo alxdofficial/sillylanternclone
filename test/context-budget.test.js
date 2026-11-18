@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { editorContext } from '../public/agent-context.js';
-import { continuityModel, modelContextWindow, sensitiveArtist, setupDraftModel } from '../public/models.js';
+import { continuityModel, defaultDirectModel, isAgentModel, modelContextWindow, modelProvider, models, sensitiveArtist, setupDraftModel } from '../public/models.js';
 import { estimateContextTokens, storyOverview, storyPromptUsage, writingHistoryLimit, writingPromptLimit } from '../public/prompt.js';
 
 test('the context budget separates provider windows, prompt budgets, and history limits', () => {
@@ -14,6 +14,23 @@ test('the context budget separates provider windows, prompt budgets, and history
   assert.equal(setupDraftModel(sensitiveArtist),continuityModel);
   assert.equal(setupDraftModel('user/custom-model'),continuityModel);
   assert.equal(setupDraftModel('z-ai/glm-5.3'),'z-ai/glm-5.3');
+});
+
+test('direct providers expose two models each and prefer Haiku or Luna', () => {
+  const claude = 'claude-haiku-5-5', openai = 'gpt-6-luna';
+  for (const [provider,preferred,secondary] of [
+    ['anthropic',claude,'claude-sonnet-5-5'],['openai',openai,'gpt-6.1-terra']
+  ]) {
+    assert.deepEqual(models.filter(model=>model.provider === provider).map(model=>model.id),[preferred,secondary]);
+    assert.equal(defaultDirectModel(new Set([provider,'openrouter'])),preferred);
+    assert.equal(modelProvider(preferred),provider);
+    assert.equal(isAgentModel(preferred),true);
+    assert.equal(setupDraftModel(preferred),preferred);
+  }
+  const enabled = new Set(['openai','anthropic']);
+  assert.equal(defaultDirectModel(enabled),claude);
+  assert.equal(defaultDirectModel(enabled,'openai'),openai);
+  assert.equal(defaultDirectModel(new Set(['openrouter'])),'');
 });
 
 test('the Story estimate counts each artist prompt message once', () => {

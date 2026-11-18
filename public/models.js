@@ -4,10 +4,21 @@ export const continuityModel = 'deepseek/deepseek-v4.1-flash';
 export const providerNames = Object.freeze({
   openrouter:'OpenRouter', anthropic:'Claude API', openai:'OpenAI API'
 });
+const directDefaults = new Map([['anthropic','claude-haiku-5-5'],['openai','gpt-6-luna']]);
+
+export function defaultDirectModel(configuredProviders, preferredProvider) {
+  if (configuredProviders.has(preferredProvider) && directDefaults.has(preferredProvider)) {
+    return directDefaults.get(preferredProvider);
+  }
+  for (const [provider,model] of directDefaults) if (configuredProviders.has(provider)) return model;
+  return '';
+}
 
 export const models = [
+  {id:'claude-haiku-5-5', provider:'anthropic', name:'Claude Haiku 5.5', input:0.10, output:0.50, contextWindow:1_000_000, tier:'Economy'},
   {id:'claude-sonnet-5-5', provider:'anthropic', name:'Claude Sonnet 5.5', input:2, output:10, contextWindow:1_000_000, tier:'Preferred'},
-  {id:'gpt-6.1-terra', provider:'openai', name:'GPT-6.1 Terra', input:1, output:5, contextWindow:1_050_000, tier:'Preferred'},
+  {id:'gpt-6-luna', provider:'openai', name:'GPT-6 Luna', input:0.10, output:0.50, contextWindow:1_050_000, maxInput:922_000, tier:'Economy'},
+  {id:'gpt-6.1-terra', provider:'openai', name:'GPT-6.1 Terra', input:1, output:5, contextWindow:1_050_000, maxInput:922_000, tier:'Preferred'},
   {id:sensitiveArtist, name:'Cydonia 24B v4.1', input:0.30, output:0.50, contextWindow:131_072, sensitiveWriter:true},
   {id:'cognitivecomputations/dolphin-mistral-24b-venice-edition', name:'Dolphin Mistral 24B Venice', input:0.20, output:0.90, contextWindow:128_000, sensitiveWriter:true},
   {id:continuityModel, name:'DeepSeek V4.1 Flash', input:0.14, output:0.42, contextWindow:1_000_000, tier:'Economy', sensitiveAgent:true},
@@ -40,6 +51,7 @@ export const setupChatOutputLimit = 2_048;
 export const setupDraftOutputLimit = 16_384;
 export const setupDraftModel = id => isAgentModel(id) ? id : continuityModel;
 export const modelContextWindow = id => catalogModel(id)?.contextWindow;
+export const modelInputLimit = id => catalogModel(id)?.maxInput ?? Infinity;
 
 export function agentReasoning(id) {
   return catalogModel(id)?.reasoningRequired ? {effort:'low'} : {enabled:false};
