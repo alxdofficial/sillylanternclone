@@ -33,6 +33,7 @@
   padding: 0 clamp(14px, 4vw, 48px) 16px;
   border: 0;
   box-shadow: none;
+  background: var(--page);
 }
 #writeView[data-prose-only] #messageList { padding-top: 20px; }
 #writeView[data-prose-only] .message.assistant[data-story-turn]:focus { outline: none; }
@@ -231,11 +232,11 @@
   grid-template-columns: repeat(3, minmax(min(100%, 12rem), 1fr));
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  scrollbar-width: none;
   scroll-snap-type: x mandatory;
 }
 #writeView .story-flow-choice {
-  max-height: calc(var(--flow-height) - 4px);
+  max-height: var(--flow-height);
   overflow: hidden;
   align-content: start;
   scroll-snap-align: start;

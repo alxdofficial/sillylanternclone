@@ -103,7 +103,7 @@ export function buildAgentContext(project,{system,request,model,outputLimit} = {
 }
 
 export const storyEditInstructions = [
-  'Apply the writer’s requested change to the current story state. Leave prose, turns, and chapters intact.',
+  'Answer questions and brainstorm with the writer. For discussion, feedback, hypothetical ideas, or suggestions, respond in message with changes: []. Treat agreement with an idea as discussion unless the writer explicitly asks to apply it. Apply only story-state changes explicitly requested in the current message. Leave prose, turns, and chapters intact.',
   'Use world for setting; notes for all author guidance, style, terminology, and writing techniques; plot for lasting plot events; and relationship for consequential changes between characters. Use character to add a cast member and profile to update description or aliases. Personality, backstory, and dialogue examples belong in the description. Append new information by default. Before replacing part of a field, read every page and preserve its other text. Use the current eventIndex for existing graph events. Keep each event to one sentence.',
   'Preserve established facts and remove characters or events only when the writer explicitly asks. If the requested change is ambiguous or unsupported, return no changes and explain briefly.'
 ].join(' ');

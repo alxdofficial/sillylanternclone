@@ -115,10 +115,10 @@ export async function runStoryEdit(project,instruction,complete,model) {
   const context = editorContext(project,instruction,model);
   if (context.problem) throw diagnosticError('AGENT_CONTEXT_FULL',context.problem);
   const {messages} = context;
-  const action = agentTool('edit_story_state','Apply the writer’s requested story-state changes and finish. Use the current eventIndex for an existing relationship. Leave prose, turns, and chapters intact.',
+  const action = agentTool('edit_story_state','Reply to the writer and finish. Send changes: [] for discussion. Apply only explicitly requested story-state changes. Use the current eventIndex for an existing relationship. Leave prose, turns, and chapters intact.',
     editSchema,({changes,message,historySafe}) => {
       try {
-        const count = applyStoryEdits(project,changes);
+        const count = changes.length ? applyStoryEdits(project,changes) : 0;
         (project.agentHistory ||= []).push({
           afterTurn:project.messages.at(-1)?.turnNumber ?? project.messages.length,
           request:instruction.trim(),message,count,

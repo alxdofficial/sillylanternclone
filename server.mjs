@@ -435,7 +435,7 @@ function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens 
 async function generateStoryEdits(req,res,diagnostics) {
   const {storyId,revision,model,key:requestKey,instruction,provider = 'openrouter'} = await body(req,libraryLimit) || {};
   if (typeof storyId !== 'string' || typeof revision !== 'string' || !validStoryEditInstruction(instruction)) {
-    return json(res,400,{error:'Enter a story edit request.'});
+    return json(res,400,{error:'Enter a message for the agent.'});
   }
   if (!isAgentModel(model) || modelProvider(model) !== provider) return json(res,400,{error:'Choose a supported model for Agent mode.'});
   const [key] = await credentials.keys([[provider,requestKey]]);
@@ -458,7 +458,7 @@ async function generateStoryEdits(req,res,diagnostics) {
   } catch (failure) {
     if (signal.aborted) return;
     diagnostics.code = errorCode(failure,'STORY_EDIT_FAILED');
-    return json(res,failure.status || (failure.diagnosticCode === 'AGENT_CONTEXT_FULL' ? 400 : 502),{error:failure.diagnosticCode ? failure.message : 'Story Studio could not edit the story metadata.'});
+    return json(res,failure.status || (failure.diagnosticCode === 'AGENT_CONTEXT_FULL' ? 400 : 502),{error:failure.diagnosticCode ? failure.message : 'Story Studio could not save the agent’s reply.'});
   }
 }
 

@@ -423,6 +423,9 @@ function openTurnMenu(trigger, index) {
   const project = current();
   const {messages} = project;
   const message = messages[index];
+  const turn = message.turnNumber || index + 1;
+  $('#viewTurnGraphChanges').hidden = !(message.continuityNeedsReview ||
+    graphChangesByTurn(project).has(turn) || (!message.excludeFromContext && message.graphSuggestions?.length));
   $('#compareTurnDrafts').hidden = message.role !== 'assistant' || !message.content.trim();
   $('#confirmTurnContinuity').hidden = !message.continuityNeedsReview;
   $('#rewindTurn').disabled = index === messages.length - 1;
@@ -435,6 +438,16 @@ $('#turnDetails').onclick = () => {
   const index = turnMenuIndex;
   closeTurnMenu();
   if (Number.isInteger(index)) openTurnDetails(index);
+};
+
+$('#viewTurnGraphChanges').onclick = () => {
+  const index = turnMenuIndex;
+  closeTurnMenu();
+  if (!Number.isInteger(index)) return;
+  const turn = current().messages[index]?.turnNumber || index + 1;
+  openSettings();
+  pinGraph({kind:'turn-changes',turn});
+  $('#closeInspector').focus();
 };
 
 const draftComparison = createDraftComparison({
@@ -1507,7 +1520,6 @@ function renderMessages() {
     renderStoryTurns(project,followLatest);
     return;
   }
-  const graphChanges = graphChangesByTurn(project);
   const match = createDisplayNameMatcher(readDisplayNames(project.id));
   const manuscript = manuscriptChapters(project);
   const readingOrder = Boolean(project.sceneBoard?.chapters);
@@ -1540,21 +1552,11 @@ function renderMessages() {
     const reply = fromAuthor ? pairedReply(project,index) : undefined;
     if (reply?.content.trim()) row.dataset.replyTurn = reply.turnNumber || index + 2;
     row.setAttribute('aria-label',`${fromAuthor ? 'Your input' : 'Story'} · Turn ${turn}`);
-    const name = fromAuthor ? 'You' : attributedSpeaker(message);
+    const name = fromAuthor ? 'You' : attributedSpeaker(message) || 'Prose';
     const body = el('div','message-body'), head = el('div','message-header');
     if (name) head.append(readerText('strong',fromAuthor ? 'author-label' : '',name,fromAuthor ? null : match));
     appendTurnContextBadge(row,head,omittedFromMcp);
     if (message.continuityNeedsReview) head.append(el('span','continuity-review-badge','Continuity needs review'));
-    if (message.continuityNeedsReview || graphChanges.has(turn) || (!message.excludeFromContext && message.graphSuggestions?.length)) {
-      const changes = el('button','text-button','View graph changes');
-      changes.title = 'See what this turn added to the story graph.';
-      changes.onclick = () => {
-        openSettings();
-        pinGraph({kind:'turn-changes',turn});
-        $('#closeInspector').focus();
-      };
-      head.append(changes);
-    }
 
     const actions = el('div','message-actions');
     const edit = el('button','','Edit');
@@ -1635,7 +1637,7 @@ function renderMessages() {
 function editorMessage(role, text, pending = false) {
   const row = el('article','message ' + role + ' editor-message');
   const fromAuthor = role === 'user';
-  const label = fromAuthor ? 'You · Editor request' : 'Editor agent';
+  const label = fromAuthor ? 'You' : 'Agent';
   row.setAttribute('aria-label',label);
   const body = el('div','message-body');
   const head = el('div','message-header');
@@ -1761,8 +1763,8 @@ function syncRoute() {
   modePicker.sync();
   $('#sceneModelControl').hidden = Boolean(composerEdit && !rewriting);
   sceneModelChoice.disabled = busy || Boolean(composerEdit);
-  $('#sceneModelLabel').textContent = editingStory ? 'Editor model' : 'Prose artist';
-  sceneModelChoice.title = editingStory ? 'This model updates the story details you ask it to change.'
+  $('#sceneModelLabel').textContent = editingStory ? 'Agent model' : 'Prose artist';
+  sceneModelChoice.title = editingStory ? 'This model discusses the story or updates story details you ask it to change.'
     : 'This model writes the next scene.';
   syncSceneModel(model,mode);
   $('#continuityModelControl').hidden = editingStory || Boolean(composerEdit && !rewriting);
@@ -1946,7 +1948,7 @@ async function generateAgentEdit(project) {
   if (!hasApiKey()) return showComposerConnectionWarning();
   if (!model) {
     sceneModelPicker.focus();
-    return error('Choose an editor model, then send again.');
+    return error('Choose an agent model, then send again.');
   }
   const budgetProblem = editorContext(project,instruction,model).problem;
   if (budgetProblem) return error(budgetProblem);
@@ -4239,7 +4241,7 @@ function composerContext(stage = 'writer') {
       + ' tokens, including up to ' + contextNumber.format(writingHistoryLimit(model)) + ' for recent story.';
   }
   const tokens = details.parts.reduce((sum,part)=>sum + part.tokens,0);
-  return {heading:mode === 'agent' ? 'Editor agent context' : useContinuity ? 'Continuity agent context' : 'Writer context',
+  return {heading:mode === 'agent' ? 'Agent context' : useContinuity ? 'Continuity agent context' : 'Writer context',
     modelName:modelName(model),canSelectPass:mode === 'story',
     summary:`Context · ${contextEstimate(tokens)} · ${windowLabel(model)}`,
     parts:[...details.parts,{label:'Output reserve',tokens:details.outputLimit}],

@@ -171,8 +171,8 @@
             <div class="route-control" id="modeControl">
               <label for="authorMode">Mode</label>
               <select id="authorMode" title="Choose between writing the next scene and editing story details.">
-                <option value="story" data-help="Write the next scene from your direction.">Progress the story</option>
-                <option value="agent" data-help="Update the cast, world, or notes without adding prose.">Editor agent</option>
+                <option value="story" data-help="Write the next scene from your direction.">Prose</option>
+                <option value="agent" data-help="Brainstorm, ask questions, or request changes to story details.">Agent</option>
               </select>
             </div>
             <div class="route-control" id="sceneModelControl" hidden>
@@ -522,6 +522,7 @@
 </div>
 <div id="turnMenu" class="turn-menu" role="group" aria-label="Turn actions" hidden>
   <button type="button" id="turnDetails">Time and context</button>
+  <button type="button" id="viewTurnGraphChanges" hidden>View graph changes</button>
   <button type="button" id="compareTurnDrafts" hidden>Compare drafts</button>
   <button type="button" id="confirmTurnContinuity" hidden>Mark continuity reviewed</button>
   <button type="button" id="branchTurn">Branch from here</button>

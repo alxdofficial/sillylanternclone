@@ -141,6 +141,23 @@ test('a parallel final edit is retried as a single batch before any metadata cha
   assert.equal(project.notes,'Use short sentences.');
 });
 
+test('brainstorming records a conversation without changing manuscript or story state',async()=>{
+  const project = structuredClone(story);
+  const before = structuredClone(project);
+  const instruction = 'What could happen next if a lighthouse were added?';
+  const message = 'A failed lamp could force the crew to choose between waiting and asking for help.';
+  const reply = await runStoryEdit(project,instruction,async(messages,tools)=>{
+    assert.match(messages[0].content,/brainstorm.+changes: \[\]/i);
+    assert.match(tools.at(-1).function.description,/changes: \[\] for discussion/);
+    return assistant(call('edit_story_state',{changes:[],message,historySafe:true},'brainstorm'));
+  });
+  assert.deepEqual(reply,{count:0,message});
+  const {agentHistory,...saved} = project;
+  assert.deepEqual(saved,before);
+  assert.equal(agentHistory[0].request,instruction);
+  assert.equal(agentHistory[0].message,message);
+});
+
 test('metadata reads omit unknown stored fields and flag clipped state', () => {
   const description = 'First line. ' + 'x'.repeat(13000) + ' Last line.';
   const project = {...story,lore:'x'.repeat(20000),cast:[{...story.cast[0],description,privateAttachment:'UNKNOWN_FIELD_SENTINEL'}]};
