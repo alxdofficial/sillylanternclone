@@ -25,6 +25,112 @@ import { agentBudget, continuityContext, editorContext, normalizeAgentHistory, n
 const settingsFields = ['title', 'lore', 'notes', ...storyTextFields];
 const castLabels = {name:'Name', nickname:'Aliases', description:'Description'};
 const $ = s => document.querySelector(s);
+const accountGate = $('#accountGate');
+const signIn = $('#signInForm');
+const accountRetry = $('#accountRetry');
+
+function accountNotice(message = '') {
+  const notice = $('#accountGateError');
+  notice.textContent = message;
+  notice.hidden = !message;
+}
+
+async function loadAccount() {
+  const response = await fetch('/api/account', {cache:'no-store'});
+  if (!response.ok) throw Error('Could not check access to Story Studio.');
+  const result = await response.json();
+  if (result.hosted !== false && (result.hosted !== true ||
+      (result.account !== null && !result.account?.id))) {
+    throw Error('Could not check access to Story Studio.');
+  }
+  return result;
+}
+
+async function waitForAccount() {
+  return new Promise(resolve => {
+    async function check() {
+      try {
+        const result = await loadAccount();
+        if (!result.hosted || result.account) {
+          resolve(result.account || null);
+          return true;
+        }
+        accountGate.hidden = false;
+        $('#accountGateIntro').hidden = false;
+        signIn.hidden = false;
+        accountRetry.hidden = true;
+        signIn.elements.email.focus();
+      } catch {
+        accountGate.hidden = false;
+        $('#accountGateIntro').hidden = true;
+        signIn.hidden = true;
+        accountRetry.hidden = false;
+        accountNotice('Could not check access to Story Studio. Try again.');
+        accountRetry.focus();
+      }
+    }
+
+    accountRetry.onclick = () => {
+      accountNotice();
+      void check();
+    };
+    signIn.onsubmit = async event => {
+      event.preventDefault();
+      const submit = signIn.querySelector('button[type="submit"]');
+      if (submit.disabled) return;
+      submit.disabled = true;
+      accountNotice();
+      try {
+        const response = await fetch('/api/account/login',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            email:signIn.elements.email.value.trim(),
+            password:signIn.elements.password.value
+          })
+        });
+        signIn.elements.password.value = '';
+        if (!response.ok) {
+          if (response.status === 429) accountNotice('Too many sign-in attempts. Try again in a few minutes.');
+          else if (response.status >= 500) accountNotice('Sign-in is temporarily unavailable. Try again.');
+          else accountNotice('Could not sign in. Check your email, password and beta access.');
+          return;
+        }
+        if (!await check() && !signIn.hidden) accountNotice('Could not open a session. Try signing in again.');
+      } catch {
+        accountNotice('Could not reach Story Studio. Try again.');
+      } finally {
+        signIn.elements.password.value = '';
+        submit.disabled = false;
+      }
+    };
+    void check();
+  });
+}
+
+const hostedAccount = await waitForAccount();
+const openedFromGate = !signIn.hidden && !accountGate.hidden;
+accountGate.hidden = true;
+$('#studioShell').hidden = false;
+if (openedFromGate) $('#openMenu').focus();
+
+const storageKey = key => hostedAccount ? 'story-studio-account:' + hostedAccount.id + ':' + key : key;
+let hostedSessionExpired = false;
+async function studioFetch(url, options) {
+  if (!hostedAccount) return fetch(url, options);
+  if (hostedSessionExpired) throw Error('Your session ended. Reload Story Studio to sign in.');
+  const headers = new Headers(options?.headers);
+  headers.set('X-Story-Studio-Account', hostedAccount.id);
+  const response = await fetch(url, {...options,headers});
+  if (response.status === 401) {
+    hostedSessionExpired = true;
+    const message = 'Your session ended. Export any unsaved changes before you reload to sign in.';
+    error(message);
+    throw Error(message);
+  }
+  return response;
+}
+
 let state, revision, pendingWrites = 0, timer, pendingSave = Promise.resolve(), dirty = false, busy = false, editingIndex = null;
 let libraryDirty = false, pendingLibraryWrites = 0;
 // The library as last loaded from or saved to the server, the base for merging agent writes.
@@ -45,10 +151,12 @@ let generatingFor = null;
 let editingStateFor;
 const temporarySession = new Map();
 function getSession(key) {
+  key = storageKey(key);
   if (temporarySession.has(key)) return temporarySession.get(key);
   try { return sessionStorage.getItem(key); } catch { return null; }
 }
 function setSession(key, value) {
+  key = storageKey(key);
   temporarySession.set(key, value);
   try {
     if (value) sessionStorage.setItem(key, value);
@@ -90,11 +198,11 @@ const id = () => globalThis.crypto?.randomUUID?.() || `story-${Date.now()}-${Mat
 const current = () => state.projects.find(p => p.id === state.activeId);
 function status(text) {
   $('#saveStatus').textContent = text === 'Saved locally' && current().id === starterStoryId
-    ? 'Demo · resets on reload' : text;
+    ? 'Demo · resets on reload' : text === 'Saved locally' && hostedAccount ? 'Saved' : text;
 }
 function error(text=''){const box=$('#error');box.hidden=!text;box.textContent=text}
 async function api(url, options={}) {
-  const response = await fetch(url,options);
+  const response = await studioFetch(url,options);
   let result;
   try { result = await response.json(); }
   catch { throw Error(`Unexpected server response (${response.status}).`); }
@@ -125,7 +233,7 @@ function save() {
       for (let merges = 0; ; merges++) {
         // Serialize when the write runs, so it includes agent turns merged in by an earlier write.
         const body = JSON.stringify(writeLibrary ? state : state.projects.find(p => p.id === starterStoryId) || current());
-        const response = await fetch(writeLibrary ? '/api/state' : '/api/starter', {method:'PUT', headers:{
+        const response = await studioFetch(writeLibrary ? '/api/state' : '/api/starter', {method:'PUT', headers:{
           'Content-Type':'application/json', 'If-Match':revision
         }, body});
         if (response.status === 409 && merges < 3) {
@@ -175,7 +283,7 @@ function adoptLibrary(library) {
 }
 // After a 409, combine the page's edits with what the agent or another tab saved.
 async function mergeServerLibrary({ifChanged = false} = {}) {
-  const response = await fetch('/api/state',ifChanged ? {headers:{'If-None-Match':revision}} : {});
+  const response = await studioFetch('/api/state',ifChanged ? {headers:{'If-None-Match':revision}} : {});
   if (response.status === 304) return;
   if (!response.ok) throw Error(`Couldn't read the latest library (${response.status}).`);
   const etag = response.headers.get('etag');
@@ -194,7 +302,7 @@ window.addEventListener('beforeunload', event => {
 });
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
 const transientDisplayNames = new Map();
-const displayNameKey = storyId => 'story-display-names:' + storyId;
+const displayNameKey = storyId => storageKey('story-display-names:' + storyId);
 const displayNameRows = $('#displayNamesRows');
 let displayNameStoryId;
 
@@ -776,7 +884,7 @@ const timeMachine = createTimeMachine({
     if (dirty || current().id !== storyId) throw Error('Save the current story before restoring.');
     await api('/api/story-versions',{method:'PUT',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({storyId,versionId:entry.id,revision})});
-    const response = await fetch('/api/state');
+    const response = await studioFetch('/api/state');
     if (!response.ok) throw Error('The version was restored. Reload Studio to see it.');
     revision = response.headers.get('etag');
     demoGeneration = response.headers.get('x-story-studio-demo-generation');
@@ -950,6 +1058,7 @@ function renderPlacedArtwork() {
   }
 }
 const revisionViews = createRevisionViews({
+  cacheKey:storageKey('studio-revision-findings-v1'),
   activeStory:current,
   stories:()=>state.projects,
   openTool:tool=>workspaceTools.open(tool),
@@ -2980,7 +3089,7 @@ continuityModelChoice.onchange = () => {
   syncRoute();
   if (!sensitive && project.id !== starterStoryId && revisionModel(project)) void syncBackgroundReview({model:revisionModel(project)});
 };
-const userModelsKey = 'story-studio-user-openrouter-models';
+const userModelsKey = storageKey('story-studio-user-openrouter-models');
 const isPreset = id => models.some(model => model.id === id);
 function readUserModels() {
   try {
@@ -3085,6 +3194,43 @@ const providerKeyFields = {openrouter:$('#keyInput'),anthropic:$('#claudeKeyInpu
 const providerRemovals = {openrouter:$('#removeOpenRouterKey'),anthropic:$('#removeClaudeKey'),openai:$('#removeOpenAiKey')};
 const providerDialog = $('#providerDialog');
 const saveProviderSettings = $('#saveProviderSettings');
+const canBringKey = !hostedAccount || hostedAccount.canBringKey === true;
+if (hostedAccount) {
+  $('#libraryLocation').textContent = 'Library saved to your account';
+  $('#hostedAccountSettings').hidden = false;
+  $('#accountEmail').textContent = hostedAccount.email;
+  $('#localToolSettings').hidden = true;
+  $('#keyStorage').textContent = 'Keys are saved to your account and used by its stories. Enter a new key to replace a saved one.';
+  $('#providerKeyFields').hidden = !canBringKey;
+  $('#providerAccessNote').hidden = canBringKey;
+}
+
+$('#signOut').onclick = async event => {
+  const button = event.currentTarget;
+  const notice = $('#signOutError');
+  if (button.disabled) return;
+  button.disabled = true;
+  notice.hidden = true;
+  try {
+    if (!hostedSessionExpired) {
+      if (!await confirmGraphNavigation()) return;
+      await save();
+      if (dirty || busy) throw Error('Finish saving your changes before signing out.');
+      await studioFetch('/api/account/logout',{
+        method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
+      }).then(response => {
+        if (!response.ok) throw Error('Could not sign out. Try again.');
+      });
+    }
+    location.reload();
+  } catch (failure) {
+    notice.textContent = failure.message;
+    notice.hidden = false;
+  } finally {
+    button.disabled = false;
+  }
+};
+
 function setConfiguredProviders({enabled}) {
   configuredProviders.clear();
   for (const provider of enabled) configuredProviders.add(provider);
@@ -3108,6 +3254,7 @@ async function openAppSettings() {
   if (!state || busy || providerDialog.open) return;
   updateProviderFields(true);
   providerError();
+  $('#signOutError').hidden = true;
   $('#toggleDirections').checked = showGraphDirections;
   providerDialog.showModal();
   try {
@@ -3134,7 +3281,7 @@ $('#providerForm').onsubmit = async event => {
   if (saveProviderSettings.disabled) return;
   providerError();
   const changes = {};
-  for (const [provider,field] of Object.entries(providerKeyFields)) {
+  for (const [provider,field] of Object.entries(canBringKey ? providerKeyFields : {})) {
     const key = field.value.trim();
     if (providerRemovals[provider].checked) changes[provider] = null;
     else if (key) changes[provider] = key;
@@ -4373,7 +4520,7 @@ $('#exportButton').onclick = async () => {
   }
   const body = JSON.stringify(library);
   try {
-    const response = await fetch('/api/export', {
+    const response = await studioFetch('/api/export', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body
@@ -4429,7 +4576,7 @@ storyDrawer.addEventListener('click', event => {
 });
 (async () => {
   try {
-    const response = await fetch('/api/starter/reset',{
+    const response = await studioFetch('/api/starter/reset',{
       method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
     });
     if (!response.ok) throw Error(`HTTP ${response.status}`);
@@ -4471,12 +4618,12 @@ setInterval(()=>{
   if (!document.hidden && (storyView === 'book' || storyView === 'write')) void refreshArtwork();
 },5000);
 setInterval(async () => {
-  if (!state || document.hidden || checkingUpdates || dirty || pendingWrites || busy ||
+  if (!state || hostedSessionExpired || document.hidden || checkingUpdates || dirty || pendingWrites || busy ||
     composerEdit || settingsDraftChanged() || document.querySelector('dialog[open]')) return;
   checkingUpdates = true;
   const polledRevision = revision;
   try {
-    const response = await fetch('/api/state', {headers:{'If-None-Match':polledRevision}});
+    const response = await studioFetch('/api/state', {headers:{'If-None-Match':polledRevision}});
     if (response.status !== 200) return;
     const updated = normalize(await response.json());
     if (revision !== polledRevision || dirty || pendingWrites || busy || composerEdit || settingsDraftChanged() || document.querySelector('dialog[open]')) return;

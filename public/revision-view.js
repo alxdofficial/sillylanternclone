@@ -10,12 +10,11 @@ const sceneLabel = scene => `Chapter ${scene.chapter} · Scene ${scene.number}`;
 const countLabel = (number,singular,plural = `${singular}s`) => `${number.toLocaleString()} ${number === 1 ? singular : plural}`;
 const statusId = kind => kind === 'continuity' ? 'continuityStatus' : 'revisionStatus';
 const excerptTitle = quote => quote.trim().replace(/\s+/gu,' ').slice(0,120);
-const reviewStorageKey = 'studio-revision-findings-v1';
 const reviewLimit = 24;
 
-function readReviewCache() {
+function readReviewCache(key) {
   try {
-    const saved = sessionStorage.getItem(reviewStorageKey);
+    const saved = sessionStorage.getItem(key);
     if (saved && saved.length < 500000) {
       const entries = JSON.parse(saved);
       if (Array.isArray(entries)) return new Map(entries.slice(-reviewLimit));
@@ -69,12 +68,12 @@ function addSection(parent,title,id) {
 export function createRevisionViews({activeStory,stories,writeNotes,openScene,requestReview,
   openTool = ()=>{}, readManuscript = ()=>{}, highlight = ()=>{}, reviewModel = ()=>'',
   backgroundReview = ()=>undefined, setBackgroundReview = ()=>{}, paintHeatmap = ()=>{}, canPaintHeatmap = ()=>true,
-  revealHeatmap = ()=>{}}) {
+  revealHeatmap = ()=>{}, cacheKey = 'studio-revision-findings-v1'}) {
   const view = $('revisionView');
   const continuityView = $('continuityReview');
   const states = new Map();
   const findingsCache = new Map();
-  const storedReviews = readReviewCache();
+  const storedReviews = readReviewCache(cacheKey);
   const visualizations = new Map();
   const heatmapControls = [];
   let owner, state, scenes, notes, scope, mode, pending;
@@ -617,7 +616,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
       storedReviews.delete(hash);
       storedReviews.set(hash,cache);
       if (storedReviews.size > reviewLimit) storedReviews.delete(storedReviews.keys().next().value);
-      sessionStorage.setItem(reviewStorageKey,JSON.stringify([...storedReviews]));
+      sessionStorage.setItem(cacheKey,JSON.stringify([...storedReviews]));
     } catch {}
   }
 

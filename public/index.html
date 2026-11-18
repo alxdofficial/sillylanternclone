@@ -24,7 +24,20 @@
   <symbol id="icon-threads" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.5 6H14a3 3 0 0 1 0 6h-4a3 3 0 0 0 0 6h5.5"/></symbol>
   <symbol id="icon-continuity" viewBox="0 0 24 24"><path d="M6 4h12v16H6zM9 12l2 2 4-4M9 7h6"/></symbol>
 </svg>
-<div class="shell">
+<main id="accountGate" class="account-gate" aria-labelledby="accountGateTitle" hidden>
+  <div class="account-panel">
+    <h1 id="accountGateTitle" tabindex="-1">Story Studio</h1>
+    <p id="accountGateIntro" class="form-note">Sign in with your private beta account.</p>
+    <form id="signInForm" method="post" action="/api/account/login">
+      <label>Email<input name="email" type="email" autocomplete="username" maxlength="254" required></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" maxlength="256" required></label>
+      <button class="button primary" type="submit">Sign in</button>
+    </form>
+    <p id="accountGateError" class="form-note account-error" role="alert" hidden></p>
+    <button id="accountRetry" class="button subtle" type="button" hidden>Try again</button>
+  </div>
+</main>
+<div class="shell" id="studioShell" hidden>
   <dialog class="sidebar" id="sidebar" aria-labelledby="storiesHeading">
     <header class="brand library-header">
       <h2 id="storiesHeading">Your stories</h2>
@@ -39,7 +52,7 @@
     </header>
     <div id="projectList" class="project-list"></div>
     <footer class="side-bottom">
-      <span>Library saved on this computer</span>
+      <span id="libraryLocation">Library saved on this computer</span>
       <button id="exportButton" class="button subtle">Export history ZIP</button>
       <input id="importFile" type="file" accept="application/json,.json" hidden>
     </footer>
@@ -588,9 +601,18 @@
       <button type="button" id="closeProvider" class="icon" aria-label="Close"><svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg></button>
     </header>
     <div class="dialog-body">
+      <section class="connection-row" id="hostedAccountSettings" hidden>
+        <h3>Account</h3>
+        <div class="hosted-account-details">
+          <p id="accountEmail"></p>
+          <button id="signOut" class="button subtle" type="button">Sign out</button>
+          <p id="signOutError" class="form-note account-error" role="alert" hidden></p>
+        </div>
+      </section>
       <section class="connection-row">
         <h3>API providers</h3>
-        <div>
+        <p id="providerAccessNote" class="form-note" hidden>Adding provider keys is disabled for this account.</p>
+        <div id="providerKeyFields">
           <label>Claude API key<input id="claudeKeyInput" aria-describedby="keyStorage" type="password" autocomplete="off" maxlength="512"></label>
           <label class="context-toggle" hidden><input type="checkbox" id="removeClaudeKey"> Remove saved Claude key</label>
           <label>OpenAI API key<input id="openAiKeyInput" aria-describedby="keyStorage" type="password" autocomplete="off" maxlength="512"></label>
@@ -605,7 +627,7 @@
         <h3>Reading</h3>
         <label class="context-toggle" title="Include author directions in the Graph timeline."><input type="checkbox" id="toggleDirections"> Show author directions in Graph</label>
       </section>
-      <section class="connection-row">
+      <section class="connection-row" id="localToolSettings">
         <h3>External tools</h3>
         <p class="form-note">Optional MCP clients can read and edit the saved library.</p>
       </section>

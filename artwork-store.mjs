@@ -167,25 +167,41 @@ function corrupt() {
 
 const encodeManifest = (storyId,entries) => Buffer.from(JSON.stringify({version:1,storyId,entries}));
 
-export function createArtworkStore(dataDir) {
-  const root = resolve(dataDir,'artwork');
+export function createArtworkStore(dataDir, fileAccess) {
+  const root = fileAccess ? undefined : resolve(dataDir,'artwork');
   const serialize = serializeByKey();
 
-  // Serialize per story so generation, approval and archival see complete batches.
   function access(storyId,work) {
-    const key = keyForStory(storyId), directory = join(root,key);
-    return serialize(key,()=>work({key,directory}));
+    const key = keyForStory(storyId);
+    if (fileAccess) return fileAccess(key,files=>work({key,...files}));
+    const directory = join(root,key);
+    return serialize(key,()=>work({
+      key,
+      async readManifest(limit) {
+        if (!await checkedDirectory(root,false,corrupt) || !await checkedDirectory(directory,false,corrupt)) return null;
+        try {
+          return await readBoundedFile(join(directory,'manifest.json'),limit,corrupt);
+        } catch (error) {
+          if (error.code === 'ENOENT') return null;
+          throw error;
+        }
+      },
+      async writeManifest(bytes) {
+        await atomicWrite(directory,'manifest.json',bytes);
+      },
+      readAsset: (name,limit)=>readBoundedFile(join(directory,name),limit,corrupt),
+      async writeAsset(name,bytes) {
+        await checkedDirectory(root,true,corrupt);
+        await checkedDirectory(directory,true,corrupt);
+        await atomicWrite(directory,name,bytes);
+      },
+      removeAsset: name=>rm(join(directory,name),{force:true})
+    }));
   }
 
-  async function readManifest(storyId,directory) {
-    if (!await checkedDirectory(root,false,corrupt) || !await checkedDirectory(directory,false,corrupt)) return [];
-    let data;
-    try {
-      data = await readBoundedFile(join(directory,'manifest.json'),manifestByteLimit,corrupt);
-    } catch (error) {
-      if (error.code === 'ENOENT') return [];
-      throw error;
-    }
+  async function readManifest(storyId,files) {
+    const data = await files.readManifest(manifestByteLimit);
+    if (!data) return [];
     try {
       const saved = JSON.parse(data.toString('utf8'));
       if (!record(saved) || saved.version !== 1 || saved.storyId !== storyId ||
@@ -199,21 +215,21 @@ export function createArtworkStore(dataDir) {
     }
   }
 
-  async function saveManifest(storyId,directory,entries) {
+  async function saveManifest(storyId,files,entries) {
     const bytes = encodeManifest(storyId,entries);
     if (bytes.length > manifestByteLimit) throw fail(413,'ARTWORK_STORAGE_FULL','This story has reached its artwork metadata limit.');
-    await atomicWrite(directory,'manifest.json',bytes);
+    await files.writeManifest(bytes);
   }
 
-  async function readImage(directory,entry) {
-    const bytes = await readBoundedFile(join(directory,assetName(entry)),entry.byteLength,corrupt);
+  async function readImage(files,entry) {
+    const bytes = await files.readAsset(assetName(entry),entry.byteLength);
     if (bytes.length !== entry.byteLength) throw corrupt();
     try { assertImage(bytes,entry.mime); } catch { throw corrupt(); }
     return {mime:entry.mime,bytes};
   }
 
   async function list(storyId) {
-    return access(storyId,({directory})=>readManifest(storyId,directory));
+    return access(storyId,files=>readManifest(storyId,files));
   }
 
   async function put(storyId,items) {
@@ -227,8 +243,8 @@ export function createArtworkStore(dataDir) {
       const bytes = Buffer.from(item.bytes);
       return {entry:{...details,id,createdAt,status:'pending',byteLength:bytes.length},bytes};
     });
-    return access(storyId,async ({directory})=>{
-      const entries = await readManifest(storyId,directory);
+    return access(storyId,async files=>{
+      const entries = await readManifest(storyId,files);
       const existingIds = new Set(entries.map(entry=>entry.id));
       let total = entries.reduce((sum,entry)=>sum+entry.byteLength,0);
       if (entries.length + batch.length > maxEntries) throw fail(413,'ARTWORK_STORAGE_FULL','This story has reached its artwork storage limit.');
@@ -241,20 +257,18 @@ export function createArtworkStore(dataDir) {
         total += entry.byteLength;
         if (total > artworkStoryByteLimit) throw fail(413,'ARTWORK_STORAGE_FULL','This story has reached its artwork storage limit.');
       }
-      await checkedDirectory(root,true,corrupt);
-      await checkedDirectory(directory,true,corrupt);
       const written = [];
       try {
         for (const {entry,bytes} of batch) {
           const name = assetName(entry);
-          await atomicWrite(directory,name,bytes);
+          await files.writeAsset(name,bytes,entry.mime);
           written.push(name);
         }
         const added = batch.map(({entry})=>entry);
-        await saveManifest(storyId,directory,[...entries,...added]);
+        await saveManifest(storyId,files,[...entries,...added]);
         return added;
       } catch (error) {
-        await Promise.allSettled(written.map(name=>rm(join(directory,name),{force:true})));
+        await Promise.allSettled(written.map(name=>files.removeAsset(name)));
         throw error;
       }
     });
@@ -264,31 +278,31 @@ export function createArtworkStore(dataDir) {
     if (!isArtworkId(id) || !only(change,['action','turn']) ||
       !['approve','discard','place','unplace'].includes(change.action) ||
       (change.action === 'place' ? !validTurn(change.turn) : change.turn !== undefined)) throw invalidItem();
-    return access(storyId,async ({directory})=>{
-      const entries = await readManifest(storyId,directory);
+    return access(storyId,async files=>{
+      const entries = await readManifest(storyId,files);
       const index = entries.findIndex(item=>item.id === id);
       if (index < 0) return null;
       const item = entries[index];
       if (change.action === 'discard') {
         entries.splice(index,1);
-        await saveManifest(storyId,directory,entries);
-        await rm(join(directory,assetName(item)),{force:true});
+        await saveManifest(storyId,files,entries);
+        await files.removeAsset(assetName(item));
         return {id,discarded:true};
       }
       if (change.action === 'approve' || change.action === 'place') item.status = 'approved';
       if (change.action === 'place') item.placedTurn = change.turn;
       if (change.action === 'unplace') delete item.placedTurn;
-      await saveManifest(storyId,directory,entries);
+      await saveManifest(storyId,files,entries);
       return item;
     });
   }
 
   async function file(storyId,id) {
     if (!isArtworkId(id)) return null;
-    return access(storyId,async ({directory})=>{
-      const entries = await readManifest(storyId,directory);
+    return access(storyId,async files=>{
+      const entries = await readManifest(storyId,files);
       const item = entries.find(entry=>entry.id === id);
-      return item ? readImage(directory,item) : null;
+      return item ? readImage(files,item) : null;
     });
   }
 
@@ -300,14 +314,14 @@ export function createArtworkStore(dataDir) {
       if (size > maxBytes) throw fail(413,'ARTWORK_ARCHIVE_TOO_LARGE','Artwork exceeds the ZIP export limit. Copy the Studio data directory to back up the full library.');
     };
     for (const storyId of new Set(storyIds)) {
-      await access(storyId,async ({key,directory})=>{
-        const entries = await readManifest(storyId,directory);
+      await access(storyId,async storage=>{
+        const entries = await readManifest(storyId,storage);
         if (!entries.length) return;
         const manifest = encodeManifest(storyId,entries);
         reserve(manifest.length + entries.reduce((sum,entry)=>sum+entry.byteLength,0));
-        const prefix = `artwork/${key}/`;
+        const prefix = `artwork/${storage.key}/`;
         files[prefix + 'manifest.json'] = manifest;
-        for (const entry of entries) files[prefix + assetName(entry)] = (await readImage(directory,entry)).bytes;
+        for (const entry of entries) files[prefix + assetName(entry)] = (await readImage(storage,entry)).bytes;
       });
     }
     return files;

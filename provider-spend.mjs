@@ -32,8 +32,23 @@ export function providerCost(provider, model, usage) {
   return (input > 272_000 ? billedInput * 2 + output * rates.output * 1.5 : billedInput + output * rates.output) / 1_000_000;
 }
 
-export function createSpendLedger(dataDir) {
-  const directory = join(dataDir,'provider-spend');
+export function createSpendLedger(dataDir, records) {
+  const directory = records ? undefined : join(dataDir,'provider-spend');
+  const dayKey = day=>'spend:'+day;
+  async function readDay(day) {
+    if (records) {
+      const {value} = await records.read(dayKey(day));
+      return Array.isArray(value?.entries) ? value.entries : [];
+    }
+    const lines = await readFile(join(directory,day+'.jsonl'),'utf8').catch(error=>{
+      if (error.code !== 'ENOENT') throw error;
+      return '';
+    });
+    return lines.trim().split('\n').flatMap(line=>{
+      if (!line) return [];
+      try { return [JSON.parse(line)]; } catch { return []; }
+    });
+  }
   return {
     record({provider,model,result,time = new Date()}) {
       const returnedModel = result?.model;
@@ -43,9 +58,11 @@ export function createSpendLedger(dataDir) {
       const reported = {input:usage?.prompt_tokens,output:usage?.completion_tokens,
         cacheRead:usage?.prompt_tokens_details?.cached_tokens,cacheWrite:usage?.prompt_tokens_details?.cache_write_tokens};
       const tokens = Object.fromEntries(Object.entries(reported).filter(([,value])=>tokenCount(value)));
+      const day = isoDay(time);
+      const entry = {time:time.toISOString(),provider,model,usd,tokens};
+      if (records) return records.update(dayKey(day),value=>({entries:[...(value?.entries || []),entry]})).then(()=>usd);
       mkdirSync(directory,{recursive:true,mode:0o700});
-      appendFileSync(join(directory,isoDay(time)+'.jsonl'),
-        JSON.stringify({time:time.toISOString(),provider,model,usd,tokens})+'\n',{mode:0o600});
+      appendFileSync(join(directory,day+'.jsonl'),JSON.stringify(entry)+'\n',{mode:0o600});
       return usd;
     },
     async recent(timeZone, now = new Date()) {
@@ -56,14 +73,9 @@ export function createSpendLedger(dataDir) {
       };
       const localToday = Date.parse(localDay(now)+'T12:00:00Z');
       const days = new Map(Array.from({length:7},(_,i)=>[isoDay(new Date(localToday - (6-i)*dayMs)),new Map()]));
-      const files = await Promise.all(Array.from({length:8},(_,i)=>readFile(
-        join(directory,isoDay(new Date(now.valueOf()-i*dayMs))+'.jsonl'),'utf8'
-      ).catch(error=>{ if (error.code !== 'ENOENT') throw error; return ''; })));
+      const files = await Promise.all(Array.from({length:8},(_,i)=>readDay(isoDay(new Date(now.valueOf()-i*dayMs)))));
       for (const file of files) {
-        for (const line of file.trim().split('\n')) {
-          if (!line) continue;
-          let entry;
-          try { entry = JSON.parse(line); } catch { continue; }
+        for (const entry of file) {
           const {provider,model,time,usd} = entry || {};
           const timestamp = Date.parse(time);
           if (!Number.isFinite(timestamp) || !provider || modelProvider(model) !== provider) continue;

@@ -1,6 +1,17 @@
-# Hosted Story Studio proposal
+# Hosted Story Studio
 
-For an invite-only launch, reuse the current browser and Node harness. Run the web service and durable job worker on Railway. Use Supabase for login, Postgres, private file storage and Realtime. Start with OpenRouter Standard for qualified routes and keep the existing direct adapters available. All costs below are planning estimates in USD, checked on 18 November 2026.
+The invite-only beta runs one Node service on Railway and uses Supabase Auth, Postgres, and private Storage. The local release stays on `main` and Railway deploys `hosted`. Land shared harness, prompt, and engine fixes on `main`, then merge `main` into `hosted` and run both runtime paths.
+
+### Beta setup
+
+1. Apply the migration in `supabase/migrations/` to the dedicated Supabase project. It defines beta entitlements, per-account libraries and metadata, revision-aware writes, encrypted provider key storage, and private object policies.
+2. In Supabase **Authentication → Users**, create and confirm each invited email/password account. Grant access by inserting its Auth user ID in `public.story_studio_accounts`. Set `can_bring_key` to true only for invited writers approved to use their own key. Setting `enabled` to false revokes access. Send any temporary sign-in details over an approved private channel.
+3. Set Railway service variables `STORY_STUDIO_ORIGIN` (the full HTTPS URL), `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `STORY_STUDIO_ENCRYPTION_KEY` (32 random bytes, base64url). The encryption key protects browser sessions and saved provider credentials, so back it up separately. Replacing it invalidates sessions and saved keys. The app uses authenticated Supabase requests with row-level security.
+4. Connect the Railway service to the `hosted` branch. `railway.toml` starts the hosted runtime and checks `/healthz`. Verify access with two test accounts before giving the URL to writers.
+
+The beta has no public sign-up, shared provider budget, or live collaboration. An approved user can enter a provider key in Settings and is billed by that provider. AI calls and analysis use the existing provider adapters. Hosted background review is opt-in and progresses while the writer is signed in. Writers can import their local library from a Story Studio export. The hosted demo starts fresh and the two runtimes have separate story data.
+
+The scaling and billing proposals below are planning estimates in USD, checked on 18 November 2026.
 
 ## Deployment and data
 
@@ -18,7 +29,7 @@ An internal prototype can start near $5/month plus model usage, subject to the f
 - Keep the existing story shape at the harness boundary. Store canonical cast, world, notes and graph data per project. Give each scene a stable ID and revision. Move chapter order, job status, membership, versions and the credit ledger into their own records. Round-trip existing alternates, graph provenance and context-exclusion flags through import/export. Create a separate copy of the demo for each account.
 - A job contains a project ID, expected revision, named action and allowed model route. The server authenticates membership and loads the source snapshot. The worker runs bounded tool calls and checks permission and revision again before saving. Queue messages carry IDs. Model credentials stay in the server secret store. Keep production logs to request IDs, durations, outcomes and measured usage by default.
 
-## Collaboration
+## Future collaboration
 
 Start with owner, editor and viewer roles, email-bound expiring invitations, and project-scoped authorization in Postgres. Give spending its own permission and workspace budget. Use Presence for who is viewing or editing. Broadcast revision notices over a private channel, then fetch authorized data from the API. Apply revocations to all reads, edits, jobs and new download links. [Supabase row-level security](https://supabase.com/docs/guides/database/postgres/row-level-security) · [Realtime authorization](https://supabase.com/docs/guides/realtime/authorization)
 
@@ -56,7 +67,7 @@ OpenRouter Standard charges 5.5% when loading funds. Business charges 8%. Standa
 
 The live Late Ferry update spent $0.2464 on ten Sonnet calls, including prose, continuity, suggestions and image planning, plus $0.05 on six renders. Treat this as a measured example. Compare candidate routes on cost per approved scene, successful tool update or accepted image, including retries and paid work the user discards. Cache stable prompt prefixes, measure billed reasoning and cache costs, and queue delay-tolerant work for batch discounts where quality holds. Use the existing direct adapters where eligibility and measured unit economics support them. [OpenAI Terra rates](https://developers.openai.com/api/docs/models/gpt-6.1-terra) · [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing) · [OpenRouter DeepSeek model](https://openrouter.ai/deepseek/deepseek-v4.1-flash) · [FLUX pricing](https://bfl.ai/pricing)
 
-### Rollout
+### Beyond the private beta
 
 1. Start with private accounts, faithful local import/export, provider allowlists and a durable job queue.
 2. Verify debits and refunds through retry, timeout, cancellation and payment webhook replay. Add subscriptions only after the measured action costs and payment eligibility are clear.

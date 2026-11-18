@@ -1,4 +1,8 @@
 import http from 'node:http';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { createHostedAuth } from './hosted-auth.mjs';
+import { createHostedStorage } from './hosted-storage.mjs';
+import { createHostedCredentials } from './hosted-credentials.mjs';
 import { readFile, writeFile, mkdir, rename, stat } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -26,7 +30,7 @@ import { analysisOutputLimit } from './revision-background-review.mjs';
 import { normalizeRevisionNotes, sceneIndex } from './public/revision.js';
 import { normalizeSceneBoard, validSceneBoard } from './public/scene-board.js';
 import { normalizeDraftCheckpoints, validDraftCheckpoints } from './public/draft-comparison.js';
-import { artworkCanon, artworkCanonKey, artworkPassage, artworkStatus, artworkSubject } from './artwork-context.mjs';
+import { artworkCanon, artworkCanonKey, artworkPassage, artworkStatus as buildArtworkStatus, artworkSubject } from './artwork-context.mjs';
 import { createArtworkStore } from './artwork-store.mjs';
 import { artworkPlannerOutputLimit, generateArtwork } from './artwork-generation.mjs';
 import { createStoryVersions } from './story-versions.mjs';
@@ -34,15 +38,24 @@ import { planManuscriptTransition, transitionPlannerOutputLimit } from './manusc
 
 const root=dirname(fileURLToPath(import.meta.url));
 const dataDir=process.env.STORY_STUDIO_DATA || join(homedir(),'Library','Application Support','Story Studio');
-const spend = createSpendLedger(dataDir);
-const artwork = createArtworkStore(dataDir);
-const versions = createStoryVersions(dataDir);
-const credentials = createCredentialStore(dataDir);
-const reviewStory = createRevisionReviewer();
+const hosted = process.env.STORY_STUDIO_MODE === 'hosted';
+const publicOrigin = hosted ? new URL(process.env.STORY_STUDIO_ORIGIN || 'https://' + (process.env.RAILWAY_PUBLIC_DOMAIN || '')) : null;
+if (publicOrigin && (publicOrigin.protocol !== 'https:' || publicOrigin.pathname !== '/' || publicOrigin.search ||
+    publicOrigin.hash || publicOrigin.username || publicOrigin.password)) throw new Error('Configure a public HTTPS origin for hosted Story Studio.');
+const supabaseConfig = {url:process.env.SUPABASE_URL,key:process.env.SUPABASE_PUBLISHABLE_KEY};
+const hostedAuth = hosted ? createHostedAuth({...supabaseConfig,encryptionKey:process.env.STORY_STUDIO_ENCRYPTION_KEY}) : null;
+const hostedStorage = hosted ? createHostedStorage(supabaseConfig) : null;
+const requestScope = new AsyncLocalStorage();
+const runtimes = new Map();
+const state = () => requestScope.getStore()?.runtime ?? localRuntime;
+const stores = () => requestScope.getStore()?.storage ?? localStorage;
+const keyStore = () => requestScope.getStore()?.credentials ?? localCredentials;
+const localStorage = hosted ? null : {spend:createSpendLedger(dataDir),artwork:createArtworkStore(dataDir),versions:createStoryVersions(dataDir)};
+const localCredentials = hosted ? null : createCredentialStore(dataDir);
 const statePath=join(dataDir,'library.json');
 const port=Number(process.env.PORT || 4317);
 const log = createLogger('server');
-const traces = new Map(Object.keys(providerNames).map(provider=>[provider,createTrace(provider)]));
+const traces = new Map(Object.keys(providerNames).map(provider=>[provider,hosted ? ()=>{} : createTrace(provider)]));
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   log('error','startup_failed',{code:'INVALID_PORT'});
   console.error('Story Studio: PORT must be a number from 1 to 65535.');
@@ -50,28 +63,58 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/generate','/api/story-edits','/api/story-flow','/api/setup','/api/export','/api/provider-keys','/api/revision','/api/writing-analysis','/api/artwork','/api/artwork/image']);
 const foregroundEndpoints = new Set(['/api/generate','/api/story-edits','/api/story-flow','/api/setup','/api/revision']);
-const generatingArt = new Set();
 apiEndpoints.add('/api/story-versions');
 apiEndpoints.add('/api/manuscript-transition');
 foregroundEndpoints.add('/api/manuscript-transition');
-let foregroundRequests = 0;
-const background = createBackgroundAnalysis({dataDir,readLibrary:readSavedLibrary,libraryVersion:savedLibraryVersion,
-  hasKey:async model=>Boolean((await credentials.keys([[modelProvider(model)]]))[0]),
-  shouldYield:()=>foregroundRequests > 0,
-  async complete({storyId,model,messages,tools,signal}) {
-    const provider = modelProvider(model);
-    const [key] = await credentials.keys([[provider]]);
-    if (!key || foregroundRequests) throw diagnosticError('REVIEW_DEFERRED','Background review will resume shortly.');
-    const diagnostics = {requestId:randomUUID(),storyRef:storyReference(storyId),provider,model};
-    return generateCompletion(messages,model,key,diagnostics,{stage:'revision-background',tools,signal,maxOutputTokens:analysisOutputLimit});
-  },
-  reportError: (error,id)=>log('warn','background_review_failed',{storyRef:id && storyReference(id),code:errorCode(error,'BACKGROUND_REVIEW_FAILED')})
-});
 const methodNames = new Set(['GET','POST','PUT']);
 const modelIds = new Set(models.map(model => model.id));
-let starter = createStarterStory();
-let starterSelected = false;
-let starterGeneration = randomUUID();
+
+function createRuntime(cache) {
+  const runtime = {
+    foregroundRequests:0,generatingArt:new Set(),reviewStory:createRevisionReviewer(),writes:Promise.resolve(),
+    starter:createStarterStory(),starterSelected:false,starterGeneration:randomUUID(),lastUsed:Date.now(),inFlight:0,analysisTask:null
+  };
+  runtime.background = createBackgroundAnalysis({dataDir,cache,defaultEnabled:!hosted,readLibrary:readSavedLibrary,libraryVersion:savedLibraryVersion,
+    hasKey:async model=>Boolean((await keyStore().keys([[modelProvider(model)]]))[0]),
+    shouldYield:()=>runtime.foregroundRequests > 0,
+    async complete({storyId,model,messages,tools,signal}) {
+      const provider = modelProvider(model);
+      const [key] = await keyStore().keys([[provider]]);
+      if (!key || runtime.foregroundRequests) throw diagnosticError('REVIEW_DEFERRED','Background review will resume shortly.');
+      const diagnostics = {requestId:randomUUID(),storyRef:storyReference(storyId),provider,model};
+      return generateCompletion(messages,model,key,diagnostics,{stage:'revision-background',tools,signal,maxOutputTokens:analysisOutputLimit});
+    },
+    reportError:(error,id)=>log('warn','background_review_failed',{storyRef:id && storyReference(id),code:errorCode(error,'BACKGROUND_REVIEW_FAILED')})
+  });
+  return runtime;
+}
+const localRuntime = hosted ? null : createRuntime();
+
+function accountRuntime(userId) {
+  const previous = runtimes.get(userId);
+  if (previous) {
+    previous.lastUsed = Date.now();
+    return previous;
+  }
+  const expired = Date.now()-15*60_000;
+  for (const [id,item] of runtimes) {
+    if (!item.inFlight && !item.analysisTask && (item.lastUsed < expired || runtimes.size >= 12)) {
+      item.background.stop();
+      runtimes.delete(id);
+    }
+  }
+  if (runtimes.size >= 12) throw Object.assign(diagnosticError('ACCOUNT_CAPACITY','The beta is busy. Try again shortly.'),{status:503});
+  const cache = {
+    async read() { return (await stores().records.read('writing-analysis')).value; },
+    async write(value) { await stores().records.update('writing-analysis',()=>value); }
+  };
+  // Create the runtime inside the caller's request scope so its analysis cache
+  // initialization uses the same account and authenticated storage adapter.
+  const runtime = createRuntime(cache);
+  runtimes.set(userId,runtime);
+  return runtime;
+}
+
 const json=(res,status,body)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(body));};
 function disconnectSignal(res) {
   const controller = new AbortController();
@@ -107,6 +150,7 @@ function migrateLibrary(library) {
   return library;
 }
 async function savedLibraryVersion() {
+  if (hosted) return (await stores().library.read()).revision;
   const paths = process.env.STORY_STUDIO_DATA ? [statePath] : [statePath,join(root,'data','stories.json')];
   for (const path of paths) {
     try {
@@ -119,6 +163,7 @@ async function savedLibraryVersion() {
   return 'empty';
 }
 async function readSavedLibrary() {
+  if (hosted) return migrateLibrary((await stores().library.read()).value ?? {activeId:'',projects:[]});
   try {
     return await parseLibrary(statePath);
   } catch (e) {
@@ -135,6 +180,7 @@ async function readSavedLibrary() {
 }
 
 function withStarter(saved) {
+  const {starter,starterSelected} = state();
   const activeId = starterSelected || !saved.projects.length ? starterStoryId : saved.activeId;
   return {...saved,activeId,projects:[...saved.projects,starter]};
 }
@@ -143,13 +189,17 @@ async function getState() {
   return withStarter(await readSavedLibrary());
 }
 
-let writes = Promise.resolve();
-const revisionOf = state => '"' + createHash('sha256').update(JSON.stringify(state)).digest('hex') + '"';
-const liveRevision = library => revisionOf([starterGeneration,library]);
+function stableKeys(_key,value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key=>[key,value[key]]));
+}
+const revisionOf = value => '"' + createHash('sha256').update(JSON.stringify(value,hosted ? stableKeys : undefined)).digest('hex') + '"';
+const liveRevision = library => revisionOf([state().starterGeneration,library]);
 
 function updateState(operation) {
-  const op = writes.then(operation);
-  writes = op.catch(() => {});
+  const runtime = state();
+  const op = runtime.writes.then(operation);
+  runtime.writes = op.catch(() => {});
   return op;
 }
 
@@ -178,7 +228,8 @@ function versionLabel(previous, project) {
 
 function saveState(value, expectedRevision, starterOnly, restoration) {
   return updateState(async () => {
-    const previous = await readSavedLibrary();
+    const row = hosted ? await stores().library.read() : null;
+    const previous = row ? migrateLibrary(row.value ?? {activeId:'',projects:[]}) : await readSavedLibrary();
     if (expectedRevision && liveRevision(withStarter(previous)) !== expectedRevision) return null;
     const selectedDemo = value.activeId === starterStoryId;
     const saved = starterOnly ? previous : withoutStarter(value);
@@ -186,25 +237,30 @@ function saveState(value, expectedRevision, starterOnly, restoration) {
       saved.activeId = previous.activeId;
     }
     if (!starterOnly && revisionOf(previous) !== revisionOf(saved)) {
-      await mkdir(dataDir, {recursive:true});
-      const tmp = join(dataDir, `.stories-${randomUUID()}.tmp`);
-      await writeFile(tmp, JSON.stringify(saved, null, 2), {mode:0o600});
-      await rename(tmp, statePath);
+      if (row) {
+        if (!await stores().library.write(saved,row.revision)) return null;
+      } else {
+        await mkdir(dataDir, {recursive:true});
+        const tmp = join(dataDir, `.stories-${randomUUID()}.tmp`);
+        await writeFile(tmp, JSON.stringify(saved, null, 2), {mode:0o600});
+        await rename(tmp, statePath);
+      }
       const before = new Map(previous.projects.map(project=>[project.id,project]));
       for (const project of saved.projects) {
         const older = before.get(project.id);
         if (older && revisionOf(older) === revisionOf(project)) continue;
         try {
-          if (older) await versions.record(versionSnapshot(older),{label:'Before update'});
+          if (older) await stores().versions.record(versionSnapshot(older),{label:'Before update'});
           const restoredFrom = restoration?.storyId === project.id ? restoration.versionId : undefined;
-          await versions.record(versionSnapshot(project),{label:restoredFrom ? 'Restored an earlier version' : versionLabel(older,project),restoredFrom});
+          await stores().versions.record(versionSnapshot(project),{label:restoredFrom ? 'Restored an earlier version' : versionLabel(older,project),restoredFrom});
         } catch (failure) {
           log('warn','story_version_failed',{storyRef:storyReference(project.id),code:errorCode(failure,'STORY_VERSION_FAILED')});
         }
       }
     }
-    starter = value.projects.find(project => project.id === starterStoryId) || starter;
-    starterSelected = selectedDemo;
+    const runtime = state();
+    runtime.starter = value.projects.find(project => project.id === starterStoryId) || runtime.starter;
+    runtime.starterSelected = selectedDemo;
     return liveRevision(withStarter(saved));
   });
 }
@@ -212,7 +268,7 @@ function saveState(value, expectedRevision, starterOnly, restoration) {
 function sendLibrary(req,res,library) {
   const revision = liveRevision(library);
   res.setHeader('etag', revision);
-  res.setHeader('x-story-studio-demo-generation',starterGeneration);
+  res.setHeader('x-story-studio-demo-generation',state().starterGeneration);
   if (req.headers['if-none-match'] === revision) {
     res.writeHead(304);
     return res.end();
@@ -297,7 +353,7 @@ async function generateCompletion(messages, model, key, diagnostics, {
   }
   if (!responseFailure && (response.ok || result?.usage)) {
     try {
-      const usd = spend.record({provider,model,result});
+      const usd = await stores().spend.record({provider,model,result});
       if (usd !== null) details.costUsd = usd;
     } catch (failure) {
       log('warn','spend_record_failed',{requestId:diagnostics.requestId,provider,code:errorCode(failure,'SPEND_WRITE_FAILED')});
@@ -382,7 +438,7 @@ async function generateSetup(req,res,diagnostics) {
     diagnostics.code = 'SETUP_MODEL_INVALID';
     return json(res,400,{error:'Choose a model from the selected API provider.'});
   }
-  const [key] = await credentials.keys([[provider,requestKey]]);
+  const [key] = await keyStore().keys([[provider,requestKey]]);
   if (!validKey(key)) return json(res,400,{error:keyRequired(provider)});
   const drafting = mode === 'draft';
   const selected = drafting ? setupDraftModel(model) : model;
@@ -438,7 +494,7 @@ async function generateStoryEdits(req,res,diagnostics) {
     return json(res,400,{error:'Enter a message for the agent.'});
   }
   if (!isAgentModel(model) || modelProvider(model) !== provider) return json(res,400,{error:'Choose a supported model for Agent mode.'});
-  const [key] = await credentials.keys([[provider,requestKey]]);
+  const [key] = await keyStore().keys([[provider,requestKey]]);
   if (!validKey(key)) return json(res,400,{error:keyRequired(provider)});
   const library = await getState();
   if (liveRevision(library) !== revision) return json(res,409,{error:'The story changed. Reload the latest version and try again.'});
@@ -472,7 +528,7 @@ async function suggestStoryFlow(req,res,diagnostics) {
       || !isContinuityModel(agentModel,sensitive) || modelProvider(agentModel) !== provider) {
     return json(res,400,{error:'Choose a supported continuity agent and story for Story Flow.'});
   }
-  const [key] = await credentials.keys([[provider,requestKey]]);
+  const [key] = await keyStore().keys([[provider,requestKey]]);
   if (!validKey(key)) return json(res,400,{error:keyRequired(provider)});
   Object.assign(diagnostics,{provider,storyRef:storyReference(project.id),model:agentModel});
   const signal = disconnectSignal(res);
@@ -495,7 +551,7 @@ async function runRevisionReview(req,res,diagnostics) {
       comparisonId !== undefined && (kind !== 'continuity' || typeof comparisonId !== 'string' || comparisonId === storyId) ||
       !isAgentModel(model)) return json(res,400,{error:'Check the selected review scope and model.'});
   const provider = modelProvider(model);
-  const [key] = await credentials.keys([[provider]]);
+  const [key] = await keyStore().keys([[provider]]);
   if (!key) return json(res,400,{error:keyRequired(provider)});
   const library = await getState();
   if (revision !== liveRevision(library)) return json(res,409,{error:'The library changed. Try reviewing the latest version.'});
@@ -505,7 +561,7 @@ async function runRevisionReview(req,res,diagnostics) {
   Object.assign(diagnostics,{provider,model,reviewKind:kind,storyRef:storyReference(storyId)});
   const signal = disconnectSignal(res);
   try {
-    const result = await reviewStory(project,{kind,scope,query,comparison,model,signal},
+    const result = await state().reviewStory(project,{kind,scope,query,comparison,model,signal},
       storyToolCompletion(model,key,diagnostics,'revision-review',signal,reviewOutputLimit));
     if (signal.aborted) return;
     if (revision !== liveRevision(await getState())) return json(res,409,{error:'The library changed during the review. Run it again for the latest version.'});
@@ -520,6 +576,13 @@ async function runRevisionReview(req,res,diagnostics) {
   }
 }
 
+function artworkStatus(project,entries) {
+  const results = buildArtworkStatus(project,entries);
+  const account = requestScope.getStore()?.userId;
+  if (!account) return results;
+  return results.map(item=>({...item,url:item.url + '&account=' + encodeURIComponent(account)}));
+}
+
 async function routeArtwork(req,res,url,diagnostics) {
   const input = req.method === 'GET' ? undefined : await body(req,20_000);
   const storyId = input?.storyId || url.searchParams.get('story');
@@ -529,7 +592,7 @@ async function routeArtwork(req,res,url,diagnostics) {
   const demo = storyId === starterStoryId;
   if (url.pathname === '/api/artwork/image' && req.method === 'GET') {
     const id = url.searchParams.get('id');
-    const image = demo ? await readStarterArtwork(id) : await artwork.file(storyId,id);
+    const image = demo ? await readStarterArtwork(id) : await stores().artwork.file(storyId,id);
     if (!image) return json(res,404,{error:'Artwork not found.'});
     res.writeHead(200,{'content-type':image.mime,'cache-control':'no-store',
       'x-content-type-options':'nosniff','cross-origin-resource-policy':'same-origin'});
@@ -537,16 +600,16 @@ async function routeArtwork(req,res,url,diagnostics) {
   }
   if (url.pathname !== '/api/artwork') return json(res,405,{error:'Unsupported artwork request.'});
   if (req.method === 'GET') {
-    const entries = demo ? await listStarterArtwork() : await artwork.list(storyId);
+    const entries = demo ? await listStarterArtwork() : await stores().artwork.list(storyId);
     return json(res,200,artworkStatus(project,entries));
   }
   if (demo) return json(res,400,{error:'Branch the demo to keep artwork in your own story.'});
   if (req.method === 'PUT') {
     const {id,action,turn} = input || {};
     if (action === 'place' && !sceneIndex(project).some(scene=>scene.turn === turn)) return json(res,400,{error:'Choose an existing prose scene.'});
-    const updated = await artwork.update(storyId,id,{action,turn});
+    const updated = await stores().artwork.update(storyId,id,{action,turn});
     if (!updated) return json(res,404,{error:'Artwork not found.'});
-    return json(res,200,artworkStatus(project,await artwork.list(storyId)));
+    return json(res,200,artworkStatus(project,await stores().artwork.list(storyId)));
   }
   if (req.method !== 'POST' || !['reference','illustration','comic'].includes(input?.kind)) {
     return json(res,400,{error:'Choose a reference, illustration, or comic.'});
@@ -555,20 +618,19 @@ async function routeArtwork(req,res,url,diagnostics) {
   const {kind,model,ref} = input;
   if (!isAgentModel(model)) return json(res,400,{error:'Choose an editor or continuity model to plan the artwork.'});
   const provider = modelProvider(model);
-  const [planKey,imageKey] = await credentials.keys([[provider],['openrouter']]);
+  const [planKey,imageKey] = await keyStore().keys([[provider],['openrouter']]);
   if (!planKey || !imageKey) return json(res,400,{error:'Set an OpenRouter key for rendering and a key for the selected planning model in Settings.'});
   const subject = kind === 'reference' ? artworkSubject(project,input.subject) : undefined;
   const passage = kind === 'reference' ? undefined : artworkPassage(project,ref);
-  if (generatingArt.has(storyId)) return json(res,409,{error:'Artwork is already generating for this story.'});
-  generatingArt.add(storyId);
-  foregroundRequests++;
+  if (state().generatingArt.has(storyId)) return json(res,409,{error:'Artwork is already generating for this story.'});
+  state().generatingArt.add(storyId);
   const signal = disconnectSignal(res);
   try {
     diagnostics.storyRef = storyReference(storyId);
-    const saved = await artwork.list(storyId);
+    const saved = await stores().artwork.list(storyId);
     const ready = artworkStatus(project,saved).filter(item=>item.kind === 'reference' && item.status === 'approved' && !item.stale);
     const availableRefs = passage ? ready.filter(item=>item.subject).map(item=>({id:item.id,subject:item.subject,async loadDataUrl() {
-      const image = await artwork.file(storyId,item.id);
+      const image = await stores().artwork.file(storyId,item.id);
       return image ? `data:${image.mime};base64,${Buffer.from(image.bytes).toString('base64')}` : undefined;
     }})) : [];
     await generateArtwork({kind,subject,passage:passage?.text,canon:artworkCanon(project,subject),
@@ -576,16 +638,15 @@ async function routeArtwork(req,res,url,diagnostics) {
       complete:({messages,tools})=>generateCompletion(messages,model,planKey,diagnostics,{
         stage:'artwork-plan',maxOutputTokens:artworkPlannerOutputLimit,tools,signal
       }),
-      onUsage:usage=>spend.record(usage),
-      onImage:({image,...item})=>artwork.put(storyId,[{...item,bytes:image,source:{
+      onUsage:usage=>stores().spend.record(usage),
+      onImage:({image,...item})=>stores().artwork.put(storyId,[{...item,bytes:image,source:{
         canonKey:artworkCanonKey(project,item.subject),...(passage ? {scene:passage.scene} : {})
       }}])
     });
     const latest = (await getState()).projects.find(item=>item.id === storyId) || project;
-    return json(res,200,artworkStatus(latest,await artwork.list(storyId)));
+    return json(res,200,artworkStatus(latest,await stores().artwork.list(storyId)));
   } finally {
-    generatingArt.delete(storyId);
-    foregroundRequests--;
+    state().generatingArt.delete(storyId);
   }
 }
 
@@ -601,13 +662,13 @@ async function routeStoryVersions(req,res,url) {
       const project = (await readSavedLibrary()).projects.find(item=>item.id === storyId);
       if (!project) return json(res,404,{error:'Story not found.'});
       if (versionId) {
-        const snapshot = await versions.get(storyId,versionId);
+        const snapshot = await stores().versions.get(storyId,versionId);
         return snapshot ? json(res,200,snapshot) : json(res,404,{error:'Version not found.'});
       }
-      let history = await versions.list(storyId);
+      let history = await stores().versions.list(storyId);
       if (!history.length) {
-        await versions.record(versionSnapshot(project),{label:'First saved version'});
-        history = await versions.list(storyId);
+        await stores().versions.record(versionSnapshot(project),{label:'First saved version'});
+        history = await stores().versions.list(storyId);
       }
       return json(res,200,history);
     });
@@ -619,7 +680,7 @@ async function routeStoryVersions(req,res,url) {
   const index = library.projects.findIndex(item=>item.id === storyId);
   if (index < 0) return json(res,404,{error:'Story not found.'});
   if (revision !== liveRevision(library)) return json(res,409,{error:'The story changed. Reload its latest version before restoring.'});
-  const snapshot = await versions.get(storyId,versionId);
+  const snapshot = await stores().versions.get(storyId,versionId);
   if (!snapshot) return json(res,404,{error:'Version not found.'});
   const previous = library.projects[index];
   const restored = versionSnapshot(snapshot);
@@ -642,7 +703,7 @@ if (url.pathname === '/api/manuscript-transition' && req.method === 'POST') {
     return json(res,400,{error:'Choose a prose scene and a configured review model.'});
   }
   if (revision !== liveRevision(library)) return json(res,409,{error:'The story changed. Reopen the scene and try again.'});
-  const [key] = await credentials.keys([[modelProvider(model)]]);
+  const [key] = await keyStore().keys([[modelProvider(model)]]);
   if (!key) return json(res,400,{error:'Add the review model’s provider key in Settings.'});
   const signal = disconnectSignal(res);
   diagnostics.storyRef = storyReference(storyId);
@@ -658,20 +719,28 @@ if (url.pathname === '/api/writing-analysis') {
       settings.model !== undefined && !isAgentModel(settings.model) ||
       settings.retry !== undefined && typeof settings.retry !== 'boolean')) return json(res,400,{error:'Check the analysis settings.'});
   const id = settings?.storyId || url.searchParams.get('story');
+  const {starter,background} = state();
   const project = id === starterStoryId ? starter : await background.projectById(id);
   if (!project) return json(res,404,{error:'The selected story is no longer available.'});
   if (id === starterStoryId) return json(res,200,starterReview(project));
   if (settings) await background.configure(project,settings);
-  return json(res,200,await background.status(project));
+  const status = await background.status(project);
+  const runtime = state();
+  if (hosted && !runtime.analysisTask && status.state === 'queued') {
+    runtime.analysisTask = background.tick().catch(error=>log('warn','background_review_failed',{
+      code:errorCode(error,'BACKGROUND_REVIEW_FAILED')
+    })).finally(()=> { runtime.analysisTask = null; });
+  }
+  return json(res,200,status);
 }
 if (url.pathname === '/api/provider-keys') {
-  if (req.method === 'GET') return json(res,200,{enabled:await credentials.status()});
-  if (req.method === 'PUT') return json(res,200,{enabled:await credentials.update(await body(req,4096))});
+  if (req.method === 'GET') return json(res,200,{enabled:await keyStore().status()});
+  if (req.method === 'PUT') return json(res,200,{enabled:await keyStore().update(await body(req,4096))});
 }
 if (url.pathname === '/api/spend' && req.method === 'GET') {
   let timeZone = url.searchParams.get('timeZone') || 'UTC';
   try { new Intl.DateTimeFormat('en',{timeZone}); } catch { timeZone = 'UTC'; }
-  return json(res,200,{days:await spend.recent(timeZone)});
+  return json(res,200,{days:await stores().spend.recent(timeZone)});
 }
 if (url.pathname === '/api/state' && req.method === 'GET') {
   return sendLibrary(req,res,await getState());
@@ -680,8 +749,9 @@ if (url.pathname === '/api/starter/reset' && req.method === 'POST') {
   return await updateState(async () => {
     const saved = await readSavedLibrary();
     // A delayed write from a demo that just reloaded cannot restore its old draft.
-    if (starterSelected || !saved.projects.length) starterGeneration = randomUUID();
-    starter = createStarterStory();
+    const runtime = state();
+    if (runtime.starterSelected || !saved.projects.length) runtime.starterGeneration = randomUUID();
+    runtime.starter = createStarterStory();
     return sendLibrary(req,res,withStarter(saved));
   });
 }
@@ -728,7 +798,7 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
     );
   });
   const storyIds = library.projects.map(project=>project.id);
-  Object.assign(files,await artwork.archive(storyIds),await versions.archive(storyIds));
+  Object.assign(files,await stores().artwork.archive(storyIds),await stores().versions.archive(storyIds));
   const archive = zipSync(files);
   res.writeHead(200, {'content-type': 'application/zip', 'content-disposition': 'attachment; filename="story-studio-history.zip"', 'cache-control': 'no-store'});
   return res.end(Buffer.from(archive));
@@ -753,7 +823,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
   diagnostics.storyRef = storyReference(project.id);
   const signal = disconnectSignal(res);
   try {
-    const [key,agentKey] = await credentials.keys([[provider,requestKey],[agentProvider,agentProvider === provider ? requestKey : separateKey]]);
+    const [key,agentKey] = await keyStore().keys([[provider,requestKey],[agentProvider,agentProvider === provider ? requestKey : separateKey]]);
     if (!validKey(key)) return json(res,400,{error:keyRequired(provider)});
     if (!isWriterModel(model) || modelProvider(model) !== provider) {
       diagnostics.code = 'WRITER_MODEL_INVALID';
@@ -857,14 +927,17 @@ const server = http.createServer(async (req,res) => {
     }
   });
   try {
-    if (![`localhost:${port}`,`127.0.0.1:${port}`].includes(req.headers.host)) {
+    if (hosted && req.method === 'GET' && req.url === '/healthz') return json(res,200,{ok:true});
+    const hosts = hosted ? [publicOrigin.host] : [`localhost:${port}`,`127.0.0.1:${port}`];
+    if (!hosts.includes(req.headers.host)) {
       diagnostics.code = 'INVALID_HOST';
-      return json(res,403,{error:'Use the local app address.'});
+      return json(res,403,{error:'Use the Story Studio address.'});
     }
-    const url = new URL(req.url,`http://127.0.0.1:${port}`);
+    const url = new URL(req.url,hosted ? publicOrigin : `http://127.0.0.1:${port}`);
     if (apiEndpoints.has(url.pathname)) diagnostics.endpoint = url.pathname;
     if (req.method !== 'GET') {
-      if (![`http://127.0.0.1:${port}`,`http://localhost:${port}`].includes(req.headers.origin)) {
+      const origins = hosted ? [publicOrigin.origin] : [`http://127.0.0.1:${port}`,`http://localhost:${port}`];
+      if (!origins.includes(req.headers.origin)) {
         diagnostics.code = 'INVALID_ORIGIN';
         return json(res,403,{error:'Request origin is not allowed.'});
       }
@@ -873,13 +946,57 @@ const server = http.createServer(async (req,res) => {
         return json(res,415,{error:'JSON required.'});
       }
     }
-    const foreground = req.method === 'POST' && foregroundEndpoints.has(url.pathname);
-    if (foreground) foregroundRequests++;
-    try { await routeRequest(req,res,url,diagnostics); }
-    finally { if (foreground) foregroundRequests--; }
+    if (url.pathname === '/api/account' && req.method === 'GET') {
+      const session = hosted ? await hostedAuth.authenticate(req,res) : null;
+      return json(res,200,hosted ? {hosted,account:session?.account ?? null} : {hosted});
+    }
+    if (hosted && url.pathname === '/api/account/login' && req.method === 'POST') {
+      if (hostedAuth.cookieAccount(req)) {
+        const current = await hostedAuth.authenticate(req,res);
+        if (current) return json(res,409,{error:'Sign out before switching accounts.'});
+      }
+      const account = await hostedAuth.login(req,res,await body(req,4096) || {});
+      return json(res,200,{hosted,account});
+    }
+    if (hosted && url.pathname === '/api/account/logout' && req.method === 'POST') {
+      const account = hostedAuth.cookieAccount(req);
+      if (!account || req.headers['x-story-studio-account'] !== account) return json(res,401,{error:'Sign in again.'});
+      await hostedAuth.logout(req,res);
+      runtimes.get(account)?.background.stop();
+      return json(res,200,{ok:true});
+    }
+
+    const perform = async () => {
+      const runtime = state();
+      const foreground = req.method === 'POST' && (foregroundEndpoints.has(url.pathname) || url.pathname === '/api/artwork');
+      if (hosted && foreground && runtime.foregroundRequests >= 1) {
+        return json(res,429,{error:'Another AI request is already running for this account.'});
+      }
+      runtime.inFlight++;
+      if (foreground) runtime.foregroundRequests++;
+      try { return await routeRequest(req,res,url,diagnostics); }
+      finally {
+        runtime.inFlight--;
+        if (foreground) runtime.foregroundRequests--;
+      }
+    };
+
+    if (!hosted) return await perform();
+    if (!url.pathname.startsWith('/api/')) return await routeRequest(req,res,url,diagnostics);
+    const session = await hostedAuth.authenticate(req,res);
+    if (!session) return json(res,401,{error:'Sign in to access Story Studio.'});
+    const image = req.method === 'GET' && url.pathname === '/api/artwork/image';
+    const boundAccount = image ? url.searchParams.get('account') : req.headers['x-story-studio-account'];
+    if (boundAccount !== session.userId) return json(res,401,{error:'This page belongs to another session. Sign in again.'});
+    const storage = hostedStorage.forAccount(session);
+    const credentials = createHostedCredentials(hostedAuth,session);
+    return await requestScope.run({storage,credentials,userId:session.userId},async () => {
+      requestScope.getStore().runtime = accountRuntime(session.userId);
+      return await perform();
+    });
   } catch (error) {
     diagnostics.code = errorCode(error,'INTERNAL_ERROR');
-    if (!res.headersSent) json(res,error.status || 500,{error:error.diagnosticCode ? error.message : 'Story Studio could not complete the request.'});
+    if (!res.headersSent) json(res,error.status || 500,{error:error.diagnosticCode || error.code === 'HOSTED_STORAGE_FAILED' ? error.message : 'Story Studio could not complete the request.'});
     else res.destroy();
   }
 });
@@ -889,9 +1006,12 @@ server.on('error', error => {
   console.error(`Story Studio could not listen on port ${port} (${code}).`);
   process.exitCode = 1;
 });
-server.listen(port,'127.0.0.1', () => {
-  background.start();
+server.listen(port,hosted ? '0.0.0.0' : '127.0.0.1', () => {
+  localRuntime?.background.start();
   log('info','started',{port,node:process.versions.node});
-  console.log(`Story Studio running at http://127.0.0.1:${port}`);
+  console.log(`Story Studio running at ${publicOrigin?.origin || 'http://127.0.0.1:' + port}`);
 });
-server.once('close',()=>background.stop());
+server.once('close',()=>{
+  localRuntime?.background.stop();
+  for (const runtime of runtimes.values()) runtime.background.stop();
+});

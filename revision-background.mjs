@@ -14,7 +14,7 @@ const dayOf = time => new Date(time).toISOString().slice(0,10);
 const stop = code => Object.assign(new Error(code),{diagnosticCode:code});
 
 export function createBackgroundAnalysis({dataDir,readLibrary,libraryVersion,hasKey,complete,shouldYield = ()=>false,
-  reportError = ()=>{},clock = Date.now,intervalMs = 5000,versions = analysisVersions}) {
+  reportError = ()=>{},clock = Date.now,intervalMs = 5000,versions = analysisVersions,cache,defaultEnabled = true}) {
   const directory = join(dataDir,'writing-analysis');
   const path = join(directory,'cache.json');
   let records = new Map(), active, writes = Promise.resolve(), ticking = false;
@@ -35,8 +35,8 @@ export function createBackgroundAnalysis({dataDir,readLibrary,libraryVersion,has
   async function projectById(id) {
     return (await library()).projects.find(project=>project.id === id);
   }
-  const ready = readFile(path,'utf8').then(text=>{
-    const saved = JSON.parse(text);
+  const ready = Promise.resolve().then(()=>cache ? cache.read() : readFile(path,'utf8').then(JSON.parse)).then(saved=>{
+    if (!saved) return;
     records = new Map(saved.records.map(([id,record])=>[id,{
       ...record, units:new Map(saved.version === cacheVersion ? record.units.map(([key,entry])=>{
         const model = entry.model ?? models.find(candidate=>hashAnalysis([versions.extract,candidate.id,entry.source]) === key)?.id;
@@ -49,13 +49,14 @@ export function createBackgroundAnalysis({dataDir,readLibrary,libraryVersion,has
 
   function persist() {
     const operation = writes.then(async ()=>{
-      await mkdir(directory,{recursive:true,mode:0o700});
-      const snapshot = JSON.stringify({version:cacheVersion,records:[...records].map(([id,record])=>[id,{
+      const snapshot = {version:cacheVersion,records:[...records].map(([id,record])=>[id,{
         ...record,units:[...record.units],links:[...record.links]
-      }])});
+      }])};
+      if (cache) return cache.write(snapshot);
+      await mkdir(directory,{recursive:true,mode:0o700});
       const temporary = join(directory,`.${randomUUID()}.tmp`);
       try {
-        await writeFile(temporary,snapshot,{mode:0o600});
+        await writeFile(temporary,JSON.stringify(snapshot),{mode:0o600});
         await rename(temporary,path);
       } finally {
         await unlink(temporary).catch(()=>{});
@@ -70,7 +71,7 @@ export function createBackgroundAnalysis({dataDir,readLibrary,libraryVersion,has
     if (project.id === starterStoryId) return;
     const record = records.get(project.id);
     // Initial browser enrollment preserves the stored on/off choice across tabs.
-    const next = enabled ?? record?.enabled ?? true;
+    const next = enabled ?? record?.enabled ?? defaultEnabled;
     const selected = model || record?.model;
     if (record && record.enabled === next && record.model === selected && !retry) return;
     if (active?.id === project.id) active.controller.abort();
@@ -144,7 +145,7 @@ export function createBackgroundAnalysis({dataDir,readLibrary,libraryVersion,has
     const day = dayOf(clock());
     const estimatedUsd = record?.day === day ? record.reserved || 0 : 0;
     let state = 'waiting-model';
-    if (record?.enabled === false) state = 'paused';
+    if (!(record?.enabled ?? defaultEnabled)) state = 'paused';
     else if (!total) state = 'empty';
     else if (record?.model && !missing.length && !due) state = 'ready';
     else if (active?.id === project.id) state = 'running';
@@ -158,7 +159,7 @@ export function createBackgroundAnalysis({dataDir,readLibrary,libraryVersion,has
     const etaSeconds = (state === 'running' || state === 'queued') && samples.length >= 2
       ? Math.ceil(remaining * samples.reduce((sum,sample)=>sum + sample.ms,0) / samples.reduce((sum,sample)=>sum + sample.count,0) / 1000)
       : undefined;
-    return {state,enabled:record?.enabled !== false,model:record?.model,reviewed:total - outstanding.size,total,
+    return {state,enabled:record?.enabled ?? defaultEnabled,model:record?.model,reviewed:total - outstanding.size,total,
       held:plan.scenes.length - total,linksRemaining:due,continuityPairs:continuityPairs.length,
       continuityChecked:continuityPairs.filter(pair=>record?.links.has(pair.id)).length,
       progress:{phase,completed:workTotal - remaining,total:workTotal,etaSeconds},

@@ -71,39 +71,62 @@ function metadata({id,parentId,createdAt,label,restoredFrom}) {
   return {id,parentId,createdAt,label,...(restoredFrom !== undefined && {restoredFrom})};
 }
 
-export function createStoryVersions(dataDir) {
-  const root = resolve(dataDir,'story-versions');
+export function createStoryVersions(dataDir, fileAccess) {
+  const root = fileAccess ? undefined : resolve(dataDir,'story-versions');
   const serialize = serializeByKey();
 
   function access(storyId,work) {
-    const key = keyForStory(storyId), directory = join(root,key);
-    return serialize(key,()=>work(directory));
+    const key = keyForStory(storyId);
+    if (fileAccess) return fileAccess(key,work);
+    const directory = join(root,key), snapshots = join(directory,'snapshots');
+    return serialize(key,()=>work({
+      async readManifest(limit) {
+        if (!await checkedDirectory(root,false,corrupt) || !await checkedDirectory(directory,false,corrupt)) return null;
+        try {
+          return await readBoundedFile(join(directory,'manifest.json'),limit,corrupt);
+        } catch (error) {
+          if (error.code === 'ENOENT') return null;
+          throw error;
+        }
+      },
+      async writeManifest(bytes) {
+        await checkedDirectory(root,true,corrupt);
+        await checkedDirectory(directory,true,corrupt);
+        await atomicWrite(directory,'manifest.json',bytes);
+      },
+      async readAsset(name,limit) {
+        if (!await checkedDirectory(snapshots,false,corrupt)) throw corrupt();
+        return readBoundedFile(join(snapshots,name),limit,corrupt);
+      },
+      async writeAsset(name,bytes) {
+        await checkedDirectory(root,true,corrupt);
+        await checkedDirectory(directory,true,corrupt);
+        await checkedDirectory(snapshots,true,corrupt);
+        await atomicWrite(snapshots,name,bytes);
+      }
+    }));
   }
 
-  async function readManifest(directory,storyId) {
-    if (!await checkedDirectory(root,false,corrupt) || !await checkedDirectory(directory,false,corrupt)) return [];
+  async function readManifest(files,storyId) {
     try {
-      const data = await readBoundedFile(join(directory,'manifest.json'),indexByteLimit,corrupt);
-      return decodeEntries(data,storyId);
-    } catch (error) {
-      if (error.code === 'ENOENT') return [];
+      const data = await files.readManifest(indexByteLimit);
+      return data ? decodeEntries(data,storyId) : [];
+    } catch {
       throw corrupt();
     }
   }
 
   async function list(storyId) {
-    return access(storyId,async directory=>(await readManifest(directory,storyId)).reverse().map(metadata));
+    return access(storyId,async files=>(await readManifest(files,storyId)).reverse().map(metadata));
   }
 
   async function get(storyId,versionId) {
     if (!validVersionId(versionId)) return null;
-    return access(storyId,async directory=>{
-      const entry = (await readManifest(directory,storyId)).find(item=>item.id === versionId);
+    return access(storyId,async files=>{
+      const entry = (await readManifest(files,storyId)).find(item=>item.id === versionId);
       if (!entry) return null;
       try {
-        const snapshots = join(directory,'snapshots');
-        if (!await checkedDirectory(snapshots,false,corrupt)) throw corrupt();
-        const compressed = await readBoundedFile(join(snapshots,entry.digest + '.json.gz'),compressedByteLimit,corrupt);
+        const compressed = await files.readAsset(entry.digest + '.json.gz',compressedByteLimit);
         const contents = await gunzipAsync(compressed,{maxOutputLength:libraryByteLimit});
         if (hash(contents) !== entry.digest) throw corrupt();
         const story = JSON.parse(contents.toString('utf8'));
@@ -121,8 +144,8 @@ export function createStoryVersions(dataDir) {
     }
     const contents = encodeProject(project);
     const digest = hash(contents), storyId = project.id;
-    return access(storyId,async directory=>{
-      const entries = await readManifest(directory,storyId);
+    return access(storyId,async files=>{
+      const entries = await readManifest(files,storyId);
       if (restoredFrom !== undefined && !entries.some(entry=>entry.id === restoredFrom)) {
         throw fail(400,'STORY_VERSION_INVALID_RESTORE','The restored version does not belong to this story.');
       }
@@ -134,14 +157,10 @@ export function createStoryVersions(dataDir) {
       if (manifest.length > indexByteLimit) {
         throw fail(413,'STORY_VERSION_INDEX_TOO_LARGE','This story has reached its version history limit.');
       }
-      await checkedDirectory(root,true,corrupt);
-      await checkedDirectory(directory,true,corrupt);
-      const snapshots = join(directory,'snapshots');
-      await checkedDirectory(snapshots,true,corrupt);
       if (!entries.some(previous=>previous.digest === digest)) {
-        await atomicWrite(snapshots,digest + '.json.gz',await gzipAsync(contents));
+        await files.writeAsset(digest + '.json.gz',await gzipAsync(contents),'application/gzip');
       }
-      await atomicWrite(directory,'manifest.json',manifest);
+      await files.writeManifest(manifest);
       return metadata(entry);
     });
   }
@@ -157,16 +176,14 @@ export function createStoryVersions(dataDir) {
       files[name] = contents;
     };
     for (const storyId of new Set(storyIds)) {
-      await access(storyId,async directory=>{
-        const entries = await readManifest(directory,storyId);
+      await access(storyId,async storage=>{
+        const entries = await readManifest(storage,storyId);
         if (!entries.length) return;
         const folder = `story-versions/${keyForStory(storyId)}`;
         include(`${folder}/manifest.json`,Buffer.from(JSON.stringify({version:1,storyId,entries})));
-        const snapshots = join(directory,'snapshots');
-        if (!await checkedDirectory(snapshots,false,corrupt)) throw corrupt();
         for (const digest of new Set(entries.map(entry=>entry.digest))) {
           const filename = `${digest}.json.gz`;
-          include(`${folder}/snapshots/${filename}`,await readBoundedFile(join(snapshots,filename),compressedByteLimit,corrupt));
+          include(`${folder}/snapshots/${filename}`,await storage.readAsset(filename,compressedByteLimit));
         }
       });
     }

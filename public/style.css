@@ -1751,3 +1751,26 @@ form textarea { resize: vertical; }
   :is(.icon, .text-button, .story-tabs button, .picker-trigger, .story-flow-choice):active { background: var(--selected); }
   :is(.message-actions button, .workspace-tools-heading .icon, .display-name-remove) { min-height: 44px; }
 }
+
+
+.account-gate {
+  display: grid;
+  min-height: 100%;
+  align-items: start;
+  justify-items: center;
+  padding: clamp(28px, 16vh, 144px) 16px 28px;
+}
+.account-panel {
+  width: min(100%, 390px);
+  padding: clamp(18px, 5vw, 28px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--rail);
+}
+.account-panel h1 { margin: 0; font-size: 24px; font-weight: 650; }
+.account-panel > p { margin: 8px 0 18px; }
+#signInForm { display: grid; gap: 14px; }
+#signInForm label { margin: 0; }
+#signInForm .button, .hosted-account-details .button { justify-self: start; }
+.hosted-account-details { display: grid; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.account-error { color: #ffc2bf; }
