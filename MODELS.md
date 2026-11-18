@@ -69,6 +69,10 @@ The selected model receives your edit request, full canonical state, and eligibl
 
 The context panel shows daily USD totals by API vendor and model for the last seven local calendar days. OpenRouter uses the amount in its response. Direct API amounts use standard published rates, including cache reads and writes and the GPT‑6.1 Terra long-context tier. The panel reports missing costs separately. This is local usage since tracking started, before any subscription credits. [Claude rates](https://platform.claude.com/docs/en/about-claude/pricing) · [Terra rates](https://developers.openai.com/api/docs/models/gpt-6.1-terra)
 
+### Transition review and artwork
+
+**Review transitions** uses the continuity or editor model selected in Write. It can review the moved scene and its new neighbors and propose prose for approval. **Artwork** uses that model to prepare an illustration or comic from eligible prose. OpenRouter renders artwork with FLUX 3 Image Klein. The usage panel accounts for planning and image generation separately. When a scene needs missing references, one request can render up to three references plus the final image. Approved, current references can be reused. [FLUX 3 Image Klein](https://openrouter.ai/black-forest-labs/flux-3-image-klein-20261015)
+
 ### New story setup
 
 Setup runs through the same agent runner. The selected model responds conversationally while you brainstorm. When you click **Prepare setup draft**, a supported Editor agent preset calls `prepare_story_setup` with fields for the proposed story, including dated plot events. If your chat model is outside those presets, the wizard shows that DeepSeek V4.1 Flash will prepare the draft. The app validates the draft and stages it for review. The inputs are the complete planning chat, reference notes, and attached manuscript. When the source fits the selected model’s window, setup sends it in one prompt. Otherwise **Prepare setup draft** reads consecutive sections, collects structured story and author notes, and synthesizes an editable draft. Chunked setup can bill multiple calls. After setup, approved material is eligible as early history in the agent harness.

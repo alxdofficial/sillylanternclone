@@ -5,7 +5,7 @@ import { sameValue } from './sync.js';
 
 const stamp = new Intl.DateTimeFormat(undefined,{dateStyle:'medium',timeStyle:'medium'});
 const storyFields = {title:'Title',premise:'Premise',lore:'World',notes:'Writing notes',cast:'Cast',
-  relationships:'Relationships',plotEvents:'Plot events',revisionNotes:'Review notes',sceneBoard:'Scene board'};
+  relationships:'Relationships',plotEvents:'Plot events',revisionNotes:'Review annotations',sceneBoard:'Scene board'};
 
 export function changedScenes(before,after) {
   const scenes = project=>new Map(manuscriptChapters(project).flat().map(scene=>[scene.turn,scene]));

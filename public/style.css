@@ -232,9 +232,11 @@ textarea { caret-color: #f0c6de; }
 }
 .turn-menu button:hover:not(:disabled) { background: #473846; }
 .turn-menu button:disabled { opacity: .55; }
-.message-actions .turn-more { font-size: 21px; line-height: 1; padding-inline: 8px; }
+.message-actions .turn-more { display: grid; place-items: center; min-width: 32px; padding-inline: 6px; }
+.turn-more .tool-mark { width: 20px; height: 20px; }
 @media (pointer: coarse) {
   .turn-menu button { min-height: 44px; }
+  .message-actions .turn-more { min-width: 44px; }
 }
 .message-actions button, .alternatives button, .text-button {
   border: 0;
@@ -628,7 +630,7 @@ textarea { caret-color: #f0c6de; }
   --book-selection: #cfb390;
 }
 [data-book-theme="dark"] {
-  --book-surface: #0c0c0d;
+  --book-surface: #252527;
   --book-ink: #f4f4f4;
   --book-edge: #414144;
   --book-caption: #dfdfdf;

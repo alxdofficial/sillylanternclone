@@ -1,8 +1,8 @@
 # Story Studio workspace and writing tools
 
-The manuscript stays in view while the author writes, reviews a finding, or follows a reference. The left dock is for navigation, the right dock is for writing tools, and the bottom docks are for composing and Story Flow. See the [current controls](README.md#review-a-draft) and [implementation checks](TESTING.md#resizable-workspace-and-writing-tools).
+The manuscript stays in view while the author writes, reviews a finding, or follows a reference. The left dock is for navigation, the right dock is for writing tools, and the bottom docks are for composing and Story Flow. This design record describes the dock redesign and its original measurements. The current workflow also includes [Scene Board, chapter dividers and Time Machine](README.md#arrange-scenes-and-compare-drafts) and [Artwork](README.md#create-artwork). See the [current controls](README.md#review-a-draft) and [implementation checks](TESTING.md#resizable-workspace-and-writing-tools).
 
-## What the current workspace does
+## Layout observations behind the dock redesign
 
 Measured in Chromium against the bundled *Late Ferry* in an isolated library. The sizes below are browser viewport sizes. The resize tests used mouse drags, including at a phone-sized viewport. Physical touch, a software keyboard, and other browser engines still need verification.
 

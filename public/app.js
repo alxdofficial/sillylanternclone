@@ -1544,7 +1544,10 @@ function renderMessages() {
       render();
       if (cancelsRequest) void save();
     };
-    const more = el('button','turn-more','…');
+    const more = el('button','turn-more');
+    const moreIcon = svg('svg',{class:'tool-mark','aria-hidden':'true'});
+    moreIcon.append(svg('use',{href:'#icon-more'}));
+    more.append(moreIcon);
     more.type = 'button';
     more.setAttribute('aria-label',`More actions for turn ${turn}`);
     more.setAttribute('aria-controls','turnMenu');

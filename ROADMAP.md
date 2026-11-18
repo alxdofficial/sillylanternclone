@@ -1,5 +1,7 @@
 # Story Studio feature ideas
 
+The [hosted version proposal](HOSTING.md) covers a shared local and hosted codebase, accounts, billing, AI costs and collaboration.
+
 ## Scene rehearsal with character agents
 
 **Status** · Proposed

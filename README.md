@@ -18,14 +18,15 @@ You can ask your local agent to set it up for you.
 
 ## Try The Late Ferry
 
-New libraries open on **The Late Ferry**, a three-chapter harbor mystery with five characters and five scenes. An altered log keeps the last ferry at the dock with a medical courier waiting to cross. Find it under **Menu → Open demo**. Changes to the demo stay in memory and reset when you reload.
+New libraries open on **The Late Ferry**, a four-chapter harbor mystery with five cast members and seven scenes. An altered log keeps the last ferry at the dock with a medical courier waiting to cross. Find it under **Menu → Open demo**. Changes to the demo stay in memory and reset when you reload.
 
-1. Open **Book view** to read the three chapters. The reading toolbar offers **Dark**, **Paper**, and **Sepia** and remembers your choice. In **Write**, the same scenes sit alongside their author directions and an Editor agent exchange that added a standing writing note.
-2. In **Graph**, select the line between Mae and Noor to see how their relationship changes when they compare records. Use **View graph changes** on the last prose turn in **Write** to see what the signed correction changed.
-3. In **Write → Writing tools**, look for the example review. **Pacing** shows how a scene shifts from inspecting the log to making a decision. **Themes** links the original evidence to the signed correction. **Setups & payoffs** distinguishes the signed correction from the question of who left the key. **Graph → Check continuity** opens the same review beside the manuscript.
-4. In **Write**, preview one of the saved **Story Flow** choices. Click **Use direction** to put it in an empty composer. With a draft in progress, choose **Insert at cursor** or **Replace draft**. To keep a version of the demo as your own story, use **⋯ → Branch from here** on a prose turn.
+1. Open **Book view** for the four chapters and the illustration in Chapter 1. Try **Dark** (charcoal), **Paper**, or **Sepia**. **Write** shows each chapter divider, the original directions, and an Editor agent exchange that added a standing writing note.
+2. Open **Scene board** to see each scene’s POV, summary, and revision status. In **Time Machine**, the two most recent saved versions show the closing paragraph before and after an edit. **Compare scene drafts** also offers a named checkpoint of that scene.
+3. In **Write → Writing tools**, use **Pacing** to find dialogue runs, **Themes** to trace how the crew preserves evidence, and **Setups & payoffs** to compare an open thread with the signed correction. **Continuity** flags a question about the number of horn calls. **Artwork** shows four visual references and a three-panel comic awaiting approval.
+4. In **Graph**, select the line between Mae and Noor to see how their relationship changes as they compare records. **View graph changes** on a prose turn shows the updates from that scene.
+5. In **Write**, preview a **Story Flow** choice for a coda. **Use direction** fills an empty composer. To continue in a story you can keep, use **⋯ → Branch from here** on a prose turn.
 
-Claude Sonnet 5.5 built the setup and first four scenes in the browser. The refreshed third chapter uses the direct Claude API for the new scene, continuity, and Story Flow. [See the verification notes](TESTING.md#the-late-ferry-starter).
+Sonnet 5.5 generated the story through the direct Claude API. FLUX rendered the demo artwork through OpenRouter. The demo’s saved versions, writing reviews, and artwork open without a provider key. [See the verification notes](TESTING.md#the-late-ferry-starter).
 
 ## Progress the story
 
@@ -35,7 +36,7 @@ Claude Sonnet 5.5 built the setup and first four scenes in the browser. The refr
 
 Use **Chapters** and **Writing tools** to open or close the side panes. Drag the dividers, use arrow keys on a focused divider, or choose a preset in **Workspace layout**. The composer and Story Flow fold independently. In narrow or short windows, tap **Mode and models** for the composer’s full settings. The **Expand editor** icon sits in the lower-right corner of the composer, manual prose, and long setup or story fields. **Done** or Escape returns to the draft. Use the original **Save** or **Send** action to submit it.
 
-Write shows author inputs alongside the prose. To show them in Graph, check **Show author directions in Graph** in **Settings** and click **Save settings**. Use the outline to jump to a turn or the down arrow to return to the latest turn. The copy icon copies a turn’s prose. **Edit** opens the text for revision. When a direction has a paired reply and an API artist is configured, **Send** saves the edit and regenerates that reply. **Save without rewriting** saves just the edit.
+Write shows author inputs alongside the prose. To show them in Graph, check **Show author directions in Graph** in **Settings** and click **Save settings**. Use the chapter outline to jump to a scene or the down arrow to return to the most recent turn. **Copy**, **Edit**, **Delete**, and the overflow menu follow the top of the current turn as you scroll. **Edit** opens a turn in the composer. When a direction has a paired reply and an API artist is configured, **Send** saves the edit and regenerates that reply. **Save without rewriting** keeps the existing reply.
 
 In **Write**, click the plus at the end of the manuscript and choose **Add prose** to write or paste without a model. Set **AI context** to **Explicit**, **Unverified**, or **Verified non-explicit**, then click **Save prose**. General AI context includes prose you verify as non-explicit. You can review a saved turn in **Write → ⋯ → Time and context**. The same menu has branching and rewind.
 
@@ -58,6 +59,8 @@ Open **Writing tools** from **Write**. The reading pane shows only prose while t
 **Background review** is on by default for existing and new stories when opened with a configured review model. It reads eligible prose in bounded batches, then checks related evidence across chapters, so long manuscripts can be reviewed without fitting in a single request. Local results appear immediately. The progress bar shows the current stage. A time estimate appears after two completed batches in that stage. Findings resume from saved checkpoints while Studio runs. Open the review status in Writing tools to see its model, coverage, and budget, or to pause or resume. The daily estimate allows up to $1 per story at Studio’s published model rates. Actual provider usage appears in the context panel. The demo ships with example findings and makes no background provider calls.
 
 Manual AI reviews remain available for an ad hoc query, comparison story, or canon notes. They use the general continuity agent selected in Write, or the selected Editor model in **Editor agent** mode. Large manual requests can be scoped to a chapter or scene. Findings link back to their evidence. Pins and tracked threads are saved with your story. A citation whose original passage can no longer be found is marked **Passage changed**.
+
+**Pacing observations** describe shifts in rhythm, tension, or focus and link to the passage behind each observation. Saved review annotations include theme pins, tracked setups and payoffs, and decisions to mark a continuity finding intentional or dismiss it. They travel with the story in the library backup. To guide future prose and continuity runs, put standing instructions in **Graph → Writing**. To correct a fact, edit the relevant prose, graph event, character, or World setting.
 
 ## Editor agent
 
@@ -140,7 +143,7 @@ On the **Display names** tab, put the original character or place name on the le
 
 ## Back up and move your library
 
-The default library folder is `~/Library/Application Support/Story Studio/` and its main file is `library.json`. Quit Story Studio and copy the whole folder to migrate to another Mac. Or use **Menu → Export history ZIP** to download `library.json` and readable story transcripts. To restore an export, unzip it and select `library.json` with **Import library**. Import replaces the current library after confirmation. If a newer save from another tab causes a conflict, export your local work before reloading.
+The default library folder is `~/Library/Application Support/Story Studio/`. **Menu → Export history ZIP** includes `library.json`, readable transcripts, saved versions, and artwork. **Import library** replaces your library using the extracted `library.json` after confirmation. To restore versions and artwork as well, quit Studio and copy the backup files into the data directory. If another tab saves a conflicting change, export your local work before reloading. [Backup and restore details](OPERATIONS.md#data-and-settings)
 
 The app binds to your Mac’s loopback address and stores the library locally. When you use a model, the assembled context goes to its service through your selected route. The local server keeps API keys in a file restricted to your OS user and sends them only to the selected provider. Story exports exclude the keys.
 
