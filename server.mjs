@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
-import { agentOutputLimit, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isWriterModel, modelProvider, models, providerNames, proseOutputLimit, setupChatOutputLimit, setupDraftModel, setupDraftOutputLimit, usesSensitiveContinuity } from './public/models.js';
+import { agentOutputLimit, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isWriterModel, modelInputLimit, modelProvider, models, providerNames, proseOutputLimit, setupChatOutputLimit, setupDraftModel, setupDraftOutputLimit, usesSensitiveContinuity } from './public/models.js';
 import { buildWritingContext, getCast, legacyCastFields, migrateLegacyCast, migrateStoryFields, validPlotEvents, storyTextFields, validCast, validRelationships, validSensitivity, isStoryTime, estimateContextTokens, nextTurnNumber } from './public/prompt.js';
 import { libraryByteLimit, maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory, starterReview } from './examples/the-late-ferry.mjs';
@@ -269,7 +269,7 @@ async function generateCompletion(messages, model, key, diagnostics, {
   stage = 'prose', maxOutputTokens = proseOutputLimit(model), tools, signal, prefixLength
 } = {}) {
   if (stage !== 'prose' && estimateContextTokens(JSON.stringify({messages,tools})) >
-      (prefixLength ? agentBudget(model,maxOutputTokens).window * 0.97 - maxOutputTokens : agentBudget(model,maxOutputTokens).inputLimit)) {
+      (prefixLength ? Math.min(agentBudget(model,maxOutputTokens).window * 0.97 - maxOutputTokens,modelInputLimit(model)) : agentBudget(model,maxOutputTokens).inputLimit)) {
     throw Object.assign(diagnosticError('AGENT_CONTEXT_FULL','The setup, story state, or tool results exceed this model’s shared input budget.'),{status:400});
   }
   const provider = modelProvider(model);

@@ -18,6 +18,19 @@ test('spend uses reported OpenRouter costs and direct API cache rates', () => {
   }),0.5675);
 });
 
+test('Haiku and Luna use their own cache and long-context tiers', () => {
+  assert.equal(providerCost('anthropic','claude-haiku-5-5',{
+    input_tokens:90_000,output_tokens:10_000,cache_read_input_tokens:10_000
+  }),0.0141);
+  assert.equal(providerCost('anthropic','claude-haiku-5-5',{
+    input_tokens:90_000,output_tokens:10_000,cache_read_input_tokens:10_000,cache_creation_input_tokens:8_000
+  }),0.0755);
+  assert.equal(providerCost('openai','gpt-6-luna',{
+    input_tokens:300_000,output_tokens:1000,
+    input_tokens_details:{cached_tokens:100_000,cache_write_tokens:100_000}
+  }),0.04775);
+});
+
 test('daily spend persists by provider and model, using the requested local date', async () => {
   const path = await mkdtemp(join(tmpdir(),'story-studio-spend-'));
   try {

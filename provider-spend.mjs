@@ -22,11 +22,19 @@ export function providerCost(provider, model, usage) {
     const read = count(usage.cache_read_input_tokens);
     const writes = count(usage.cache_creation_input_tokens);
     const hour = Math.min(writes,count(usage.cache_creation?.ephemeral_1h_input_tokens));
+    if (model === 'claude-haiku-5-5') {
+      const multiplier = input + read + writes > 100_000 ? 5 : 1;
+      return multiplier * (input * rates.input + read * 0.01 + (writes - hour) * 0.125 + hour * 0.20 + output * rates.output) / 1_000_000;
+    }
     return (input * rates.input + read * 0.10 + (writes - hour) * 2.50 + hour * 4 + output * rates.output) / 1_000_000;
   }
   const detail = usage.input_tokens_details;
   const read = Math.min(input,count(detail?.cached_tokens));
   const writes = Math.min(input - read,count(detail?.cache_write_tokens));
+  if (model === 'gpt-6-luna') {
+    const billedInput = (input - read - writes) * rates.input + 0.01 * read + 0.125 * writes;
+    return (input > 272_000 ? billedInput * 2 + output * rates.output * 1.5 : billedInput + output * rates.output) / 1_000_000;
+  }
   const extended = Math.min(writes,count(detail?.cache_write_tokens_details?.ttl_12h_tokens));
   const billedInput = (input - read - writes) * rates.input + 0.05 * read + 1.25 * (writes - extended) + 2.50 * extended;
   return (input > 272_000 ? billedInput * 2 + output * rates.output * 1.5 : billedInput + output * rates.output) / 1_000_000;

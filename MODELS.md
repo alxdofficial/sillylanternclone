@@ -6,10 +6,12 @@ In **Prose**, choose the **Prose artist** and **Continuity agent** separately. E
 
 | Provider | Model | Context | USD per million input / output |
 | --- | --- | ---: | ---: |
+| Claude API | [Claude Haiku 5.5](https://www.anthropic.com/news/claude-haiku-5-5) (default) | 1,000,000 | $0.10 / $0.50 |
 | Claude API | [Claude Sonnet 5.5](https://platform.claude.com/docs/en/models/sonnet-5-5/overview) | 1,000,000 | $2 / $10 |
+| OpenAI API | [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna) (default) | 1,050,000 | $0.10 / $0.50 |
 | OpenAI API | [GPT-6.1 Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra) | 1,050,000 | $1 / $5 |
 
-Both models support prose, continuity, Agent, and setup. Each selected model routes to its own API and key. Sensitive turns use the eligible OpenRouter models. Story Studio uses native [Claude client tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/how-tool-use-works), [OpenAI Responses function calling](https://developers.openai.com/api/docs/guides/function-calling), and [OpenRouter tool calling](https://openrouter.ai/docs/guides/features/tool-calling). The local harness applies the same validation across all three.
+All four models support prose, continuity, Agent, and setup. Each selected model routes to its own API and key. Studio keeps existing model selections. With both direct providers configured and no selection, it starts with Claude Haiku 5.5. Continuity follows the prose provider unless you pick another model. The table shows standard rates before long-context tiers and cache pricing. Sensitive turns use the eligible OpenRouter models. Story Studio uses native [Claude client tools](https://platform.claude.com/docs/en/agents-and-tools/tool-use/how-tool-use-works), [OpenAI Responses function calling](https://developers.openai.com/api/docs/guides/function-calling), and [OpenRouter tool calling](https://openrouter.ai/docs/guides/features/tool-calling). The local harness applies the same validation across all three.
 
 ## OpenRouter
 

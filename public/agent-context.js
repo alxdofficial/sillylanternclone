@@ -1,11 +1,11 @@
-import { agentOutputLimit, continuityModel, modelContextWindow } from './models.js';
+import { agentOutputLimit, continuityModel, modelContextWindow, modelInputLimit } from './models.js';
 import { contextParts, estimateContextTokens, mcpOmissionReason, storyStateParts } from './prompt.js';
 
 export function agentBudget(model, outputLimit = agentOutputLimit) {
   const window = modelContextWindow(model) ?? 32_000;
   return {
     window, outputLimit,
-    inputLimit:Math.floor(window * 0.9) - outputLimit,
+    inputLimit:Math.min(Math.floor(window * 0.9) - outputLimit,modelInputLimit(model)),
     compactTo:Math.floor(window * 0.6) - outputLimit
   };
 }

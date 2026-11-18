@@ -18,7 +18,7 @@ import { createPassageSelection } from './passage-selection.js';
 import { branchRevisionNotes, sceneIndex } from './revision.js';
 import { buildWritingContext, formatMessages, storyTextFields, narrator, resolveCastName, simpleCharacter, castFields, validCast, validPlotEvents, graphSuggestions, nextTurnNumber, appendTurn, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
-import { models, chapterCost, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isModelId, isWriterModel, modelLabel, modelTag, modelContextWindow, modelProvider, providerNames, setupDraftModel, setupChatOutputLimit, setupDraftOutputLimit, usesSensitiveContinuity } from './models.js';
+import { models, chapterCost, canWriteSensitive, continuityModel, defaultDirectModel, isAgentModel, isContinuityModel, isModelId, isWriterModel, modelLabel, modelTag, modelContextWindow, modelProvider, providerNames, setupDraftModel, setupChatOutputLimit, setupDraftOutputLimit, usesSensitiveContinuity } from './models.js';
 import { dateWriterTurn, mcpOmissionReason, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
 import { estimateContextTokens, writingHistoryLimit } from './prompt.js';
 import { agentBudget, continuityContext, editorContext, normalizeAgentHistory, normalizeSetupHistory } from './agent-context.js';
@@ -65,6 +65,10 @@ const modelKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-model:
 const retiredPresets = new Set(['anthracite-org/magnum-v4-72b','thedrummer/unslopnemo-12b','sao10k/l3.1-euryale-70b','gryphe/mythomax-l2-13b']);
 function writingModel(project, mode = 'story') {
   const model = getSession(modelKey(project.id,mode));
+  if (!model) {
+    const proseProvider = mode === 'agent' ? modelProvider(getSession(modelKey(project.id))) : undefined;
+    return defaultDirectModel(configuredProviders,proseProvider);
+  }
   return hasModelProvider(model) && (mode === 'agent' ? isAgentModel(model) : isPreset(model) || userModels.includes(model)) ? model : '';
 }
 const continuityKey = (storyId,sensitive) => 'story-continuity-model:' + (sensitive ? 'sensitive:' : '') + storyId;
@@ -3677,7 +3681,8 @@ const setupModelPicker = enhanceSelect(setupModel);
 function populateSetupModels() {
   const previous = setupModel.value;
   setupModel.replaceChildren(...modelOptions('setup'));
-  setupModel.value = Array.from(setupModel.options).some(option=>option.value === previous) ? previous : '';
+  setupModel.value = previous && Array.from(setupModel.options).some(option=>option.value === previous)
+    ? previous : defaultDirectModel(configuredProviders);
   syncSetupChat();
 }
 $('#openSetupSettings').onclick = openAppSettings;
@@ -3938,8 +3943,8 @@ $('#newProject').onclick = async () => {
   setupMessages = [];
   setupReviewedMessages = undefined;
   setupChat.reset();
-  populateSetupModels();
   setupModel.value = '';
+  populateSetupModels();
   $('#setupContextDetails').open = false;
   setupImport.reset();
   setupImportFromMessage = false;
