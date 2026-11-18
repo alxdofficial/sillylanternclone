@@ -7,7 +7,7 @@ import { join, dirname, extname } from 'node:path';
 import { agentOutputLimit, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isWriterModel, modelProvider, models, providerNames, proseOutputLimit, setupChatOutputLimit, setupDraftModel, setupDraftOutputLimit, usesSensitiveContinuity } from './public/models.js';
 import { buildWritingContext, getCast, legacyCastFields, migrateLegacyCast, migrateStoryFields, validPlotEvents, storyTextFields, validCast, validRelationships, validSensitivity, isStoryTime, estimateContextTokens } from './public/prompt.js';
 import { libraryByteLimit, maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
-import { createStarterStory } from './examples/the-late-ferry.mjs';
+import { createStarterStory, starterReview } from './examples/the-late-ferry.mjs';
 import { isWritingRefusal, stripWritingPreamble } from './openrouter-format.mjs';
 import { runContinuity, runStoryEdit } from './continuity.mjs';
 import { validStoryEditInstruction } from './story-edits.mjs';
@@ -20,6 +20,8 @@ import { providerAdapters, rememberProviderOutput } from './provider-api.mjs';
 import { createSpendLedger } from './provider-spend.mjs';
 import { createCredentialStore, validKey } from './provider-credentials.mjs';
 import { createRevisionReviewer, reviewOutputLimit } from './revision-review.mjs';
+import { createBackgroundAnalysis } from './revision-background.mjs';
+import { analysisOutputLimit } from './revision-background-review.mjs';
 import { normalizeRevisionNotes } from './public/revision.js';
 
 const root=dirname(fileURLToPath(import.meta.url));
@@ -36,7 +38,21 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   console.error('Story Studio: PORT must be a number from 1 to 65535.');
   process.exit(1);
 }
-const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/generate','/api/story-edits','/api/story-flow','/api/setup','/api/export','/api/provider-keys','/api/revision']);
+const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/generate','/api/story-edits','/api/story-flow','/api/setup','/api/export','/api/provider-keys','/api/revision','/api/writing-analysis']);
+const foregroundEndpoints = new Set(['/api/generate','/api/story-edits','/api/story-flow','/api/setup','/api/revision']);
+let foregroundRequests = 0;
+const background = createBackgroundAnalysis({dataDir,readLibrary:readSavedLibrary,
+  hasKey:async model=>Boolean((await credentials.keys([[modelProvider(model)]]))[0]),
+  shouldYield:()=>foregroundRequests > 0,
+  async complete({storyId,model,messages,tools,signal}) {
+    const provider = modelProvider(model);
+    const [key] = await credentials.keys([[provider]]);
+    if (!key || foregroundRequests) throw diagnosticError('REVIEW_DEFERRED','Background review will resume shortly.');
+    const diagnostics = {requestId:randomUUID(),storyRef:storyReference(storyId),provider,model};
+    return generateCompletion(messages,model,key,diagnostics,{stage:'revision-background',tools,signal,maxOutputTokens:analysisOutputLimit});
+  },
+  reportError: (error,id)=>log('warn','background_review_failed',{storyRef:id && storyReference(id),code:errorCode(error,'BACKGROUND_REVIEW_FAILED')})
+});
 const methodNames = new Set(['GET','POST','PUT']);
 const modelIds = new Set(models.map(model => model.id));
 let starter = createStarterStory();
@@ -217,6 +233,10 @@ async function generateCompletion(messages, model, key, diagnostics, {
     }
   }
   if (!response.ok) {
+    if (stage === 'revision-background' && response.status === 400 &&
+        /context.{0,40}(?:window|length|limit)|too many (?:input )?tokens/i.test(result?.error?.message || '')) {
+      throw diagnosticError('REVIEW_CONTEXT_FULL','The provider needs a smaller background review batch.');
+    }
     const balanceExhausted = provider === 'openai' && ['credit_balance_exhausted','insufficient_quota'].includes(result?.error?.code)
       || provider === 'anthropic' && response.status === 400 && /credit balance is too low/i.test(result?.error?.message || '');
     if (balanceExhausted) {
@@ -320,7 +340,8 @@ async function generateSetup(req,res,diagnostics) {
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8'};
 const staticAssets = new Set([
   '/index.html','/app.js','/prompt.js','/models.js','/graph-history.js','/library.js',
-  '/manuscript.js','/agent-context.js','/model-picker.js','/story-flow.js','/display-names.js','/sync.js','/revision.js','/revision-view.js','/style.css'
+  '/manuscript.js','/agent-context.js','/model-picker.js','/story-flow.js','/display-names.js','/sync.js','/revision.js','/revision-view.js','/style.css',
+  '/workspace.js','/workspace.css','/expanded-editor.js','/expanded-editor.css','/revision-signals.js','/revision-panels.css','/passage-selection.js'
 ]);
 function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens = agentOutputLimit,{taskTimeout = true} = {}) {
   const budget = taskTimeout ? AbortSignal.timeout(300_000) : undefined;
@@ -424,6 +445,20 @@ async function runRevisionReview(req,res,diagnostics) {
 }
 
 async function routeRequest(req,res,url,diagnostics) {
+if (url.pathname === '/api/writing-analysis') {
+  const settings = req.method === 'PUT' ? await body(req,4096) : undefined;
+  if (req.method !== 'GET' && req.method !== 'PUT') return json(res,405,{error:'Unsupported analysis request.'});
+  if (req.method === 'PUT' && (!settings || typeof settings.storyId !== 'string' ||
+      settings.enabled !== undefined && typeof settings.enabled !== 'boolean' ||
+      settings.model !== undefined && !isAgentModel(settings.model) ||
+      settings.retry !== undefined && typeof settings.retry !== 'boolean')) return json(res,400,{error:'Check the analysis settings.'});
+  const id = settings?.storyId || url.searchParams.get('story');
+  const project = (await getState()).projects.find(story=>story.id === id);
+  if (!project) return json(res,404,{error:'The selected story is no longer available.'});
+  if (id === starterStoryId) return json(res,200,starterReview(project));
+  if (settings) await background.configure(project,settings);
+  return json(res,200,await background.status(project));
+}
 if (url.pathname === '/api/provider-keys') {
   if (req.method === 'GET') return json(res,200,{enabled:await credentials.status()});
   if (req.method === 'PUT') return json(res,200,{enabled:await credentials.update(await body(req,4096))});
@@ -631,7 +666,10 @@ const server = http.createServer(async (req,res) => {
         return json(res,415,{error:'JSON required.'});
       }
     }
-    await routeRequest(req,res,url,diagnostics);
+    const foreground = req.method === 'POST' && foregroundEndpoints.has(url.pathname);
+    if (foreground) foregroundRequests++;
+    try { await routeRequest(req,res,url,diagnostics); }
+    finally { if (foreground) foregroundRequests--; }
   } catch (error) {
     diagnostics.code = errorCode(error,'INTERNAL_ERROR');
     if (!res.headersSent) json(res,error.status || 500,{error:error.diagnosticCode ? error.message : 'Story Studio could not complete the request.'});
@@ -645,6 +683,8 @@ server.on('error', error => {
   process.exitCode = 1;
 });
 server.listen(port,'127.0.0.1', () => {
+  background.start();
   log('info','started',{port,node:process.versions.node});
   console.log(`Story Studio running at http://127.0.0.1:${port}`);
 });
+server.once('close',()=>background.stop());

@@ -6,5 +6,9 @@ export function createDisplayNameMatcher(entries) {
   const alternatives = [...names.keys()].sort((left,right) => right.length - left.length)
     .map(name => name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'));
   const pattern = new RegExp(`(?<!${nameCharacter})(?:${alternatives.join('|')})(?!${nameCharacter})`,'gu');
-  return text => text.replace(pattern, original => names.get(original));
+  return (text,onReplacement) => text.replace(pattern,(original,offset) => {
+    const display = names.get(original);
+    onReplacement?.(offset,original.length,display.length);
+    return display;
+  });
 }

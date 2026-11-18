@@ -1,3 +1,4 @@
+import { createWorkspace } from './workspace.js';
 import { activeStoryFlow, normalizeStoryFlow, storyFlowTurn, validStoryFlowOptions } from './story-flow.js';
 import { applyGraphUpdate, applyTurnGraphUpdates, captureGraphVersion, ensureGraphBaseline, graphChangesByTurn, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
 import { bookChapters, bookMarkdown, libraryByteLimit, maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
@@ -6,6 +7,8 @@ import { mergeLibrary } from './sync.js';
 import { createDisplayNameMatcher } from './display-names.js';
 import { enhanceSelect } from './model-picker.js';
 import { createRevisionViews } from './revision-view.js';
+import { installExpandedEditors } from './expanded-editor.js';
+import { createPassageSelection } from './passage-selection.js';
 import { branchRevisionNotes, normalizeRevisionNotes } from './revision.js';
 import { buildWritingContext, formatMessages, storyTextFields, narrator, resolveCastName, migrateLegacyCast, migrateStoryFields, simpleCharacter, castFields, validCast, validRelationships, validPlotEvents, graphSuggestions, nextTurnNumber, appendTurn, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
@@ -240,8 +243,10 @@ function addDisplayNameRow(original = '', display = '') {
     return input;
   };
   const originalInput = entry(original), displayInput = entry(display);
-  const remove = el('button','button subtle display-name-remove','Remove');
+  const remove = el('button','icon display-name-remove');
   remove.type = 'button';
+  remove.title = 'Remove name';
+  remove.innerHTML = '<svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg>';
   remove.onclick = () => {
     const neighbor = row.nextElementSibling || row.previousElementSibling;
     row.remove();
@@ -360,6 +365,7 @@ function render() {
   list.append(yours);
   if (storyView === 'graph' && !settingsDraftChanged()) loadSettings();
   renderMessages();
+  void syncBackgroundReview();
 }
 const storyActions = $('#storyActions');
 document.addEventListener('pointerdown',event => {
@@ -589,32 +595,17 @@ function renderSceneInspector(turn) {
   if (project.notes.trim()) content.append(el('h3','','Writing notes'),el('p','scene-writing-notes',shortExcerpt(project.notes,150)));
   if (!content.childElementCount) content.append(el('p','form-note','Scene times and story notes appear here.'));
 }
-function setStoryTurnsOpen(open) {
-  $('#storyTurnSidebar').toggleAttribute('data-open',open);
-  $('#toggleStoryTurns').setAttribute('aria-expanded',String(open));
-}
-$('#toggleStoryTurns').onclick = event => setStoryTurnsOpen(event.currentTarget.getAttribute('aria-expanded') !== 'true');
-$('#storyTurnSidebar').onkeydown = event => {
-  const toggle = $('#toggleStoryTurns');
-  if (event.key !== 'Escape' || toggle.getAttribute('aria-expanded') !== 'true' || !toggle.getClientRects().length) return;
-  event.preventDefault();
-  setStoryTurnsOpen(false);
-  toggle.focus();
-};
-
 function selectStoryTurn(turn) {
-  activeStoryTurn = turn;
   const nav = $('#storyTurns');
   nav.querySelector('[aria-current]')?.removeAttribute('aria-current');
   $('#messages .story-turn-target')?.classList.remove('story-turn-target');
-  renderSceneInspector(turn);
   const target = turn && $('#messages').querySelector(`[data-story-turn="${turn}"]`);
-  if (!target) {
-    activeStoryTurn = undefined;
-    return;
+  activeStoryTurn = target ? turn : undefined;
+  if (target) {
+    nav.querySelector(`[data-turn-link="${turn}"]`)?.setAttribute('aria-current','location');
+    target.classList.add('story-turn-target');
   }
-  nav.querySelector(`[data-turn-link="${turn}"]`)?.setAttribute('aria-current','location');
-  target.classList.add('story-turn-target');
+  updateWritingTools();
   return target;
 }
 
@@ -625,7 +616,7 @@ function showLatestStoryTurn() {
   $('#storyTurns').scrollTop = $('#storyTurns').scrollHeight;
 }
 $('#latestStoryTurn').onclick = () => {
-  setStoryTurnsOpen(false);
+  workspaceTools.dismissOutline();
   showLatestStoryTurn();
   $('#messages').querySelector('.message:last-of-type')?.focus({preventScroll:true});
   syncJumpButton();
@@ -658,7 +649,7 @@ function renderStoryTurns(project, followLatest, match) {
     button.onclick = () => {
       const target = selectStoryTurn(turn);
       if (!target) return;
-      setStoryTurnsOpen(false);
+      workspaceTools.dismissOutline();
       const box = $('#messages');
       box.scrollTop += target.getBoundingClientRect().top - box.getBoundingClientRect().top;
       target.focus({preventScroll:true});
@@ -686,18 +677,31 @@ const bookFirst = $('#bookFirst');
 const bookLast = $('#bookLast');
 const bookPositions = new Map();
 const spreadPositions = new Map();
-const storyViews = [['write','writeTab','writeView'],['book','bookTab','bookView'],['revision','revisionTab','revisionView'],
+const storyViews = [['write','writeTab','writeView'],['book','bookTab','bookView'],
   ['graph','graphTab','graphView'],['names','displayNamesTab','displayNamesView']];
+const backgroundReviews = new Map();
+let backgroundRequest;
 const revisionViews = createRevisionViews({
   activeStory:current,
   stories:()=>state.projects,
+  currentTurn:()=>outlineScenes.get(activeStoryTurn)?.selection.replyTurn || activeStoryTurn,
+  openTool:tool=>workspaceTools.open(tool),
+  readManuscript:()=>workspaceTools.backToManuscript({focus:true}),
+  highlight:refs=>passageSelection.highlight(refs),
+  backgroundReview:project=>backgroundReviews.get(project.id),
+  setBackgroundReview:settings=>syncBackgroundReview(settings),
+  reviewModel() {
+    const model = models.find(model=>model.id === revisionModel(current()));
+    return model ? {id:model.id,label:model.name} : undefined;
+  },
   writeNotes(notes) {
     const project = current();
     if (notes.length) project.revisionNotes = notes;
     else delete project.revisionNotes;
     markDirty(project);
+    updateWritingTools();
   },
-  async openScene(storyId,turn,view = 'write') {
+  async openScene(storyId,turn,view = 'write',ref) {
     if (storyView !== view && !await navigateStoryView(view)) return;
     if (current().id !== storyId) {
       if (!state.projects.some(story=>story.id === storyId)) return;
@@ -712,15 +716,16 @@ const revisionViews = createRevisionViews({
       $('#closeInspector').focus({preventScroll:true});
       return;
     }
-    const target = selectStoryTurn(turn);
+    workspaceTools.backToManuscript();
+    const outlineTurn = [...outlineScenes].find(([,scene])=>scene.selection.replyTurn === turn)?.[0];
+    const target = $('#messages').querySelector(`[data-story-turn="${turn}"]`);
     if (!target) return;
-    const transcript = $('#messages');
-    transcript.scrollTop += target.getBoundingClientRect().top - transcript.getBoundingClientRect().top;
-    target.focus({preventScroll:true});
+    selectStoryTurn(outlineTurn || turn);
+    passageSelection.focus(ref,target);
   },
   async requestReview(payload,signal) {
     const project = current();
-    const model = authorMode(project) === 'agent' ? writingModel(project,'agent') : selectedContinuityModel(project,false);
+    const model = revisionModel(project);
     if (!model) throw Error('Add a provider key in Settings and choose a continuity agent or editor model in Write.');
     await save();
     if (signal.aborted) throw signal.reason;
@@ -729,14 +734,67 @@ const revisionViews = createRevisionViews({
       body:JSON.stringify({...payload,revision,model})});
   }
 });
+const passageSelection = createPassageSelection({
+  transcript:$('#messages'),getStory:()=>state && storyView === 'write' ? current() : undefined,
+  getActions:ref=>revisionViews.selectionActions(ref)
+});
+
+function revisionModel(project) {
+  return authorMode(project) === 'agent' ? writingModel(project,'agent') : selectedContinuityModel(project,false);
+}
+
+async function syncBackgroundReview(settings) {
+  if (!state) return;
+  const project = current();
+  if (!settings && backgroundRequest) return;
+  // A toggle/model choice wins over an in-flight status read.
+  const request = {};
+  backgroundRequest = request;
+  const url = '/api/writing-analysis';
+  const update = changes=>api(url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({storyId:project.id,...changes})});
+  try {
+    let result = settings ? await update(settings) : await api(`${url}?story=${encodeURIComponent(project.id)}`);
+    if (backgroundRequest !== request) return;
+    const selected = revisionModel(project) || selectedContinuityModel(project,false);
+    if (!settings && result.enabled && !result.model && result.state !== 'demo' && selected) result = await update({model:selected});
+    if (backgroundRequest !== request) return;
+    const previous = backgroundReviews.get(project.id);
+    if (JSON.stringify(previous) !== JSON.stringify(result)) {
+      backgroundReviews.set(project.id,result);
+      if (current().id === project.id && storyView === 'write') revisionViews.render();
+    }
+  } catch (failure) {
+    if (settings && current().id === project.id) error(failure.message);
+  } finally {
+    if (backgroundRequest === request) backgroundRequest = undefined;
+  }
+}
+
+function updateWritingTools() {
+  const project = current();
+  const turn = outlineScenes.get(activeStoryTurn)?.selection.replyTurn || activeStoryTurn;
+  workspaceTools.renderCatalogue(revisionViews.getPreviews(project,turn));
+  renderSceneInspector(activeStoryTurn);
+  revisionViews.render();
+  passageSelection.render();
+}
 let bookStoryId, chapters = [], storyView = 'write', writeNeedsRender = false;
 let showGraphDirections = getSession('studio-show-directions') === 'true';
-const composerPreference = 'studio-hide-composer';
-const composerIsShown = () => getSession(composerPreference) !== 'true';
-
-$('#toggleComposer').onclick = () => {
-  setSession(composerPreference,String(composerIsShown()));
-  syncRoute();
+const workspaceTools = createWorkspace({
+  onToolChange(tool) {
+    revisionViews.open(tool);
+    if (tool === 'scene') renderSceneInspector(activeStoryTurn);
+  },
+  onComposerChange: syncRoute,
+  onResize() {
+    const transcript = $('#messages');
+    if (transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 40) {
+      return () => { transcript.scrollTop = transcript.scrollHeight; };
+    }
+  }
+});
+$('#checkContinuity').onclick = async () => {
+  if (await navigateStoryView('write')) workspaceTools.open('continuity');
 };
 let bookSpreadWanted = false, spreadCount = 1;
 
@@ -890,15 +948,16 @@ function showStoryView(view) {
     $(`#${tab}`).tabIndex = selected ? 0 : -1;
     $(`#${panel}`).hidden = !selected;
   }
-  $('#toggleStoryTurns').hidden = view !== 'write';
+  workspaceTools.setWritingView(view === 'write');
+  if (view !== 'write') passageSelection.highlight([]);
   const url = new URL(location.href);
   url.searchParams.set('view',view);
   history.replaceState(null,'',url);
   if (view === 'graph' && !settingsDraftChanged()) loadSettings();
   if (view === 'book') renderBook();
   else if (view === 'names') renderDisplayNames();
-  else if (view === 'revision') revisionViews.render();
   else if (writeNeedsRender) renderMessages();
+  else updateWritingTools();
 }
 
 function rememberBookPosition() {
@@ -1002,7 +1061,6 @@ function renderMessages() {
     writeNeedsRender = true;
     if (storyView === 'book') renderBook();
     else if (storyView === 'names') renderDisplayNames();
-    else if (storyView === 'revision') revisionViews.render();
     return;
   }
   writeNeedsRender = false;
@@ -1020,7 +1078,8 @@ function renderMessages() {
   if (!sameStory) {
     renderedStoryId = project.id;
     activeStoryTurn = undefined;
-    setStoryTurnsOpen(false);
+    passageSelection.highlight([]);
+    workspaceTools.dismissOutline();
   }
   messageList.replaceChildren();
   if (!sameStory) syncManualProse();
@@ -1103,7 +1162,8 @@ function renderMessages() {
     more.onclick = () => openTurnMenu(more,index);
     actions.append(edit,remove,more);
     head.append(actions);
-    const text = readerText('div','message-text',message.content,match);
+    const text = fromAuthor ? readerText('div','message-text',message.content,match) : el('div','message-text');
+    if (!fromAuthor) passageSelection.register(text,message.content,match);
     const prose = fromAuthor ? text : el('div','prose-with-copy');
     if (!fromAuthor) prose.append(text,copyProseButton(message,turn,text));
     body.append(...(name ? [head,prose] : [prose,head]));
@@ -1237,13 +1297,8 @@ function syncRoute() {
   const editingStory = mode === 'agent';
   const model = writingModel(project,mode);
   const rewriting = composerEdit?.canRegenerate && Boolean(model && hasModelProvider(model));
-  const composerVisible = composerIsShown() || Boolean(composerEdit);
-  if (hasApiKey() || composerEdit || !composerVisible) clearComposerConnectionWarning();
-  $('#writingComposer').hidden = !composerVisible;
-  $('#toggleComposer').setAttribute('aria-expanded',String(composerVisible));
-  $('#toggleComposer').title = composerVisible ? 'Hide composer' : 'Show composer';
-  $('#toggleComposer').setAttribute('aria-label',$('#toggleComposer').title);
-  $('#toggleComposer').disabled = Boolean(composerEdit);
+  workspaceTools.setComposerEditing(Boolean(composerEdit));
+  if (hasApiKey() || composerEdit || !workspaceTools.composerOpen) clearComposerConnectionWarning();
   $('#authorMode').value = mode;
   $('#routeModels').classList.toggle('editor-route',editingStory);
   $('#routeModels').hidden = Boolean(composerEdit && !rewriting);
@@ -1280,6 +1335,7 @@ function syncRoute() {
   $('#sendButton').setAttribute('aria-busy',String(busy));
   syncStoryFlow(project);
   updateContextIndicator();
+  if (storyView === 'write' && workspaceTools.activeTool) revisionViews.render();
   if (followLatest) transcript.scrollTop = transcript.scrollHeight;
 }
 function speakerMetadata(speaker) {
@@ -1307,38 +1363,57 @@ function syncStoryFlow(project) {
   }));
   status.textContent = flowNotice.get(project.id) || '';
   status.hidden = !status.textContent;
+  workspaceTools.syncFlow();
 }
 
 const flowPreview = $('#storyFlowPreview');
 let selectedFlowPreview;
 function previewStoryFlow(project, flow, index) {
   const {title,direction,consequence} = flow.options[index];
-  selectedFlowPreview = {project,flow,index};
+  const field = $('#instruction');
+  const writing = authorMode(project) === 'story';
+  const draft = writing ? field.value : getSession(draftKey(project.id)) || '';
+  selectedFlowPreview = {
+    project, flow, index, draft,
+    start: writing ? field.selectionStart : draft.length,
+    end: writing ? field.selectionEnd : draft.length
+  };
   $('#flowPreviewTitle').textContent = title;
   $('#flowPreviewDirection').textContent = direction;
+  $('#useFlowDirection').textContent = draft.trim() ? 'Insert at cursor' : 'Use direction';
+  $('#replaceWithFlowDirection').hidden = !draft.trim();
   const detail = $('#flowPreviewConsequence');
   detail.textContent = consequence || '';
   detail.hidden = !consequence;
   flowPreview.showModal();
 }
-$('#useFlowDirection').onclick = () => {
-  const {project,flow,index} = selectedFlowPreview;
-  flowPreview.close();
-  void chooseStoryFlow(project,flow,index);
-};
+$('#useFlowDirection').onclick = () => void chooseStoryFlow(selectedFlowPreview, false);
+$('#replaceWithFlowDirection').onclick = () => void chooseStoryFlow(selectedFlowPreview, true);
 
-async function chooseStoryFlow(project,flow,index) {
+async function chooseStoryFlow(preview, replace) {
+  const {project,flow,index,draft,start,end} = preview;
+  flowPreview.close();
   if (busy || current() !== project || JSON.stringify(activeStoryFlow(project)) !== JSON.stringify(flow)) return;
-  const option = flow.options[index];
-  if (authorMode(project) === 'agent') {
-    setSession(modeKey(project.id),'story');
-    syncRoute();
-  }
+  const direction = flow.options[index].direction;
   const field = $('#instruction');
-  field.value = option.direction;
-  setSession(draftKey(project.id),option.direction);
+  const wasEditing = authorMode(project) === 'agent';
+  if (wasEditing) setSession(modeKey(project.id),'story');
+  if (replace || !draft.trim()) {
+    field.value = direction;
+    field.setSelectionRange(direction.length, direction.length);
+  } else {
+    // Keep the selection and the rest of the draft when adding another direction.
+    const before = draft.slice(0,start);
+    const after = draft.slice(start);
+    const addition = (before && !/\s$/.test(before) ? '\n\n' : '') + direction
+      + (after && !/^\s/.test(after) ? '\n\n' : '');
+    if (wasEditing) field.value = draft;
+    field.setRangeText(addition,start,start,'end');
+    if (start === end) field.setSelectionRange(start + addition.length,start + addition.length);
+  }
+  setSession(draftKey(project.id),field.value);
   project.storyFlow = {...flow,selected:index};
-  setSession(composerPreference,'');
+  workspaceTools.setComposerOpen(true);
   markDirty(project);
   syncRoute();
   field.focus();
@@ -1351,6 +1426,7 @@ async function requestStoryFlow() {
   const agentModel = selectedContinuityModel(project);
   if (!hasApiKey()) return openAppSettings();
   if (!agentModel) {
+    workspaceTools.showComposerModels();
     continuityModelPicker.focus();
     return error('Choose a continuity agent for Story Flow.');
   }
@@ -2435,6 +2511,7 @@ continuityModelChoice.onchange = () => {
     setSession(continuityKey(project.id,sensitive),continuityModelChoice.value);
   }
   syncRoute();
+  if (!sensitive && project.id !== starterStoryId && revisionModel(project)) void syncBackgroundReview({model:revisionModel(project)});
 };
 const userModelsKey = 'story-studio-user-openrouter-models';
 const isPreset = id => models.some(model => model.id === id);
@@ -2535,6 +2612,7 @@ sceneModelChoice.onchange = () => {
     setSession(sensitiveKey(project.id),'');
   }
   syncRoute();
+  if (mode === 'agent' && project.id !== starterStoryId && revisionModel(project)) void syncBackgroundReview({model:revisionModel(project)});
 };
 const providerKeyFields = {openrouter:$('#keyInput'),anthropic:$('#claudeKeyInput'),openai:$('#openAiKeyInput')};
 const providerRemovals = {openrouter:$('#removeOpenRouterKey'),anthropic:$('#removeClaudeKey'),openai:$('#removeOpenAiKey')};
@@ -3682,6 +3760,7 @@ $('#importFile').onchange = async event => {
 const storyDrawer = $('#sidebar');
 $('#openMenu').onclick = () => storyDrawer.showModal();
 $('#closeMenu').onclick = () => storyDrawer.close();
+installExpandedEditors();
 storyDrawer.addEventListener('click', event => {
   if (event.target !== storyDrawer) return;
   const {left, right, top, bottom} = storyDrawer.getBoundingClientRect();
@@ -3714,6 +3793,7 @@ storyDrawer.addEventListener('click', event => {
     render();
     const view = requested.get('view');
     if (storyViews.some(([name])=>name === view)) showStoryView(view);
+    else if (view === 'revision') workspaceTools.open('pacing',{focus:false});
     status('Saved locally');
     if (keyFailure) error(keyFailure);
     if (requested.has('settings')) openAppSettings();
@@ -3725,6 +3805,7 @@ storyDrawer.addEventListener('click', event => {
 
 // Other Studio tabs and connected tools can save while this view is open.
 let checkingUpdates = false;
+setInterval(()=>{ if (!document.hidden) void syncBackgroundReview(); },5000);
 setInterval(async () => {
   if (!state || document.hidden || checkingUpdates || dirty || pendingWrites || busy ||
     composerEdit || settingsDraftChanged() || document.querySelector('dialog[open]')) return;

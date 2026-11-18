@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildReview, createRevisionReviewer } from '../revision-review.mjs';
-import { branchRevisionNotes, continuityChecks, motifOccurrences, pacingRows, reference, resolveReference, sceneIndex } from '../public/revision.js';
+import { branchRevisionNotes, continuityChecks, motifOccurrences, normalizeRevisionNotes, pacingRows, reference, resolveReference, resolveReferenceRange, sceneIndex } from '../public/revision.js';
+import { findRecurringDetails, passageSignals } from '../public/revision-signals.js';
 
 const story = {
   id:'fixture',title:'The Pier',lore:'The pier has a storeroom.',notes:'',
@@ -38,6 +39,28 @@ test('scene index follows the book and revision references detect prose edits', 
   assert.equal(branch.revisionNotes[0].refs[0].storyId,'branch');
 });
 
+test('saved passage anchors relocate uniquely and grouped notes retain surviving evidence on a branch', () => {
+  const scenes = sceneIndex(story);
+  const refs = motifOccurrences(scenes.slice(0,2),'blue light').map(({ref})=>({...ref,quote:'blue light'}));
+  const saved = normalizeRevisionNotes([
+    {id:'theme',kind:'theme',title:'Light',refs},
+    {id:'thread',kind:'thread',title:'Light returns',refs,status:'shelved'}
+  ]);
+  assert.equal(saved[0].refs.length,2);
+  assert.equal(saved[1].status,'shelved');
+  const edited = structuredClone(story);
+  edited.messages[0].content = 'Earlier. ' + edited.messages[0].content;
+  const shifted = sceneIndex(edited)[0];
+  assert.deepEqual(resolveReferenceRange(saved[0].refs[0],shifted),{start:refs[0].start + 9,end:refs[0].end + 9});
+  edited.messages[0].content += ' The blue light.';
+  assert.equal(resolveReference(saved[0].refs[0],sceneIndex(edited)[0]),undefined);
+  const branch = {...story,id:'branch',messages:story.messages.slice(0,1),revisionNotes:saved};
+  branchRevisionNotes(branch,story.id);
+  assert.deepEqual(branch.revisionNotes.map(note=>[note.id,note.refs.length,note.refs[0].storyId]),[
+    ['theme',1,'branch'],['thread',1,'branch']
+  ]);
+});
+
 test('AI review filters held passages, rejects invented quotes, and reuses identical reads', async () => {
   const review = createRevisionReviewer();
   let calls = 0;
@@ -71,4 +94,22 @@ test('theme discovery needs no search phrase and respects the selected chapter',
   const search = buildReview(story,{...options,query:'blue light'});
   assert.match(search.messages[0].content,/requested motif or theme/);
   assert.equal(JSON.parse(search.messages[1].content).theme,'blue light');
+});
+test('local signals cite exact recurring details across scenes and refresh after an edit', () => {
+  const project = {id:'signals',messages:[
+    {role:'assistant',content:'The brass key lay on the folded chart inside the narrow drawer.\n\nThe brass key was cold.'},
+    {role:'assistant',content:'Hana recovered the brass key under the folded chart beside the narrow drawer.'}
+  ]};
+  const scenes = sceneIndex(project);
+  assert.equal(findRecurringDetails(scenes.slice(0,1)).length,0);
+  const detail = findRecurringDetails(scenes).find(detail=>detail.term === 'brass key');
+  assert.equal(detail.count,2);
+  assert.deepEqual(detail.refs.map((ref,index)=>resolveReference(ref,scenes[index])),['brass key','brass key']);
+  const echo = passageSignals(scenes).find(signal=>signal.kind === 'echo');
+  assert.equal(echo.ref.turn,2);
+  assert.equal(echo.comparison.turn,1);
+  assert.ok(resolveReference(echo.ref,scenes[1]).startsWith('Hana recovered'));
+  project.messages[1].content = 'Rain filled the harbor.';
+  assert.deepEqual(findRecurringDetails(sceneIndex(project)),[]);
+  assert.deepEqual(passageSignals(sceneIndex(project)),[]);
 });

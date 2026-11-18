@@ -26,6 +26,8 @@ Start here if you are installing, updating, or troubleshooting Story Studio for 
 | Local logs | `~/Library/Logs/Story Studio/`. With custom `STORY_STUDIO_DATA`, logs go under its `logs/` subfolder unless `STORY_STUDIO_LOG_DIR` is set. |
 | Launcher-managed Node runtime | `~/Library/Application Support/Story Studio Runtime/`, when the launcher installed Node. |
 | Display names and custom model list | Browser storage for the current Studio address and port. Display names are per story. |
+| Workspace layout and recent AI review results | Dock sizes and open preferences are saved in the browser. Recent review findings can survive reloads in the same tab when the model, scope, and source still match. Accepted pins and threads are saved with the story. |
+| Background writing analysis | `writing-analysis/cache.json` under the Studio data directory. Contains review settings and derived findings, with source anchors. Restarting Studio resumes work. Library exports include accepted pins and threads. Importing into a fresh installation lets Story Studio rebuild derived findings from the manuscript. |
 | Provider spend | Under the active data directory in `provider-spend/`. Daily records contain timestamps, provider, model, and cost. They are separate from story exports. |
 | Provider API keys | `credentials/providers.json` in the Studio data directory. Shared across stories and sessions. Manage through Settings. |
 

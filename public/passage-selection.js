@@ -1,0 +1,155 @@
+import { reference, resolveReference, sceneIndex } from './revision.js';
+
+function mapOffset(offset,replacements,toDisplay,isEnd) {
+  let shift = 0;
+  for (const {original,display,originalLength,displayLength} of replacements) {
+    const start = toDisplay ? original : display;
+    const length = toDisplay ? originalLength : displayLength;
+    const targetLength = toDisplay ? displayLength : originalLength;
+    if (offset <= start) break;
+    if (offset < start + length) return start + shift + (isEnd ? targetLength : 0);
+    shift += targetLength - length;
+  }
+  return offset + shift;
+}
+
+export function createPassageSelection({transcript,getStory,getActions}) {
+  const prose = new WeakMap();
+  const marks = {finding:[],passages:[]};
+  const toolbar = document.createElement('div');
+  toolbar.className = 'passage-actions';
+  toolbar.setAttribute('role','group');
+  toolbar.setAttribute('aria-label','Selected passage actions');
+  toolbar.hidden = true;
+  document.body.append(toolbar);
+  let refreshScheduled = false, selectedKey;
+
+  function register(element,content,match) {
+    const replacements = [];
+    let shift = 0;
+    element.textContent = match ? match(content,(original,originalLength,displayLength)=>{
+      replacements.push({original,originalLength,displayLength,display:original + shift});
+      shift += displayLength - originalLength;
+    }) : content;
+    prose.set(element,replacements);
+  }
+
+  function sceneRange(ref,scenes) {
+    const scene = scenes.find(scene=>scene.turn === ref.turn && scene.storyId === ref.storyId);
+    if (resolveReference(ref,scene) === undefined) return;
+    const element = transcript.querySelector(`.assistant[data-story-turn="${scene.turn}"] .message-text`);
+    const replacements = prose.get(element);
+    if (!replacements || !element.firstChild) return;
+    const range = document.createRange();
+    range.setStart(element.firstChild,mapOffset(ref.start,replacements,true,false));
+    range.setEnd(element.firstChild,mapOffset(ref.end,replacements,true,true));
+    return {element,range};
+  }
+
+  function render() {
+    const project = getStory();
+    const scenes = project && (marks.finding.length || marks.passages.length) ? sceneIndex(project) : [];
+    const supportsHighlights = Boolean(globalThis.CSS?.highlights && globalThis.Highlight);
+    if (!supportsHighlights) {
+      for (const element of transcript.querySelectorAll('[data-passage-mark]')) delete element.dataset.passageMark;
+    }
+    for (const [kind,refs] of Object.entries(marks)) {
+      const matches = refs.map(ref=>sceneRange(ref,scenes)).filter(Boolean);
+      if (supportsHighlights) {
+        CSS.highlights.delete(`studio-${kind}`);
+        if (matches.length) CSS.highlights.set(`studio-${kind}`,new Highlight(...matches.map(({range})=>range)));
+      } else {
+        for (const {element} of matches) element.dataset.passageMark = kind;
+      }
+    }
+  }
+
+  function highlight(refs = []) {
+    marks.passages = refs;
+    if (!refs.length) marks.finding = [];
+    render();
+  }
+
+  function focus(ref,element) {
+    marks.finding = ref ? [ref] : [];
+    render();
+    const match = ref && sceneRange(ref,sceneIndex(getStory()));
+    const anchor = match?.range.getClientRects()[0] || element.getBoundingClientRect();
+    transcript.scrollTop += anchor.top - transcript.getBoundingClientRect().top - 18;
+    element.focus({preventScroll:true});
+  }
+
+  function readSelection() {
+    const selection = window.getSelection();
+    if (!selection?.rangeCount || selection.isCollapsed) return;
+    const range = selection.getRangeAt(0);
+    const node = range.commonAncestorContainer;
+    const element = (node.parentElement || node).closest?.('.message-text');
+    const replacements = prose.get(element);
+    if (!replacements || range.startContainer !== element.firstChild || range.endContainer !== element.firstChild) return;
+    const article = element.closest('[data-story-turn]');
+    const scene = sceneIndex(getStory()).find(scene=>scene.turn === Number(article.dataset.storyTurn));
+    if (!scene) return;
+    let start = mapOffset(range.startOffset,replacements,false,false);
+    let end = mapOffset(range.endOffset,replacements,false,true);
+    while (start < end && /\s/u.test(scene.text[start])) start++;
+    while (end > start && /\s/u.test(scene.text[end - 1])) end--;
+    if (end > start) return {selection,range,ref:reference(scene,start,end)};
+  }
+
+  function refresh() {
+    refreshScheduled = false;
+    if (!getStory() || !transcript.getClientRects().length) {
+      toolbar.hidden = true;
+      return;
+    }
+    const selected = readSelection();
+    if (!selected) {
+      if (!toolbar.contains(document.activeElement)) toolbar.hidden = true;
+      selectedKey = undefined;
+      return;
+    }
+    const actions = getActions(selected.ref);
+    const anchor = selected.range.getBoundingClientRect();
+    const limit = transcript.getBoundingClientRect();
+    if (!actions?.length || anchor.bottom < limit.top || anchor.top > limit.bottom) {
+      toolbar.hidden = true;
+      return;
+    }
+    const key = JSON.stringify([selected.ref,actions.map(action=>action.label)]);
+    if (selectedKey !== key) {
+      toolbar.replaceChildren(...actions.map(({label,run})=>{
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'text-button';
+        button.textContent = label;
+        button.addEventListener('pointerdown',event=>{ if (event.pointerType === 'mouse') event.preventDefault(); });
+        button.onclick = () => {
+          selected.selection.removeAllRanges();
+          toolbar.hidden = true;
+          run();
+        };
+        return button;
+      }));
+      selectedKey = key;
+    }
+    toolbar.hidden = false;
+    const {width,height} = toolbar.getBoundingClientRect();
+    const left = Math.max(8,Math.min(anchor.left,innerWidth - width - 8));
+    const top = Math.min(anchor.bottom + 8,limit.bottom - height - 5);
+    toolbar.style.transform = `translate(${left}px,${Math.max(limit.top + 5,top)}px)`;
+  }
+
+  function scheduleRefresh() {
+    if (!refreshScheduled) {
+      refreshScheduled = true;
+      requestAnimationFrame(refresh);
+    }
+  }
+
+  document.addEventListener('selectionchange',scheduleRefresh);
+  document.addEventListener('focusin',scheduleRefresh);
+  transcript.addEventListener('scroll',scheduleRefresh,{passive:true});
+  window.addEventListener('resize',scheduleRefresh,{passive:true});
+  return {register,render,focus,highlight};
+}

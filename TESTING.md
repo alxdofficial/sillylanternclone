@@ -2,6 +2,18 @@
 
 For current setup and controls, use the [README](README.md) and [MCP guide](MCP.md). The archival walkthroughs at the end retain the interface and model behavior observed at the time.
 
+## Resizable workspace and writing tools
+
+The default background review passed an isolated browser test with a simulated OpenRouter model. It enrolled an existing story automatically, linked a setup and payoff across chapters, skipped a withheld scene, and preserved two completed scenes through pause and resume before picking up a third. Automated tests also cover a single passage larger than the former 24,000-token review ceiling, recovery from persisted checkpoints, source withdrawal during review, and a link-recipe upgrade that reused all saved passage observations.
+
+The follow-up responsive sweep covered Write, Book and export, Graph and its settings panels, Display names, the library, provider settings, and the setup wizard at six viewport sizes from 320 × 650 to 1440 × 900. Touch emulation in Chromium and WebKit exercised the composer picker, Story Flow insertion, tool navigation and evidence links, a real Markdown download, cast inspection, display names, story options, and the narrow import form. Phone sizes were emulated.
+
+On an isolated copy of The Late Ferry, exercised Chapters, the tool catalogue and split, Story Flow, and the composer at 1440 × 900, 1120 × 760, 1000 × 680, 900 × 680, 820 × 620, 844 × 390, 390 × 844, and 320 × 650 in Chromium. Send stayed within the viewport throughout the size sweep. Also checked drag and keyboard resizing, layout presets and reset, inserting or replacing a draft from Story Flow, and following a citation without losing the tool on desktop or compact layouts. Tested the expanded editor’s draft, keyboard, selection, and undo behavior in Chromium and WebKit. Phone sizes were emulated.
+
+Verified locally that saved themes and threads link to their exact passages, that a payoff can be selected from the manuscript on a narrow screen, and that stale saved quotes relocate only when their original wording is unique. With a simulated review response, verified that the provider gets one explicit request, accepted suggestions retain both citations, and cached results return on reload when the scope and source still match.
+
+Trialled the quantized [all-MiniLM-L6-v2 ONNX model](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) locally on 10 hand-labeled retrieval cases with three candidate passages each. The set covered echoes, paraphrases, dates, changed possession, negation, rumor, flashbacks, a cross-language echo, and topic continuity. Word overlap ranked the expected candidate first in 3 of 10 cases, compared with 2 of 10 for embeddings. The CPU loaded the 22 MB model in 85 ms and encoded 40 short passages in 22–26 ms. The sample was small and the model often favored related wording over the relevant claim. The app uses exact phrase counts and explicitly labeled vocabulary comparisons. Continuity raises structured discrepancies locally and asks for paired evidence in AI reviews.
+
 ## Revision and persistent provider settings
 
 In an isolated library, exercised Settings, Story Flow, Pacing, Themes, Setups & payoffs, and Graph continuity checks in Chromium at desktop and phone widths. Verified that using a Story Flow choice fills the composer and waits for Send. Pinned a motif, linked a payoff, marked a date finding intentional, and followed a verified AI citation to the exact scene. The simulated provider received two eligible scenes and no held prose.
@@ -39,6 +51,8 @@ A browser run with a simulated OpenRouter provider staged the world, cast and se
 Separate live OpenRouter requests through the current Story Studio server verified the expanded setup draft, Cydonia prose followed by DeepSeek continuity, and a DeepSeek Agent edit that left the manuscript intact. Live setup returned world information, two cast members, two starting relationship facts, and the intended opening minute. The total reported cost was $0.00165. These live probes used non-explicit fiction. The MCP walkthrough exercised the actual tool transport with scripted responses. It did not run a fresh Claude or Codex inference session.
 
 ## The Late Ferry starter
+
+The refreshed demo adds Chapter 3 through the live direct Claude API with Sonnet 5.5 for prose, continuity, and Story Flow. The new scene ran to 196 words, both texts were classified safe, two dated plot updates were accepted through the standard graph update function, and three fresh Story Flow directions were saved. The bundled revision examples validate their exact source quotes and need no provider call to open.
 
 Regenerated from a blank story in the built-in browser on 17 November 2026. All live model calls used the direct Claude API with Sonnet 5.5. The setup chat and review generated five cast profiles and five initial relationships. Four prose and continuity passes recorded all author directions and replies as non-explicit. The exported graph has ten relationship entries and ten plot events. A live Editor exchange saved a radio style note in Writing notes. Chapter 2 begins with the first scene after midnight.
 

@@ -1,4 +1,5 @@
 import { starterStoryId } from '../public/library.js';
+import { reference, reviewFindingId, sceneIndex } from '../public/revision.js';
 
 // Authored and exported through Story Studio with Claude Sonnet 5.5. See TESTING.md.
 const starter = {
@@ -55,6 +56,16 @@ const starter = {
       "note": "A single horn sounded from the dark channel past the east beacon and went unanswered. Its source is unknown.",
       "turn": 8,
       "storyTime": "1998-10-25T00:27"
+    },
+    {
+      "note": "Noor read the tide gauge at 00:34 at 3.0 m and logged it as a separate current reading, distinct from her 23:15 entry. The east beacon was dark, and a second long, lower horn sounded from the channel with no answer. Source of the horn and the dark beacon unknown.",
+      "turn": 10,
+      "storyTime": "1998-10-25T00:34"
+    },
+    {
+      "note": "Noor decided to report the gauge figure and the second horn to Dispatch and to recommend the ferry stay tied.",
+      "turn": 10,
+      "storyTime": "1998-10-25T00:36"
     }
   ],
   "relationships": [
@@ -341,6 +352,34 @@ const starter = {
           "storyTime": "1998-10-25T00:27"
         }
       ]
+    },
+    {
+      "role": "user",
+      "content": "Start Chapter 3 at about 00:30. In 150–180 words, use Noor’s close third-person point of view as she takes her notebook and a hand lantern to the tide gauge. Give the unanswered horn a concrete second occurrence but leave its source, the changed log entry, and the dark beacon unresolved. Let Noor write down that the current water matches her reading closely while keeping that observation distinct from the 23:15 reading. Show what she decides to tell Dispatch. The ferry stays moored. End on her decision. Return only story prose.",
+      "contentSensitivity": "safe",
+      "turnNumber": 9,
+      "storyTime": "1998-10-25T00:34"
+    },
+    {
+      "role": "assistant",
+      "content": "Noor Haddad took her notebook and the hand lantern down the quay to the tide gauge, a staff bolted to the piling with its marks worn pale by salt. The rain had thinned to a mist. She held the lantern close and read the waterline against the staff.\n\n3.0 meters, a hair under.\n\nShe wrote it on a fresh line: *00:34. Gauge reads 3.0 m. Current reading.* Above it, her 23:15 entry stood untouched. The two figures agreed closely, but one did not prove the other. An hour of tide had passed between them, and she kept them on separate lines.\n\nAcross the water, the east beacon sat dark. She waited for its flash and counted to sixty. Nothing came.\n\nThe horn sounded again, one long note from the channel, lower than before. No answering horn came, and no light.\n\nShe closed the notebook on her pencil. Lina would want the figure, and she would have it. She would also tell her the horn had come twice, and that the gauge said only what the water was doing now. The ferry should stay where it was.\n\nShe turned the lantern toward the office and walked back.",
+      "speakerId": "story-studio:narrator",
+      "contentSensitivity": "safe",
+      "storyTime": "1998-10-25T00:34",
+      "startsChapter": true,
+      "turnNumber": 10,
+      "appliedGraphUpdates": [
+        {
+          "kind": "plot",
+          "note": "Noor read the tide gauge at 00:34 at 3.0 m and logged it as a separate current reading, distinct from her 23:15 entry. The east beacon was dark, and a second long, lower horn sounded from the channel with no answer. Source of the horn and the dark beacon unknown.",
+          "storyTime": "1998-10-25T00:34"
+        },
+        {
+          "kind": "plot",
+          "note": "Noor decided to report the gauge figure and the second horn to Dispatch and to recommend the ferry stay tied.",
+          "storyTime": "1998-10-25T00:36"
+        }
+      ]
     }
   ],
   "graphHistory": [
@@ -386,7 +425,7 @@ const starter = {
       "notes": "Genre and form: short standalone harbor mystery, humane and quiet, with low-key stakes and room for choices.\nPoint of view: close third person, one viewpoint character per scene. Rotate viewpoint between scenes among the five characters. Lina Park has the first scene. No character is designated the lead.\nTheme: loyalty to coworkers versus responsibility to people who depend on an accurate record. Show it through choices and actions. Do not state it outright.\nTone: no villains presumed. Treat every character as a competent adult with plausible reasons for what they do and what they leave unsaid. Do not settle blame early.\nPhysical objects: the brass key with a filed tooth, the pale blue carbon duplicate, and the tide-board each have a practical purpose. Show them in use. The narrator should not explain them as symbols.\nDetails: use plausible harbor and ferry-dispatch terms, such as hold, cast off, log, dispatch, and tide. Explain them only through context.\nStanding constraints: keep content non-explicit. Leave the altered log and the key's use unresolved until the story reveals them. Do not add outside facts to the setup that are only plot ideas.\n\nCall signs and evidence: On the radio, use job call signs such as \"Dispatch\" and \"Ferry.\" In person, use names. Keep every scene to one point of view and let physical evidence carry the mystery."
     }
   ],
-  "nextTurn": 9,
+  "nextTurn": 11,
   "agentHistory": [
     {
       "afterTurn": 4,
@@ -398,22 +437,22 @@ const starter = {
   ],
   "storyFlow": {
     "source": "anthropic",
-    "afterTurn": 8,
+    "afterTurn": 10,
     "options": [
       {
-        "title": "Noor answers the horn",
-        "direction": "Switch to Noor at 00:30. She takes her notebook and a hand lamp toward the east beacon and tide gauge to check her 23:15 reading against the water now, while the unanswered horn sounds again from the channel. Let her measurements carry the scene. Don't say who changed the log or why the beacon double-flashed. About 180–220 words.",
-        "consequence": "Gives Noor her first viewpoint and tests the tide figure and beacon against the horn."
+        "title": "Tomas aboard with the courier",
+        "direction": "Switch to Tomas at about 00:40, on the held ferry. The courier has answered Lina's choice, and the horn has sounded twice. Show him managing the cooler, the crew, and the waiting, then deciding what he will tell Dispatch about readiness to sail. Leave the horn's source open.",
+        "consequence": "Gives Tomas his first viewpoint and makes the courier's delay concrete."
       },
       {
-        "title": "Tomas and the courier's choice",
-        "direction": "Switch to Tomas at 00:30, aboard the held ferry. Lina's call has come in, and the courier must choose between waiting aboard and going up to the stove. Show the practical side: the cooler, the cold, how long the hold can last. The horn sounds again, and he decides whether to answer as \"Ferry.\" Keep his view of the log unspoken. About 180–220 words.",
-        "consequence": "Gives Tomas his first viewpoint and makes the delay a real cost for the courier."
+        "title": "Lina weighs Noor's report",
+        "direction": "Switch to Lina at about 00:42. Noor comes in from the quay with the 00:34 gauge figure, the second horn, and the dark beacon. Show Lina deciding what is enough to keep the ferry held, release it, or set conditions. Have her enter the decision in the log. Name no one as responsible for the altered entry.",
+        "consequence": "Advances the hold-versus-release decision using the evidence already gathered."
       },
       {
-        "title": "Sam rereads the tide-board",
-        "direction": "Switch to Sam at 00:30 on the quay. He rechecks the tide-board's posted level and the time of the last chalk posting, then notices something about the clip or chalk he can't yet interpret. Wary of speaking out of turn, he weighs whether to tell Tomas or Mae. Keep the key's source open. About 160–200 words.",
-        "consequence": "Returns to the tide-board as a working object and tests Sam's hesitation under Tomas."
+        "title": "Sam is asked what he saw",
+        "direction": "Switch to Sam at about 00:40 on the quay. Tomas, or Mae, asks quietly whether he saw anyone near the tide-board before he found the key. Show Sam deciding how much to say, and what he does with his hands while he decides. Keep the key's source unresolved.",
+        "consequence": "Tests loyalty to coworkers against the accurate record through Sam's choice of words."
       }
     ]
   },
@@ -429,6 +468,13 @@ const starter = {
           "fingerprint": "vg-1wqke98",
           "start": 595,
           "end": 642
+        },
+        {
+          "storyId": "story-studio-starter-demo",
+          "turn": 8,
+          "fingerprint": "yk-suiuck",
+          "start": 833,
+          "end": 897
         }
       ]
     },
@@ -490,15 +536,15 @@ const starter = {
           "storyId": "story-studio-starter-demo",
           "turn": 4,
           "fingerprint": "ty-3tv54u",
-          "start": 0,
-          "end": 180
+          "start": 470,
+          "end": 570
         },
         {
           "storyId": "story-studio-starter-demo",
           "turn": 6,
           "fingerprint": "117-101onab",
           "start": 0,
-          "end": 180
+          "end": 75
         }
       ]
     }
@@ -507,4 +553,50 @@ const starter = {
 
 export function createStarterStory() {
   return {id:starterStoryId,...structuredClone(starter)};
+}
+
+// Review examples are derived from this edition of the demo and have exact source anchors.
+const reviewExamples = {
+  pacing:[
+    ['The scene switches from inspection to a decision', 'Three short phone exchanges break the slower examination of the log and turn the unknown tide figure into a decision to hold the ferry.',
+      [2,"I'm holding you at the dock."]],
+    ['The scene ends on a deliberate delay', 'The search through the records narrows to one choice, then stops on a short sentence. It gives the next scene a concrete decision to resolve.',
+      [6,'She did not write yet.']],
+    ['A signed decision, then a short open question', 'The jointly signed correction resolves the scene’s main decision. The single unanswered horn turns attention back to what the harbor is doing.',
+      [8,'Nothing answered it.']],
+    ['The second horn interrupts a quiet measurement', 'Noor takes time to record exactly what she knows. The next horn gives that quiet work urgency and moves the scene to a decision she can report.',
+      [10,'The horn sounded again, one long note from the channel, lower than before.']]
+  ],
+  themes:[
+    ['Preserving what the next person needs to see', 'Lina first protects a physical trace for someone else to inspect. Later she and Mae preserve the original beside a signed correction so others can distinguish observation from judgment.',
+      [2,'Anyone who looked later would see what she saw.'],[8,'Original entry left as written. Cause of change not established.']],
+    ['The burden of putting a name on the record', 'Mae treats signing as a personal admission. Sharing the correction changes the signature into a statement of what the two coworkers can actually establish.',
+      [6,'If she wrote it, her name sat on the first admission.'],[8,'Mae initialed, then Lina.']],
+    ['Evidence can agree without settling the question', 'Noor’s earlier log is a second record of 23:15. When the gauge is similar later that night, she records the new measurement separately so it cannot be mistaken for another record of the earlier tide.',
+      [6,'Her own line for 23:15 read 3.1, timed and initialed.'],[10,'The two figures agreed closely, but one did not prove the other.']]
+  ],
+  threads:[
+    ['Will Mae sign the correction?', 'Mae reaches for the pen and stops. She follows through with Lina, on a separate sheet the two can stand behind.',
+      [6,'She did not write yet.'],[8,'Mae initialed, then Lina.']],
+    ['Who left the key at the tide-board?', 'Sam discovers a key prepared for someone to find. The cabinet opens later, while the person who left the key is still unidentified.',
+      [4,'Wasn\'t me who put it there.']],
+    ['What is making the horn calls?', 'The horn repeats with a lower note. Noor has enough to report it and still hasn’t found the source.',
+      [10,'The horn sounded again, one long note from the channel, lower than before.']]
+  ],
+  continuity:[]
+};
+
+export function starterReview(project) {
+  const base = new Map(sceneIndex(createStarterStory()).map(scene=>[scene.turn,scene]));
+  const live = new Map(sceneIndex(project).map(scene=>[scene.turn,scene]));
+  const findings = Object.fromEntries(Object.entries(reviewExamples).map(([kind,entries])=>[kind,entries.flatMap(([title,detail,...sources])=>{
+    const refs = sources.map(([turn,quote])=>{
+      const scene = live.get(turn);
+      if (!scene?.eligible || scene.fingerprint !== base.get(turn)?.fingerprint) return;
+      const start = scene.text.indexOf(quote);
+      if (start >= 0 && scene.text.lastIndexOf(quote) === start) return reference(scene,start,start + quote.length);
+    });
+    return refs.every(Boolean) ? [{id:reviewFindingId(title,refs),title,detail,refs}] : [];
+  })]));
+  return {state:'demo',findings};
 }

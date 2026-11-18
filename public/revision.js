@@ -2,11 +2,20 @@ import { getCast, isAvailableToMcp, isStoryTime } from './prompt.js';
 
 const words = text => text.match(/[\p{L}\p{N}]+(?:[’'-][\p{L}\p{N}]+)*/gu)?.length || 0;
 const escapeRegex = text => text.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+const fingerprints = new WeakMap();
 
 function signature(text) {
   let hash = 2166136261;
   for (let index = 0; index < text.length; index++) hash = Math.imul(hash ^ text.charCodeAt(index),16777619);
   return text.length.toString(36) + '-' + (hash >>> 0).toString(36);
+}
+
+function fingerprint(turn) {
+  const saved = fingerprints.get(turn);
+  if (saved?.text === turn.content) return saved.signature;
+  const result = signature(turn.content);
+  fingerprints.set(turn,{text:turn.content,signature:result});
+  return result;
 }
 
 export function sceneIndex(project) {
@@ -23,7 +32,7 @@ export function sceneIndex(project) {
     const turnNumber = turn.turnNumber || index + 1;
     scenes.push({
       storyId:project.id,turn:turnNumber,number:scenes.length + 1,chapter,text:turn.content,
-      fingerprint:signature(turn.content),time:isStoryTime(turn.storyTime) ? turn.storyTime : '',
+      fingerprint:fingerprint(turn),time:isStoryTime(turn.storyTime) ? turn.storyTime : '',
       eligible:isAvailableToMcp(turn,direction),events:graphCounts.get(turnNumber) || 0
     });
   }
@@ -41,10 +50,20 @@ export function reference(scene, start = 0, end = Math.min(180,scene.text.length
   return {storyId:scene.storyId,turn:scene.turn,fingerprint:scene.fingerprint,start,end};
 }
 
+export function resolveReferenceRange(ref, scene) {
+  if (!scene || scene.storyId !== ref.storyId || scene.turn !== ref.turn) return undefined;
+  if (scene.fingerprint === ref.fingerprint && ref.end <= scene.text.length) {
+    return {start:ref.start,end:ref.end};
+  }
+  if (ref.quote) {
+    const start = scene.text.indexOf(ref.quote);
+    if (start !== -1 && scene.text.lastIndexOf(ref.quote) === start) return {start,end:start + ref.quote.length};
+  }
+}
+
 export function resolveReference(ref, scene) {
-  if (!scene || scene.storyId !== ref.storyId || scene.turn !== ref.turn ||
-      scene.fingerprint !== ref.fingerprint || ref.end > scene.text.length) return undefined;
-  return scene.text.slice(ref.start,ref.end);
+  const range = resolveReferenceRange(ref,scene);
+  return range ? scene.text.slice(range.start,range.end) : undefined;
 }
 
 const phrasePattern = term => new RegExp('(?<![\\p{L}\\p{N}])' + escapeRegex(term.trim()).replace(/\s+/gu,'\\s+') + '(?![\\p{L}\\p{N}])','giu');
@@ -94,7 +113,7 @@ export function continuityChecks(project, scenes, scope, notes = []) {
       report('Relationship points to a missing character',label,[],[event.from,event.to,event.turn,label]);
     }
   }
-  for (const note of notes.filter(note=>note.kind === 'thread' && note.refs.length === 2)) {
+  for (const note of notes.filter(note=>note.kind === 'thread' && note.status !== 'shelved' && note.refs.length === 2)) {
     const [first,last] = note.refs.map(ref=>byTurn.get(ref.turn));
     if (!first || !last || !included.has(first.turn) && !included.has(last.turn) ||
         !resolveReference(note.refs[0],first) || !resolveReference(note.refs[1],last)) continue;
@@ -117,11 +136,12 @@ export function normalizeRevisionNotes(notes) {
   return notes.filter(note=>note && typeof note.id === 'string' && /^[a-zA-Z0-9-]{1,100}$/.test(note.id) &&
     ['theme','thread','continuity'].includes(note.kind) &&
     typeof note.title === 'string' && note.title.trim() && note.title.length <= 300 &&
-    Array.isArray(note.refs) && note.refs.length <= 2 && note.refs.every(validRef) &&
+    Array.isArray(note.refs) && note.refs.length <= (note.kind === 'theme' ? 50 : 2) && note.refs.every(validRef) &&
     (note.kind === 'continuity' ? ['intentional','dismissed'].includes(note.status) :
-      note.kind === 'theme' ? note.refs.length === 1 : note.refs.length > 0)
-  ).map(({id,kind,title,refs,status})=>({id,kind,title,refs:refs.map(({storyId,turn,fingerprint,start,end})=>({storyId,turn,fingerprint,start,end})),
-    ...(kind === 'continuity' ? {status} : {})}));
+      note.refs.length > 0)
+  ).map(({id,kind,title,refs,status})=>({id,kind,title,refs:refs.map(({storyId,turn,fingerprint,start,end,quote})=>({
+    storyId,turn,fingerprint,start,end,...(typeof quote === 'string' && quote.length === end - start && quote.length <= 1000 ? {quote} : {})
+  })),...(kind === 'continuity' || kind === 'thread' && status === 'shelved' ? {status} : {})}));
 }
 
 export function reviewFindingId(title, refs) {
@@ -131,9 +151,12 @@ export function reviewFindingId(title, refs) {
 export function branchRevisionNotes(branch, sourceId) {
   if (!branch.revisionNotes) return;
   const turns = new Set(sceneIndex(branch).map(scene=>scene.turn));
-  branch.revisionNotes = normalizeRevisionNotes(branch.revisionNotes).filter(note=>note.kind !== 'continuity' &&
-    note.refs.every(ref=>ref.storyId === sourceId && turns.has(ref.turn))).map(note=>({
-    ...note,refs:note.refs.map(ref=>({...ref,storyId:branch.id}))
-  }));
+  branch.revisionNotes = normalizeRevisionNotes(branch.revisionNotes).flatMap(note=>{
+    if (note.kind === 'continuity') return [];
+    const refs = note.refs.map(ref=>ref.storyId === sourceId && turns.has(ref.turn) ? {...ref,storyId:branch.id} : undefined);
+    if (note.kind === 'thread' && !refs[0]) return [];
+    const remaining = refs.filter(Boolean);
+    return remaining.length ? [{...note,refs:remaining}] : [];
+  });
   if (!branch.revisionNotes.length) delete branch.revisionNotes;
 }

@@ -18,14 +18,14 @@ You can ask your local agent to set it up for you.
 
 ## Try The Late Ferry
 
-New libraries open on **The Late Ferry**, a two-chapter harbor mystery with five characters and four scenes. An altered log keeps the last ferry at the dock with a medical courier waiting to cross. Find it under **Menu → Open demo**. Changes to the demo stay in memory and reset when you reload.
+New libraries open on **The Late Ferry**, a three-chapter harbor mystery with five characters and five scenes. An altered log keeps the last ferry at the dock with a medical courier waiting to cross. Find it under **Menu → Open demo**. Changes to the demo stay in memory and reset when you reload.
 
-1. Open **Book view** to read the two chapters. In **Write**, the same scenes sit alongside their author directions and an Editor agent exchange that added a standing writing note.
+1. Open **Book view** to read the three chapters. In **Write**, the same scenes sit alongside their author directions and an Editor agent exchange that added a standing writing note.
 2. In **Graph**, select the line between Mae and Noor to see how their relationship changes when they compare records. Use **View graph changes** on the last prose turn in **Write** to see what the signed correction changed.
-3. In **Revision**, compare the four scenes in **Pacing**, read the pinned passages in **Themes**, and follow the open and resolved threads in **Setups & payoffs**. Try **Graph → Check continuity** with an Editor or continuity model to compare when Lina first handles the log with when Mae obtains the key.
-4. Back in **Write**, preview one of the saved **Story Flow** choices. Click **Use direction** to put it in the composer. Pick your model before sending. To keep a version of the demo as your own story, use **⋯ → Branch from here** on a prose turn.
+3. In **Write → Writing tools**, look for the example review. **Pacing** shows how a scene shifts from inspecting the log to making a decision. **Themes** links the original evidence to the signed correction. **Setups & payoffs** distinguishes the signed correction from the question of who left the key. **Graph → Check continuity** opens the same review beside the manuscript.
+4. In **Write**, preview one of the saved **Story Flow** choices. Click **Use direction** to put it in an empty composer. With a draft in progress, choose **Insert at cursor** or **Replace draft**. To keep a version of the demo as your own story, use **⋯ → Branch from here** on a prose turn.
 
-Claude Sonnet 5.5 built the setup, drafted all four scenes, and ran the continuity, Editor, Story Flow, and Revision passes through the direct Claude API in the browser. [See the verification notes](TESTING.md#the-late-ferry-starter).
+Claude Sonnet 5.5 built the setup and first four scenes in the browser. The refreshed third chapter uses the direct Claude API for the new scene, continuity, and Story Flow. [See the verification notes](TESTING.md#the-late-ferry-starter).
 
 ## Progress the story
 
@@ -33,7 +33,9 @@ Claude Sonnet 5.5 built the setup, drafted all four scenes, and ran the continui
 2. In **Write**, choose **Progress the story** and select a **Prose artist** and **Continuity agent** independently. The writer menu estimates cost for a chapter of 2,000 input and 5,000 output tokens. Each pass goes to its selected provider and is metered separately. If you claimed subscription API credits, use a key from the linked organization and choose its direct API group. Click the context ring to inspect the current context. Set standing style preferences in **Graph → Writing**. Use **Sensitive scene** with an NSFW-friendly writer when appropriate. [Model notes and prices](MODELS.md) · [Claude credit terms](https://platform.claude.com/docs/en/about-claude/api-credits-for-subscribers) · [OpenAI credit terms](https://help.openai.com/en/articles/20001626-api-credits-benefit-for-eligible-chatgpt-subscriptions)
 3. Click **Send**. The selected writer writes the prose. The selected continuity agent classifies the scene and proposes non-explicit continuity updates. **View graph changes** shows the updates for that turn. Proposals needing approval are in **Graph → Review updates**.
 
-Use the eye icon at the upper right to hide the composer. Click **Show composer** to bring it back. Write always shows author inputs alongside the prose. To show them in Graph, check **Show author directions in Graph** in **Settings** and click **Save settings**. Use the manuscript outline to jump to a turn or the down arrow to return to the end after scrolling up. The copy icon copies a turn’s prose. **Edit** opens the text for revision. When a direction has a paired reply and an API artist is configured, **Send** saves the edit and regenerates that reply. **Save without rewriting** saves just the edit.
+Use **Chapters** and **Writing tools** to open or close the side panes. Drag the dividers, use arrow keys on a focused divider, or choose a preset in **Workspace layout**. The composer and Story Flow fold independently. In narrow or short windows, tap **Mode and models** for the composer’s full settings. **Expand editor** opens a larger draft editor for the composer, manual prose, and long setup or story fields. **Done** or Escape returns to the draft. Use the original **Save** or **Send** action to submit it.
+
+Write shows author inputs alongside the prose. To show them in Graph, check **Show author directions in Graph** in **Settings** and click **Save settings**. Use the outline to jump to a turn or the down arrow to return to the latest turn. The copy icon copies a turn’s prose. **Edit** opens the text for revision. When a direction has a paired reply and an API artist is configured, **Send** saves the edit and regenerates that reply. **Save without rewriting** saves just the edit.
 
 In **Write**, click the plus at the end of the manuscript to write or paste prose without a model. Set **AI context** to **Explicit**, **Unverified**, or **Verified non-explicit**, then click **Save prose**. General AI context includes prose you verify as non-explicit. You can review a saved turn in **Write → ⋯ → Time and context**. The same menu has chapter breaks, branching, and rewind.
 
@@ -41,16 +43,21 @@ To add your own OpenRouter model, choose **Manage custom models…** in the **Pr
 
 ## Story Flow
 
-In **Write**, click **Get AI recommendations** above the composer to ask your selected continuity agent for three next beats. Open a suggestion for its full direction and any consequence the agent provided. Click **Use direction** to put it in the composer, then edit or send when ready. Story Flow stays visible when you hide the composer. Sending a direction while an in-app offer is active asks for fresh suggestions after the scene. Each suggestion request uses the selected provider.
+In **Write**, click **Suggest directions** next to **Get AI recommendations** to ask your selected continuity agent for three next beats. Open a suggestion for its full direction and any consequence the agent provided. Click **Use direction** to fill an empty composer, or choose **Insert at cursor** or **Replace draft** when it already contains text. Collapse **Story Flow** from its own header. Saved choices remain available when you reopen it. Sending a direction while an in-app offer is active asks for fresh suggestions after the scene. Each suggestion request uses the selected provider.
 
 ## Review a draft
 
-- **Revision → Pacing** shows word counts, estimated quoted dialogue, cast mentions, and recorded graph events, scoped to a scene, chapter, or the whole book. Select a scene to see an excerpt and jump to the manuscript or graph events.
-- **Revision → Themes** finds exact words or phrases locally. Leave the search empty and click **Suggest themes with AI** to discover possible themes, or enter a phrase and use **Find related with AI** to look for indirect echoes. Pin passages you want to revisit.
-- **Revision → Setups & payoffs** tracks planted details and open threads. Link a payoff when it lands, or ask for **AI suggestions** and move the ones you want into **Tracked threads**.
-- **Graph → Check continuity** checks for graph events with missing source turns and tracked payoffs dated before their setups. Optional AI review compares cited passages. Choose a comparison story or add canon notes if you want those included. Mark findings intentional or dismiss them.
+Open **Writing tools** from **Write**. At desktop widths the manuscript stays beside the tool. In a narrow window, follow a citation to the manuscript and use **Back to [tool]** to return to its results.
 
-AI reviews use the general continuity agent selected in Write, or the selected Editor model if Write is in **Editor agent** mode. They send only eligible passages and saved canon from the explicitly selected stories. Large reviews can be scoped to a chapter or scene. Findings link back to their evidence and never edit the story automatically. Pins and tracked threads are saved with your story. A changed or deleted source passage is marked **Needs recheck**.
+- **In this scene** shows the selected scene’s time, cast mentioned in the prose, world setting, and writing notes.
+- **Pacing** shows scene length, estimated quoted dialogue, cast mentions, and recorded graph events across the selected scope. Background observations explain changes in tension or how a scene moves the story. Evidence links jump to the relevant prose.
+- **Themes** shows pinned themes and recurring phrases. Select prose and click **Pin as theme**, or search for exact wording. **Suggest themes with AI** discovers possible themes. **Find related with AI** searches for indirect echoes of your query.
+- **Setups & payoffs** groups tracked threads by status. Select prose and click **Track as setup**. When the payoff lands, choose **Link payoff**, select the passage, and click **Link as payoff**. AI suggestions appear below tracked threads.
+- **Continuity** shows which local graph and date checks ran. **Compare passages with AI** looks for inconsistencies and cites the passages. Open **Compare another story or add canon notes** to include a comparison or add reference text. Mark findings intentional or dismiss them. **Graph → Check continuity** opens this same tool.
+
+**Background review** is on by default for existing and new stories when opened with a configured review model. It examines eligible scenes in batches and checks related evidence across chapters. Local results appear immediately. Background findings fill in as the review progresses and resume from saved checkpoints while Studio runs. Open **Background review** in Writing tools to see its model, coverage, and budget, or to pause or resume. The daily estimate allows up to $1 per story at Studio’s published model rates. Actual provider usage appears in the context panel. The demo ships with example findings and makes no background provider calls.
+
+Manual AI reviews remain available for an ad hoc query, comparison story, or canon notes. They use the general continuity agent selected in Write, or the selected Editor model in **Editor agent** mode. Large manual requests can be scoped to a chapter or scene. Findings link back to their evidence. Pins and tracked threads are saved with your story. A citation whose original passage can no longer be found is marked **Passage changed**.
 
 ## Editor agent
 
@@ -153,6 +160,7 @@ Trace files include the prose and prompts that were actually sent or received, i
 
 - [MCP.md](MCP.md) covers optional access to the saved library.
 - [RESEARCH.md](RESEARCH.md) records the pinned SillyTavern sources, the UI and prompts studied, and the features implemented independently.
+- [ROADMAP.md](ROADMAP.md) collects proposed features, including scene rehearsal with character agents.
 - [TESTING.md](TESTING.md) records browser and provider checks. Run `npm test` for automated regression tests.
 
 ## Local and hosted architecture

@@ -1,15 +1,24 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,interactive-widget=resizes-content">
+<meta name="theme-color" content="#242225">
 <title>Story Studio</title>
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/workspace.css">
+<link rel="stylesheet" href="/revision-panels.css">
+<link rel="stylesheet" href="/expanded-editor.css">
 </head>
 <body>
 <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
-  <symbol id="icon-more" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></symbol>
+  <symbol id="icon-more" viewBox="0 0 24 24"><g fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></g></symbol>
   <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="icon-scene" viewBox="0 0 24 24"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5M8 12h8"/></symbol>
+  <symbol id="icon-pacing" viewBox="0 0 24 24"><path d="M3 12h4l3-6 4 12 3-6h4"/></symbol>
+  <symbol id="icon-themes" viewBox="0 0 24 24"><path d="M12 3v4m0 10v4M3 12h4m10 0h4M6 6l2.5 2.5m7 7L18 18m0-12-2.5 2.5m-7 7L6 18"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="icon-threads" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.5 6H14a3 3 0 0 1 0 6h-4a3 3 0 0 0 0 6h5.5"/></symbol>
+  <symbol id="icon-continuity" viewBox="0 0 24 24"><path d="M6 4h12v16H6zM9 12l2 2 4-4M9 7h6"/></symbol>
 </svg>
 <div class="shell">
   <dialog class="sidebar" id="sidebar" aria-labelledby="storiesHeading">
@@ -44,14 +53,25 @@
         <div class="story-tabs" role="tablist" aria-label="Story views">
           <button type="button" id="writeTab" role="tab" aria-selected="true" aria-controls="writeView" aria-label="Write" title="Write and continue the manuscript"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5 5 5M4 20l5-1 11-11a2 2 0 0 0 0-3l-1-1a2 2 0 0 0-3 0L5 15Z"/></svg></button>
           <button type="button" id="bookTab" role="tab" aria-selected="false" aria-controls="bookView" aria-label="Book view" title="Read the story as a book" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1zm0 0v14"/></svg></button>
-          <button type="button" id="revisionTab" role="tab" aria-selected="false" aria-controls="revisionView" aria-label="Revision" title="Review pacing, themes, and setups" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V4m0 16h16M8 16l4-5 3 2 5-7"/></svg></button>
           <button type="button" id="graphTab" role="tab" aria-selected="false" aria-controls="graphView" aria-label="Graph" title="Explore the cast and relationships" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="m10.8 7.2-4.6 8.6m7-8.6 4.6 8.6M7.5 18h9"/></svg></button>
           <button type="button" id="displayNamesTab" role="tab" aria-selected="false" aria-controls="displayNamesView" aria-label="Display names" title="Set alternate names for this story" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v14H3z"/><circle cx="8" cy="10" r="1.5"/><path d="M5.5 15c0-2.5 5-2.5 5 0m3.5-5h4m-4 4h4"/></svg></button>
         </div>
       </div>
       <div class="studio-tools">
         <div class="story-heading-actions">
-          <button type="button" class="button subtle" id="toggleStoryTurns" aria-controls="storyTurnSidebar" aria-expanded="false">Turns</button>
+          <button type="button" class="text-button workspace-toggle" id="toggleStoryTurns" aria-controls="storyTurnSidebar" aria-expanded="false">Chapters</button>
+          <button type="button" class="text-button workspace-toggle" id="toggleWritingTools" aria-controls="workspaceTools" aria-expanded="false">Writing tools</button>
+          <details id="workspaceLayoutMenu" class="workspace-layout-menu">
+            <summary class="icon" aria-label="Workspace layout" title="Workspace layout"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v14H3zM9 5v14m6-7h6"/></svg></summary>
+            <div class="workspace-presets">
+              <label>Chapters width<select data-workspace-size="outline"><option value="176">Compact</option><option value="216">Balanced</option><option value="294">Wide</option></select></label>
+              <label>Tools width<select data-workspace-size="tools"><option value="220">Compact</option><option value="264">Balanced</option><option value="340">Wide</option></select></label>
+              <label>Tool split<select data-workspace-size="split"><option value="42">More manuscript</option><option value="50">Even split</option><option value="60">More tools</option></select></label>
+              <label>Composer height<select data-workspace-size="composer"><option value="68">Compact</option><option value="100">Balanced</option><option value="210">Expanded</option></select></label>
+              <label>Story Flow height<select data-workspace-size="flow"><option value="64">Compact</option><option value="78">Balanced</option><option value="140">Expanded</option></select></label>
+              <button type="button" class="text-button" id="resetWorkspaceLayout">Reset layout</button>
+            </div>
+          </details>
           <details class="story-actions" id="storyActions" hidden>
             <summary class="icon" aria-label="Story options" title="Story options"><svg class="tool-mark" aria-hidden="true"><use href="#icon-more"/></svg></summary>
             <div class="story-action-menu"><button type="button" class="button danger" id="deleteProject">Delete story</button></div>
@@ -64,10 +84,12 @@
       <div class="story-layout" id="writeView" role="tabpanel" aria-labelledby="writeTab">
         <aside class="story-turn-sidebar" id="storyTurnSidebar" aria-labelledby="storyTurnsHeading">
           <div class="story-turn-heading">
-            <h2 id="storyTurnsHeading">Manuscript</h2>
+            <h2 id="storyTurnsHeading" tabindex="-1">Chapters</h2>
           </div>
           <nav id="storyTurns" aria-label="Jump to a turn"></nav>
         </aside>
+        <div class="workspace-divider side-divider" data-workspace-divider="outline" role="separator" tabindex="0" aria-label="Resize Chapters" aria-orientation="vertical" aria-controls="storyTurnSidebar" hidden></div>
+        <button type="button" id="workspaceBackdrop" class="workspace-backdrop" tabindex="-1" aria-hidden="true" hidden></button>
       <section class="story-panel" aria-label="Story conversation">
         <div class="transcript">
         <div id="messages" class="messages">
@@ -96,13 +118,27 @@
           <svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-5-5 5 5 5-5"/></svg>
         </button>
         </div>
-        <section id="storyFlowPanel" class="story-flow-panel" aria-labelledby="storyFlowHeading">
-          <h3 id="storyFlowHeading" class="sr-only">Story Flow</h3>
-          <p id="storyFlowStatus" class="story-flow-status" role="status"></p>
-          <div id="storyFlowOptions" class="story-flow-options" role="group" aria-labelledby="storyFlowHeading"></div>
-          <div class="story-flow-action"><span id="storyFlowActionLabel">Get AI recommendations</span><button id="requestStoryFlow" type="button" class="icon" aria-label="Suggest directions" title="Suggest directions"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5.3"/></svg></button></div>
+        <section id="storyFlowPanel" class="story-flow-panel" aria-labelledby="toggleStoryFlow">
+          <div class="workspace-divider bottom-divider" data-workspace-divider="flow" role="separator" tabindex="0" aria-label="Resize Story Flow" aria-orientation="horizontal" aria-controls="storyFlowBody" hidden></div>
+          <div class="story-flow-header">
+            <button id="toggleStoryFlow" type="button" class="text-button" aria-expanded="true" aria-controls="storyFlowBody">
+              <svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg><span id="storyFlowHeading">Story Flow</span>
+            </button>
+            <p id="storyFlowStatus" class="story-flow-status" role="status" hidden></p>
+            <div class="story-flow-action"><button id="requestStoryFlow" type="button" class="icon" aria-label="Suggest directions" title="Suggest directions"><span id="storyFlowActionLabel">Get AI recommendations</span><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5.3"/></svg></button></div>
+          </div>
+          <div id="storyFlowBody" class="story-flow-body">
+            <div id="storyFlowOptions" class="story-flow-options" role="group" aria-labelledby="storyFlowHeading"></div>
+            <div class="story-flow-pages" id="storyFlowPages" role="group" aria-label="Browse suggested directions" hidden>
+              <button type="button" class="icon" id="previousFlowOption" aria-label="Previous direction"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
+              <button type="button" class="icon" id="nextFlowOption" aria-label="Next direction"><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
+            </div>
+          </div>
         </section>
-        <div class="composer-dock">
+        <div class="composer-dock" id="composerDock">
+        <div id="composerExpandEditor"></div>
+        <div class="workspace-divider bottom-divider" data-workspace-divider="composer" role="separator" tabindex="0" aria-label="Resize composer" aria-orientation="horizontal" aria-controls="writingComposer" hidden></div>
+        <button type="button" class="text-button" id="toggleComposerModels" aria-expanded="false" aria-controls="routeModels" hidden>Mode and models <svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
         <button type="button" class="icon composer-collapse" id="toggleComposer" aria-label="Hide composer" title="Hide composer" aria-expanded="true" aria-controls="writingComposer">
           <svg class="tool-mark composer-hide" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10 4.8a9.3 9.3 0 0 1 2-.2c6 0 10 7.4 10 7.4a17 17 0 0 1-3.3 4.1M6 6.7A17.2 17.2 0 0 0 2 12s4 7.4 10 7.4a9.6 9.6 0 0 0 4.4-1.1M10 10a2.8 2.8 0 0 0 4 4"/></svg>
           <svg class="tool-mark composer-show" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5m-5 5 5-5 5 5"/></svg>
@@ -152,11 +188,122 @@
         </div>
         </div>
       </section>
-      <aside class="scene-inspector" aria-labelledby="sceneInspectorHeading">
-        <h2 id="sceneInspectorHeading">In this scene</h2>
-        <div id="sceneInspectorContent"></div>
-        <button type="button" class="text-button" id="inspectSceneLore">Open Character &amp; lore</button>
+      <div class="workspace-divider side-divider" data-workspace-divider="tools" role="separator" tabindex="0" aria-label="Resize writing tools" aria-orientation="vertical" aria-controls="workspaceTools" hidden></div>
+      <aside id="workspaceTools" class="workspace-tools" aria-labelledby="workspaceToolHeading" hidden>
+        <header class="workspace-tools-heading">
+          <button type="button" class="icon workspace-tools-back" id="backToTools" aria-label="All writing tools" title="All writing tools" hidden><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
+          <h2 id="workspaceToolHeading" tabindex="-1">Writing tools</h2>
+          <button type="button" class="icon" id="closeWritingTools" aria-label="Close writing tools" title="Close writing tools"><svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg></button>
+        </header>
+        <div id="workspaceToolContent" class="workspace-tool-content">
+          <details class="background-review" id="backgroundReview" hidden>
+            <summary id="backgroundReviewSummary">Background review</summary>
+            <p class="form-note" id="backgroundReviewDetails"></p>
+            <button type="button" class="text-button" id="toggleBackgroundReview" hidden></button>
+          </details>
+          <nav class="workspace-tool-list" id="workspaceToolList" aria-label="Writing tools">
+            <button type="button" data-workspace-tool="scene"><svg class="tool-mark workspace-tool-icon" aria-hidden="true"><use href="#icon-scene"/></svg><span><strong>In this scene</strong><small>Cast, story time, and notes</small></span><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
+            <button type="button" data-workspace-tool="pacing"><svg class="tool-mark workspace-tool-icon" aria-hidden="true"><use href="#icon-pacing"/></svg><span><strong>Pacing</strong><small>Compare scene length and rhythm</small></span><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
+            <button type="button" data-workspace-tool="themes"><svg class="tool-mark workspace-tool-icon" aria-hidden="true"><use href="#icon-themes"/></svg><span><strong>Themes</strong><small>See how ideas and images recur</small></span><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
+            <button type="button" data-workspace-tool="threads"><svg class="tool-mark workspace-tool-icon" aria-hidden="true"><use href="#icon-threads"/></svg><span><strong>Setups &amp; payoffs</strong><small>See which promises are still open</small></span><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
+            <button type="button" data-workspace-tool="continuity"><svg class="tool-mark workspace-tool-icon" aria-hidden="true"><use href="#icon-continuity"/></svg><span><strong>Continuity</strong><small>Check whether story facts still fit</small></span><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
+          </nav>
+        <section class="scene-inspector" id="workspaceScene" aria-label="In this scene" hidden>
+          <div id="sceneInspectorContent"></div>
+          <button type="button" class="text-button" id="inspectSceneLore">Open Character &amp; lore</button>
+        </section>
+        <section class="revision-view" id="revisionView" aria-labelledby="workspaceToolHeading" hidden>
+          <details class="revision-help">
+            <summary title="Explain the revision tools and controls">How to use Revision</summary>
+            <p data-revision-help="pacing">Longer bars mean more words. The highlighted part estimates quoted dialogue. Select a scene to see its excerpt and recorded graph events.</p>
+            <p data-revision-help="themes" hidden>Leave the field empty and use <strong>Suggest themes with AI</strong> to discover possible themes. Enter a phrase to find exact mentions or ask AI for related passages. Pin a quote to revisit it later.</p>
+            <p data-revision-help="threads" hidden>A setup plants a detail the story may return to. A payoff is the scene where it matters again. Add a thread yourself or move an AI suggestion into your tracked list.</p>
+            <p class="form-note">Scope applies to charts, searches, and AI reviews. Saved pins and tracked threads belong to the whole story. To add a chapter, use <strong>⋯ → Start new chapter here</strong> on a later prose turn in Write.</p>
+          </details>
+          <div class="revision-work">
+            <aside class="revision-rail">
+              <label title="Choose the scene, chapter, or book to review."><span id="revisionScopeLabel">Scope</span><select id="revisionScope"></select></label>
+              <div id="revisionScenes" aria-label="Scenes in scope"></div>
+            </aside>
+            <div class="revision-content">
+              <section id="revisionPacing">
+                <h3 id="pacingSummary"></h3>
+                <p class="form-note">Bar length shows words. The shaded part estimates dialogue. Select a scene to read it.</p>
+                <div id="pacingStandout" class="revision-metric-details" hidden></div>
+                <section id="pacingAISection" class="revision-list-section" hidden>
+                  <h3>Pacing observations</h3><div id="pacingAIResults"></div>
+                </section>
+                <div class="revision-charts" id="pacingRows"></div>
+              </section>
+              <section id="revisionThemes" hidden>
+                <p class="form-note" id="themesIntro">Open a recurring phrase to compare where it appears. Pin the passages you want to revisit.</p>
+                <form id="themeSearch" class="revision-tools revision-theme-tools">
+                  <label for="themeQuery">Theme or motif</label>
+                  <div class="revision-theme-controls">
+                    <input id="themeQuery" type="search" maxlength="160" placeholder="For example, the east beacon" required>
+                    <div class="revision-form-actions">
+                      <button class="button subtle" type="submit" title="Find the exact words you entered in the selected scope. Searches locally.">Find mentions</button>
+                      <button class="text-button" type="button" id="reviewThemes" title="Ask AI to identify possible themes and motifs in the selected scope.">Suggest themes with AI</button>
+                    </div>
+                  </div>
+                </form>
+                <div id="themeResults"></div>
+                <section class="revision-list-section" id="themeAISection" hidden>
+                  <h3 id="themeAIHeading">Suggested themes</h3>
+                  <div id="themeAIResults"></div>
+                </section>
+                <section id="themePinsSection" hidden>
+                  <h3>Pinned passages</h3>
+                  <div id="themePins"></div>
+                </section>
+              </section>
+              <section id="revisionThreads" hidden>
+                <p class="form-note" id="threadsIntro">A setup introduces a clue, question, or promise. Its payoff is where the story returns to it.</p>
+                <form id="threadForm" class="revision-tools revision-thread-tools">
+                  <div class="revision-thread-fields">
+                    <label>Thread<input id="threadTitle" maxlength="140" placeholder="A detail or promise to track" required></label>
+                    <label title="The scene where this detail or promise first appears.">Setup<select id="threadSetup" required></select></label>
+                    <label title="The scene that resolves or returns to the setup. Leave it open if you haven’t written it yet.">Payoff<select id="threadPayoff"></select></label>
+                  </div>
+                  <div class="revision-form-actions">
+                    <button class="button subtle" type="submit" id="saveThread" title="Save the setup and any payoff you linked.">Add thread</button>
+                    <button class="text-button" type="button" id="cancelThread" hidden>Cancel edit</button>
+                    <button class="text-button" type="button" id="reviewThreads" title="Look for planted details, promises, and unresolved questions in the selected scope.">Suggest threads with AI</button>
+                  </div>
+                </form>
+                <section class="revision-list-section" id="trackedThreadsSection" hidden>
+                  <h3>Tracked threads</h3>
+                  <div id="threadList"></div>
+                </section>
+                <section class="revision-list-section revision-suggestions" id="threadSuggestionsSection" hidden>
+                  <h3>AI suggestions</h3>
+                  <div id="threadSuggestions"></div>
+                </section>
+              </section>
+              <p class="form-note" role="status" id="revisionStatus" hidden></p>
+            </div>
+            <aside class="revision-inspector" id="revisionInspector" aria-label="Scene details" hidden></aside>
+          </div>
+        </section>
+        <section id="continuityReview" class="revision-dialog workspace-continuity" aria-labelledby="workspaceToolHeading" hidden>
+          <div class="dialog-body">
+            <p class="form-note" id="continuityCoverage"></p>
+            <div class="revision-tools">
+              <label title="Choose a scene, chapter, or the whole book for the check.">Scope<select id="continuityScope"></select></label>
+            </div>
+            <div id="continuityFindings"></div>
+            <details class="continuity-review-options">
+              <summary>Compare another story or add canon notes</summary>
+              <label title="Optionally compare the selected passages against another story in your library.">Comparison story<select id="continuityComparison"></select></label>
+              <label class="revision-reference">Canon reference notes<textarea id="continuityReference" rows="2" maxlength="4000" placeholder="Add any canon the selected stories do not contain."></textarea></label>
+            </details>
+            <button type="button" class="button subtle" id="reviewContinuity" title="Ask AI to find possible inconsistencies and cite passages you can check.">Compare passages with AI</button>
+            <p class="form-note" id="continuityStatus" role="status"></p>
+          </div>
+        </section>
+        </div>
       </aside>
+      <button type="button" class="button subtle workspace-return" id="returnToTool" hidden></button>
       </div>
       <section class="book-view" id="bookView" role="tabpanel" aria-labelledby="bookTab" hidden>
         <aside class="book-outline" aria-label="Manuscript chapters">
@@ -186,81 +333,6 @@
           <span id="bookSpreadNumber" role="status"></span>
           <button type="button" class="button" id="bookNext" aria-label="Next spread">Next</button>
         </div>
-        </div>
-      </section>
-      <section class="revision-view" id="revisionView" role="tabpanel" aria-labelledby="revisionTab" hidden>
-        <header class="revision-heading">
-          <h2>Revision</h2>
-          <div class="revision-switch" role="group" aria-label="Revision tools">
-            <button type="button" class="text-button" data-revision-mode="pacing" aria-pressed="true" title="Compare scene length, estimated dialogue, cast mentions, and graph events.">Pacing</button>
-            <button type="button" class="text-button" data-revision-mode="themes" aria-pressed="false" title="Discover themes or find and pin passages that develop a motif.">Themes</button>
-            <button type="button" class="text-button" data-revision-mode="threads" aria-pressed="false" title="Track details you’ve planted and link the scenes where they pay off.">Setups &amp; payoffs</button>
-          </div>
-        </header>
-        <details class="revision-help">
-          <summary title="Explain the revision tools and controls">How to use Revision</summary>
-          <p data-revision-help="pacing">Longer bars mean more words. The highlighted part estimates quoted dialogue. Select a scene to see its excerpt and recorded graph events.</p>
-          <p data-revision-help="themes" hidden>Leave the field empty and use <strong>Suggest themes with AI</strong> to discover possible themes. Enter a phrase to find exact mentions or ask AI for related passages. Pin a quote to revisit it later.</p>
-          <p data-revision-help="threads" hidden>A setup plants a detail the story may return to. A payoff is the scene where it matters again. Add a thread yourself or move an AI suggestion into your tracked list.</p>
-          <p class="form-note">Scope applies to charts, searches, and AI reviews. Saved pins and tracked threads belong to the whole story. To add a chapter, use <strong>⋯ → Start new chapter here</strong> on a later prose turn in Write.</p>
-        </details>
-        <div class="revision-work">
-          <aside class="revision-rail">
-            <label title="Choose the scene, chapter, or book to review.">Scope<select id="revisionScope"></select></label>
-            <div id="revisionScenes" aria-label="Scenes in scope"></div>
-          </aside>
-          <div class="revision-content">
-            <section id="revisionPacing">
-              <p class="form-note">Bar length shows word count. The highlighted share estimates quoted dialogue. Cast appearances use name and alias mentions.</p>
-              <h3 id="pacingSummary"></h3>
-              <div class="revision-charts" id="pacingRows"></div>
-            </section>
-            <section id="revisionThemes" hidden>
-              <form id="themeSearch" class="revision-tools revision-theme-tools">
-                <label for="themeQuery">Theme or motif</label>
-                <div class="revision-theme-controls">
-                  <input id="themeQuery" type="search" maxlength="160" placeholder="For example, the east beacon" required>
-                  <div class="revision-form-actions">
-                    <button class="button subtle" type="submit" title="Find the exact words you entered in the selected scope. Searches locally.">Find mentions</button>
-                    <button class="text-button" type="button" id="reviewThemes" title="Ask AI to identify possible themes and motifs in the selected scope.">Suggest themes with AI</button>
-                  </div>
-                </div>
-              </form>
-              <div id="themeResults"></div>
-              <section class="revision-list-section" id="themeAISection" hidden>
-                <h3 id="themeAIHeading">Suggested themes</h3>
-                <div id="themeAIResults"></div>
-              </section>
-              <section id="themePinsSection" hidden>
-                <h3>Pinned passages</h3>
-                <div id="themePins"></div>
-              </section>
-            </section>
-            <section id="revisionThreads" hidden>
-              <form id="threadForm" class="revision-tools revision-thread-tools">
-                <div class="revision-thread-fields">
-                  <label>Thread<input id="threadTitle" maxlength="140" placeholder="A detail or promise to track" required></label>
-                  <label title="The scene where this detail or promise first appears.">Setup<select id="threadSetup" required></select></label>
-                  <label title="The scene that resolves or returns to the setup. Leave it open if you haven’t written it yet.">Payoff<select id="threadPayoff"></select></label>
-                </div>
-                <div class="revision-form-actions">
-                  <button class="button subtle" type="submit" id="saveThread" title="Save the setup and any payoff you linked.">Add thread</button>
-                  <button class="text-button" type="button" id="cancelThread" hidden>Cancel edit</button>
-                  <button class="text-button" type="button" id="reviewThreads" title="Look for planted details, promises, and unresolved questions in the selected scope.">Suggest threads with AI</button>
-                </div>
-              </form>
-              <section class="revision-list-section" id="trackedThreadsSection" hidden>
-                <h3>Tracked threads</h3>
-                <div id="threadList"></div>
-              </section>
-              <section class="revision-list-section revision-suggestions" id="threadSuggestionsSection" hidden>
-                <h3>AI suggestions</h3>
-                <div id="threadSuggestions"></div>
-              </section>
-            </section>
-            <p class="form-note" role="status" id="revisionStatus" hidden></p>
-          </div>
-          <aside class="revision-inspector" id="revisionInspector" aria-label="Scene details" hidden></aside>
         </div>
       </section>
       <section class="display-names-view" id="displayNamesView" role="tabpanel" aria-labelledby="displayNamesTab" hidden>
@@ -455,28 +527,13 @@
     </footer>
   </form>
 </dialog>
-<dialog id="continuityReview" class="form-dialog revision-dialog" aria-labelledby="continuityHeading">
-  <header class="dialog-top">
-    <h2 id="continuityHeading">Check continuity</h2>
-    <button class="icon" type="button" id="closeContinuity" aria-label="Close continuity review"><svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg></button>
-  </header>
-  <div class="dialog-body">
-    <div class="revision-tools">
-      <label title="Choose a scene, chapter, or the whole book for the check.">Scope<select id="continuityScope"></select></label>
-      <label title="Optionally compare the selected passages against another story in your library.">Comparison story<select id="continuityComparison"></select></label>
-      <button type="button" class="button subtle" id="reviewContinuity" title="Ask AI to find possible inconsistencies and cite passages you can check.">Review with AI</button>
-    </div>
-    <label class="revision-reference">Canon reference notes (optional)<textarea id="continuityReference" rows="2" maxlength="4000" placeholder="Add any canon the selected stories do not contain."></textarea></label>
-    <p class="form-note" id="continuityStatus" role="status"></p>
-    <div id="continuityFindings"></div>
-  </div>
-</dialog>
 <dialog id="storyFlowPreview" class="form-dialog" aria-labelledby="flowPreviewTitle">
   <form method="dialog">
     <header class="dialog-top"><h2 id="flowPreviewTitle"></h2><button class="icon" value="cancel" aria-label="Close preview"><svg class="tool-mark" aria-hidden="true"><use href="#icon-close"/></svg></button></header>
     <div class="dialog-body"><p id="flowPreviewDirection"></p><p class="form-note" id="flowPreviewConsequence" hidden></p></div>
     <footer class="dialog-actions">
       <button class="button subtle" value="cancel">Cancel</button>
+      <button class="button subtle" id="replaceWithFlowDirection" type="button" hidden>Replace draft</button>
       <button class="button primary" id="useFlowDirection" type="button">Use direction</button>
     </footer>
   </form>

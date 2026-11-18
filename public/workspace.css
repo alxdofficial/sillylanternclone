@@ -1,0 +1,320 @@
+/* The writing surface responds to its available space, including embedded windows. */
+.shell:has(#writeView:not([hidden])) { height: 100dvh; }
+#writeView {
+  position: relative;
+  grid-template: "manuscript" minmax(0, 1fr) / minmax(0, 1fr);
+  overflow: hidden;
+}
+#writeView[data-layout="outline"] { grid-template: "chapters outline-handle manuscript" minmax(0, 1fr) / var(--outline-width) 5px minmax(0, 1fr); }
+#writeView[data-layout="tools"] { grid-template: "manuscript tools-handle tools" minmax(0, 1fr) / minmax(0, 1fr) 5px var(--tools-width); }
+#writeView[data-layout="outline-tools"] { grid-template: "chapters outline-handle manuscript tools-handle tools" minmax(0, 1fr) / var(--outline-width) 5px minmax(0, 1fr) 5px var(--tools-width); }
+#writeView[data-layout="split"] {
+  grid-template: "manuscript tools-handle tools" minmax(0, 1fr) / minmax(0, 1fr) 5px minmax(0, var(--tools-share));
+}
+#writeView[data-layout="tool"] { grid-template-areas: "tools"; }
+#writeView [data-workspace-divider="outline"] { grid-area: outline-handle; }
+#writeView [data-workspace-divider="tools"] { grid-area: tools-handle; }
+#writeView .story-panel {
+  grid-area: manuscript;
+  overflow: clip;
+  --writing-gutter: clamp(12px, 2vw, 26px);
+}
+#writeView .transcript { min-height: min(112px, 28%); }
+#writeView .story-turn-sidebar {
+  grid-area: chapters;
+  min-width: 0;
+  max-height: none;
+  border: 0;
+}
+#toggleStoryTurns:not([hidden]), #toggleWritingTools:not([hidden]) {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  padding-inline: 7px;
+  font-size: 12px;
+  background: transparent;
+}
+.workspace-toggle[aria-expanded="true"] { color: var(--text); }
+.workspace-layout-menu { position: relative; }
+.workspace-layout-menu summary {
+  display: grid;
+  place-items: center;
+  min-width: 36px;
+  min-height: 42px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.workspace-layout-menu summary::-webkit-details-marker { display: none; }
+.workspace-presets {
+  z-index: 9;
+  position: absolute;
+  inset: calc(100% + 2px) 0 auto auto;
+  display: grid;
+  width: min(270px, calc(100vw - 16px));
+  max-height: 72dvh;
+  overflow-y: auto;
+  padding: 10px 12px;
+  gap: 7px;
+  border: 1px solid var(--border);
+  background: var(--rail);
+  box-shadow: 0 12px 22px #0005;
+}
+.workspace-layout-menu:not([open]) > .workspace-presets { display: none; }
+.workspace-presets label {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.workspace-presets select { min-width: 0; width: 100%; }
+.workspace-presets button { justify-self: end; }
+.workspace-divider {
+  position: relative;
+  z-index: 2;
+  touch-action: none;
+  background: var(--page);
+}
+.workspace-divider::before, .workspace-divider::after { content: ''; position: absolute; }
+.side-divider { width: 5px; cursor: col-resize; }
+.side-divider::before { inset: 0 -4px; }
+.side-divider::after { inset: 0 2px; }
+.bottom-divider { width: 100%; height: 5px; cursor: row-resize; }
+.bottom-divider::before { inset: -4px 0; }
+.bottom-divider::after { inset: 2px 0; }
+.workspace-divider:hover::after, .workspace-divider:focus-visible::after { background: var(--focus); }
+#writeView[data-resizing], #writeView[data-resizing] * { user-select: none; }
+.workspace-tools {
+  grid-area: tools;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--rail);
+}
+.workspace-tools-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px 5px 16px;
+}
+.workspace-tools-heading h2 {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 550;
+}
+.workspace-tools-back .tool-mark { transform: rotate(180deg); }
+.workspace-tool-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.workspace-tool-list {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  padding: 3px 9px 18px;
+}
+.workspace-tool-list button {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  text-align: start;
+  padding: 10px 8px;
+  min-height: 48px;
+  background: transparent;
+  color: var(--text);
+  border: 0;
+}
+.workspace-tool-list button:hover { background: var(--raised); }
+.workspace-tool-list strong { display: block; font-size: 13px; font-weight: 550; }
+.workspace-tool-list small { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; overflow-wrap: anywhere; }
+.workspace-tool-list .tool-mark { width: 14px; color: var(--muted); }
+.workspace-tool-list .workspace-tool-icon { width: 18px; height: 18px; color: var(--focus); }
+#writeView .scene-inspector {
+  display: block;
+  border: 0;
+  padding: 8px 16px 24px;
+}
+#writeView .scene-inspector > button { margin-top: 10px; }
+.workspace-tools .revision-view { --revision-gutter: 16px; overflow: visible; }
+.workspace-tools .revision-work,
+.workspace-tools .revision-work:has(.revision-inspector[hidden]) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.workspace-tools .revision-rail { display: flex; flex-wrap: wrap; gap: 7px 12px; align-items: end; }
+.workspace-tools .revision-rail > label { flex: 1 0 130px; }
+.workspace-tools #revisionScenes {
+  display: flex;
+  flex: 2 1 220px;
+  margin: 0;
+  padding-bottom: 2px;
+  gap: 5px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.workspace-tools .revision-inspector { border-inline: 0; padding-inline: 0; }
+.workspace-continuity .dialog-body { padding: 8px 16px 22px; }
+.workspace-continuity select, .workspace-continuity textarea { width: 100%; }
+.workspace-backdrop {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  border: 0;
+  background: rgb(10 9 11 / 40%);
+}
+#writeView[data-outline-overlay] .story-turn-sidebar,
+#writeView[data-tools-overlay] .workspace-tools {
+  grid-area: auto;
+  position: absolute;
+  inset-block: 0;
+  z-index: 6;
+  box-shadow: 0 12px 26px #0005;
+}
+#writeView[data-outline-overlay] .story-turn-sidebar { inset-inline-start: 0; width: min(88%, var(--outline-width)); }
+#writeView[data-tools-overlay] .workspace-tools { inset-inline-end: 0; width: min(88%, var(--tools-width)); }
+.workspace-return {
+  position: absolute;
+  inset: 8px 10px auto auto;
+  z-index: 3;
+}
+#writeView #storyFlowPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+  padding: 0 var(--writing-gutter) 6px;
+}
+#writeView #storyFlowPanel:has(#storyFlowBody[hidden]) { padding-block-end: 0; }
+#writeView .story-flow-panel .bottom-divider {
+  margin-inline: calc(-1 * var(--writing-gutter));
+  width: calc(100% + 2 * var(--writing-gutter));
+}
+.story-flow-header { align-self: stretch; display: flex; align-items: center; gap: 6px 10px; min-height: 35px; }
+.story-flow-header #toggleStoryFlow { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; margin-inline-start: -6px; }
+#toggleStoryFlow .tool-mark { width: 13px; }
+#toggleStoryFlow[aria-expanded="true"] .tool-mark { transform: rotate(90deg); }
+.story-flow-header .story-flow-action { margin-inline-start: auto; }
+.story-flow-header:has(#toggleStoryFlow[aria-expanded="false"]) { min-height: 30px; }
+.story-flow-status { font-size: 11px; }
+.story-flow-body { align-self: stretch; display: flex; align-items: stretch; gap: 2px; }
+#writeView .story-flow-options {
+  flex: 1;
+  min-width: 0;
+  max-height: var(--flow-height);
+  grid-template-columns: repeat(3, minmax(min(100%, 12rem), 1fr));
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scroll-snap-type: x mandatory;
+}
+#writeView .story-flow-choice {
+  max-height: calc(var(--flow-height) - 4px);
+  overflow: hidden;
+  align-content: start;
+  scroll-snap-align: start;
+}
+#writeView[data-flow-expanded] .story-flow-description { -webkit-line-clamp: 5; }
+.story-flow-pages { display: flex; flex-direction: column; align-self: center; }
+.story-flow-pages .icon { min-height: 26px; min-width: 28px; }
+.story-flow-pages .tool-mark { width: 14px; }
+#composerExpandEditor {
+  position: absolute;
+  inset: 10px calc(var(--writing-gutter) + 36px) auto auto;
+}
+#composerDock .route-bar { padding-inline-end: 79px; }
+#composerDock #instruction {
+  display: block;
+  width: 100%;
+  height: var(--composer-height);
+  min-height: 0;
+  max-height: none;
+  box-sizing: border-box;
+  resize: none;
+}
+#composerDock .composer-controls { min-width: 0; }
+#composerDock .composer-bottom { min-height: 36px; }
+#composerDock #sendButton { margin-inline-start: 0; }
+@media (max-width: 520px), (pointer: coarse) {
+  #composerDock #sendButton { margin-inline-start: auto; }
+}
+#writeView[data-compact-composer] #composerDock .route-bar {
+  padding: 0;
+  margin: 0 0 6px;
+  row-gap: 2px;
+}
+#writeView[data-compact-composer] #composerDock #toggleComposerModels:not([hidden]) {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-inline-start: var(--writing-gutter);
+  min-height: 38px;
+}
+#toggleComposerModels .tool-mark { width: 13px; transform: rotate(-90deg); }
+#toggleComposerModels[aria-expanded="true"] .tool-mark { transform: rotate(90deg); }
+#writeView[data-compact-composer] #composerDock #toggleComposer:not([hidden]),
+#writeView[data-compact-composer] #composerExpandEditor { top: 2px; }
+#writeView[data-compact-composer] #composerDock:has(.composer[hidden]) #toggleComposer { top: 0; }
+#writeView[data-compact-composer] #composerDock .composer { padding-block: 0 8px; }
+#writeView[data-compact-composer] #composerDock #routeModels { display: none; }
+#writeView[data-compact-composer][data-models-open] #composerDock #routeModels {
+  display: grid;
+  position: absolute;
+  inset: auto var(--writing-gutter) calc(100% + 2px);
+  z-index: 4;
+  max-height: var(--available-model-height, 42dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  margin: 0;
+  border: 1px solid var(--border);
+  background: var(--rail);
+  box-shadow: 0 8px 24px #0005;
+}
+#writeView[data-short] #composerDock .composer { padding-block-end: 5px; }
+#writeView[data-short] .composer-bottom { margin-top: 3px; }
+#writeView[data-short] #composeShortcut { display: none; }
+#writeView[data-short] #sendButton { margin-inline-start: auto; }
+#writeView[data-very-short] .transcript { min-height: min(54px, 20%); }
+#writeView[data-very-short][data-flow-open] .transcript { min-height: clamp(0px, calc(100% - 260px), 48px); }
+#writeView[data-very-short] .story-flow-header { min-height: 29px; }
+#writeView[data-very-short] .story-flow-header .text-button { min-height: 30px; }
+#writeView[data-very-short] .story-flow-description { -webkit-line-clamp: 1; }
+@media (max-width: 650px) {
+  .workspace .message { padding-inline: var(--writing-gutter); }
+  #composerDock .route-bar { padding-inline-end: 72px; }
+  #storyFlowActionLabel { font-size: 11px; }
+}
+@media (max-width: 560px) {
+  .studio-brand { grid-column: 1 / -1; }
+  .studio-tools, .studio-navigation { grid-column: auto; grid-row: 2; }
+  .studio-navigation { justify-content: start; }
+  .studio-tools { justify-self: end; }
+  .story-tabs { gap: 0; justify-content: start; }
+  .story-tabs button { min-width: 33px; }
+  #toggleStoryTurns:not([hidden]), #toggleWritingTools:not([hidden]) { font-size: 11px; padding-inline: 4px; min-height: 38px; }
+  .workspace-layout-menu summary { min-width: 30px; min-height: 38px; }
+}
+@media (max-width: 380px) {
+  .studio-tools { grid-column: 1 / -1; grid-row: 3; justify-self: stretch; }
+  .story-heading-actions { justify-content: space-between; }
+}
+@media (pointer: coarse) {
+  #writeView[data-compact-composer] #composerDock #toggleComposerModels:not([hidden]),
+  #toggleStoryTurns:not([hidden]), #toggleWritingTools:not([hidden]), .workspace-layout-menu summary { min-height: 44px; }
+  #composerDock #instruction { font-size: 16px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  #writeView[data-outline-overlay] .story-turn-sidebar { animation: workspace-outline-in 180ms var(--ease-out); }
+  #writeView[data-tools-overlay] .workspace-tools { animation: workspace-tools-in 180ms var(--ease-out); }
+  @keyframes workspace-outline-in { from { opacity: .75; transform: translateX(-16px); } }
+  @keyframes workspace-tools-in { from { opacity: .75; transform: translateX(16px); } }
+}

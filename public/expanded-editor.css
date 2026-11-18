@@ -1,0 +1,63 @@
+form .expanded-field { margin-block: 7px 13px; }
+.expanded-field-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.expanded-field-header > label { margin: 0; }
+.expanded-field-header > .expanded-editor-trigger { margin-inline-start: auto; }
+button.expanded-editor-trigger { display: inline-grid; place-items: center; flex: none; min-width: 32px; min-height: 32px; padding: 5px; }
+.expanded-editor-trigger > svg { width: 17px; height: 17px; }
+
+.expanded-editor:not(.expanded) { display: contents; }
+dialog.expanded-editor:modal {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(820px, calc(100% - 32px));
+  height: min(720px, calc(var(--editor-viewport-height, 100dvh) - 32px));
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--rail);
+  border: 1px solid var(--border);
+}
+.expanded-editor::backdrop { background: #151316b8; }
+.expanded-editor-header, .expanded-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px clamp(12px, 3vw, 22px);
+}
+.expanded-editor-header h2 { margin: 0; font-size: 16px; font-weight: 550; }
+.expanded-editor-footer { justify-content: flex-end; }
+.expanded-editor-footer button:disabled { opacity: .55; }
+dialog.expanded-editor:modal > textarea {
+  width: 100%;
+  height: 100% !important;
+  max-width: none;
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+  padding: clamp(12px, 3vw, 28px) max(clamp(12px, 3vw, 28px), calc((100% - 70ch) / 2));
+  resize: none;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  overflow: auto;
+  color: var(--text);
+  background: var(--page);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+@media (max-width: 580px), (max-height: 460px) {
+  dialog.expanded-editor:modal {
+    inset: var(--editor-viewport-top, 0px) 0 auto;
+    width: 100%;
+    height: var(--editor-viewport-height, 100dvh);
+    max-width: 100%;
+    margin: 0;
+    border: 0;
+  }
+  .expanded-editor-header { padding-top: max(9px, env(safe-area-inset-top)); }
+  .expanded-editor-footer { padding-bottom: max(9px, env(safe-area-inset-bottom)); }
+}
