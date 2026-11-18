@@ -173,19 +173,6 @@ export function createHostedAuth({url,key,encryptionKey,fetchImpl = fetch,clock 
       sessionCookie(res,session);
       return null;
     },
-    async login(req,res,{email,password} = {}) {
-      if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || email.length > 254 ||
-          !password || password.length > 256) throw safeError(400,'INVALID_LOGIN','Enter your email and password.');
-      const {status,data} = await request('/auth/v1/token?grant_type=password',{method:'POST',payload:{email:email.trim(),password}});
-      if (status === 429) throw safeError(429,'LOGIN_LIMIT','Too many sign-in attempts. Try again shortly.');
-      if (status === 400 || status === 401 || status === 403) throw safeError(401,'LOGIN_FAILED','Sign-in failed. Check your details and beta access.');
-      if (status !== 200) throw safeError(503,'AUTH_UNAVAILABLE','The sign-in service is temporarily unavailable.');
-      const session = sessionFrom(data);
-      const account = await entitlement(session);
-      if (!account) throw safeError(401,'LOGIN_FAILED','Sign-in failed. Check your details and beta access.');
-      sessionCookie(res,session);
-      return account;
-    },
     async authenticate(req,res) {
       const previous = readCookie(req);
       if (!previous) return null;

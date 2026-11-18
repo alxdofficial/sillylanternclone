@@ -47,13 +47,7 @@
     <p id="accountGateError" class="form-note account-error" role="alert" hidden></p>
     <div id="googleSignIn" class="google-sign-in" hidden>
       <a class="button" href="/api/account/google">Continue with Google</a>
-      <p class="account-method-divider">Or use your password</p>
     </div>
-    <form id="signInForm" method="post" action="/api/account/login">
-      <label>Email<input name="email" type="email" autocomplete="username" maxlength="254" required></label>
-      <label>Password<input name="password" type="password" autocomplete="current-password" maxlength="256" required></label>
-      <button type="submit" class="button">Sign in</button>
-    </form>
     <button id="accountRetry" class="button subtle" type="button" hidden>Try again</button>
   </div>
 </main>

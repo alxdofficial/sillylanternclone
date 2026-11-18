@@ -12,7 +12,10 @@ function response() {
   return {
     getHeader:name=>headers.get(name),
     setHeader:(name,value)=>headers.set(name,value),
-    request() { return {headers:{cookie:headers.get('Set-Cookie')?.split(';')[0]}}; }
+    request(name = '__Host-story-studio=') {
+      const cookie = [].concat(headers.get('Set-Cookie') || []).find(value=>value.startsWith(name));
+      return {headers:{cookie:cookie?.split(';')[0]}};
+    }
   };
 }
 
@@ -37,6 +40,7 @@ function fixture() {
       revoked = true;
       return new Response(null,{status:204});
     }
+    if (url.pathname === '/rest/v1/rpc/story_studio_redeem_google_invite') return Response.json(true);
     if (url.pathname === '/rest/v1/story_studio_accounts') return Response.json([{enabled:true,can_bring_key:true}]);
     if (url.pathname === '/rest/v1/story_studio_provider_keys') return Response.json([{provider:'openrouter'}]);
     if (url.pathname === '/rest/v1/rpc/story_studio_update_provider_keys') return Response.json(false);
@@ -54,7 +58,9 @@ function fixture() {
 
 async function login(auth) {
   const res = response();
-  await auth.login({},res,{email:user.email,password:'fixture-password'});
+  const start = response();
+  auth.googleStart(start,'https://studio.example.test/api/account/google/callback');
+  assert.equal(await auth.googleFinish(start.request('__Host-story-studio-oauth='),res,'fixture-code'),null);
   return res.request();
 }
 

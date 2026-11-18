@@ -1035,14 +1035,6 @@ const server = http.createServer(async (req,res) => {
       });
       return redirect(res,result ? '/?signin=' + result : '/');
     }
-    if (hosted && url.pathname === '/api/account/login' && req.method === 'POST') {
-      if (hostedAuth.cookieAccount(req)) {
-        const current = await hostedAuth.authenticate(req,res);
-        if (current) return json(res,409,{error:'Sign out before switching accounts.'});
-      }
-      const account = await hostedAuth.login(req,res,await body(req,4096) || {});
-      return json(res,200,{hosted,account});
-    }
     if (hosted && url.pathname === '/api/account/logout' && req.method === 'POST') {
       const account = hostedAuth.cookieAccount(req);
       if (!account || req.headers['x-story-studio-account'] !== account) return json(res,401,{error:'Sign in again.'});

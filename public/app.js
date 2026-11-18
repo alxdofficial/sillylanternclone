@@ -27,7 +27,6 @@ const settingsFields = ['title', 'lore', 'notes', ...storyTextFields];
 const castLabels = {name:'Name', nickname:'Aliases', description:'Description'};
 const $ = s => document.querySelector(s);
 const accountGate = $('#accountGate');
-const signIn = $('#signInForm');
 const accountRetry = $('#accountRetry');
 const googleSignIn = $('#googleSignIn');
 const callbackMessages = new Map([
@@ -76,21 +75,20 @@ async function waitForAccount() {
         }
         accountGate.hidden = false;
         $('#accountGateIntro').hidden = false;
-        signIn.hidden = false;
         googleSignIn.hidden = result.google !== true;
-        accountRetry.hidden = true;
+        accountRetry.hidden = result.google === true;
+        if (result.google !== true) accountNotice('Google sign-in is temporarily unavailable. Try again shortly.');
         if (accountCallbackMessage) {
           accountNotice(accountCallbackMessage);
           accountCallbackMessage = '';
         }
         if (!window.matchMedia('(pointer: coarse)').matches) {
-          const firstControl = googleSignIn.hidden ? signIn.elements.email : googleSignIn.querySelector('a');
+          const firstControl = googleSignIn.hidden ? accountRetry : googleSignIn.querySelector('a');
           firstControl.focus({preventScroll:true});
         }
       } catch {
         accountGate.hidden = false;
         $('#accountGateIntro').hidden = true;
-        signIn.hidden = true;
         googleSignIn.hidden = true;
         accountRetry.hidden = false;
         accountNotice('Could not check access to Story Studio. Try again.');
@@ -102,46 +100,12 @@ async function waitForAccount() {
       accountNotice();
       void check();
     };
-    signIn.onsubmit = async event => {
-      event.preventDefault();
-      const submit = signIn.querySelector('button[type="submit"]');
-      if (submit.disabled) return;
-      submit.disabled = true;
-      submit.textContent = 'Signing in…';
-      signIn.setAttribute('aria-busy','true');
-      accountNotice();
-      try {
-        const response = await fetch('/api/account/login',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            email:signIn.elements.email.value.trim(),
-            password:signIn.elements.password.value
-          })
-        });
-        signIn.elements.password.value = '';
-        if (!response.ok) {
-          if (response.status === 429) accountNotice('Too many sign-in attempts. Try again in a few minutes.');
-          else if (response.status >= 500) accountNotice('Sign-in is temporarily unavailable. Try again.');
-          else accountNotice('Could not sign in. Check your email, password and beta access.');
-          return;
-        }
-        if (!await check() && !signIn.hidden) accountNotice('Could not open a session. Try signing in again.');
-      } catch {
-        accountNotice('Could not reach Story Studio. Try again.');
-      } finally {
-        signIn.elements.password.value = '';
-        submit.disabled = false;
-        submit.textContent = 'Sign in';
-        signIn.removeAttribute('aria-busy');
-      }
-    };
     void check();
   });
 }
 
 const hostedAccount = await waitForAccount();
-const openedFromGate = !signIn.hidden && !accountGate.hidden;
+const openedFromGate = !accountGate.hidden;
 accountGate.hidden = true;
 $('#studioShell').hidden = false;
 if (openedFromGate) $('#openMenu').focus();

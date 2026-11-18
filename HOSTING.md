@@ -5,23 +5,15 @@ The invite-only beta runs one Node service on Railway and uses Supabase Auth, Po
 ### Beta setup
 
 1. Apply the migration in `supabase/migrations/` to the dedicated Supabase project. It defines beta entitlements, per-account libraries and metadata, revision-aware writes, encrypted provider key storage, and private object policies.
-2. In Supabase **Authentication → Users**, create and confirm each invited email/password account. Grant access by inserting its Auth user ID in `public.story_studio_accounts`. Set `can_bring_key` to true only for invited writers approved to use their own key. Setting `enabled` to false revokes access. Send any temporary sign-in details over an approved private channel.
+2. Configure Google sign-in and invite writers by email as described below. Setting an account’s `enabled` flag to false revokes access.
 3. Set Railway service variables `STORY_STUDIO_ORIGIN` (the full HTTPS URL), `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `STORY_STUDIO_ENCRYPTION_KEY` (32 random bytes, base64url). The encryption key protects browser sessions and saved provider credentials, so back it up separately. Replacing it invalidates sessions and saved keys. The app uses authenticated Supabase requests with row-level security.
 4. Connect the Railway service to the `hosted` branch. `railway.toml` starts the hosted runtime and checks `/healthz`. Verify access with two test accounts before giving the URL to writers.
-
-### Add a password tester
-
-The tester has one Story Studio login. Supabase Auth manages that login behind the scenes.
-
-1. In **Authentication → Users → Add user → Create new user**, enter the tester's email and a strong password, then select **Auto Confirm User**. Copy the new **User UID**.
-2. In **Table Editor → story_studio_accounts**, insert a row with that UID as `user_id`, set `enabled` to true, and set `can_bring_key` according to the tester's approval. If the account row exists, edit it instead.
-3. Share the Story Studio URL and the sign-in details privately. An approved tester can open **Settings** to add provider keys after signing in.
 
 ### Google sign-in
 
 Create a Google Cloud OAuth **Web application** client with the Supabase provider callback as its authorized redirect URI. Paste the client ID and secret into Supabase **Authentication → Sign In / Providers → Google**. In Supabase **Authentication → URL Configuration**, set the Railway HTTPS site URL and allow exactly the app's `/api/account/google/callback` URL. Set `STORY_STUDIO_GOOGLE_LOGIN=1` in Railway after both sides are configured. If Google Auth Platform is in testing mode, add each Google email as a test user there as well.
 
-Add each verified Google email to `public.story_studio_google_invites`, with `can_bring_key` true only for approved users. The first sign-in redeems the invite into an account. To revoke a redeemed invite, disable its account and the invite. The password flow remains available for accounts provisioned in Supabase.
+Add each verified Google email to `public.story_studio_google_invites`, with `can_bring_key` true only for approved users. The first sign-in redeems the invite into an account. To revoke a redeemed invite, disable its account and the invite. Google is the hosted beta’s sign-in method.
 
 The beta has no public sign-up, shared provider budget, or live collaboration. An approved user can enter a provider key in Settings and is billed by that provider. AI calls and analysis use the existing provider adapters. Hosted background review is opt-in and progresses while the writer is signed in. Writers can import their local library from a Story Studio export. The hosted demo starts fresh and the two runtimes have separate story data.
 

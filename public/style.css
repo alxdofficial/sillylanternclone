@@ -1814,27 +1814,14 @@ form textarea { resize: vertical; }
 }
 .account-panel .button:hover:not(:disabled) { background: var(--raised); }
 .account-panel .button:disabled { opacity: .72; }
-.google-sign-in .button, .google-sign-in[hidden] + #signInForm .button {
+.google-sign-in .button {
   border-color: transparent;
   background: var(--paper);
   color: var(--paper-ink);
 }
-.google-sign-in .button:hover:not(:disabled), .google-sign-in[hidden] + #signInForm .button:hover:not(:disabled) {
+.google-sign-in .button:hover {
   background: #fff5e5;
 }
-.account-method-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 17px 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-.account-method-divider::before, .account-method-divider::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
-#signInForm { display: grid; gap: 15px; }
-#signInForm label { margin: 0; }
-#signInForm input { min-height: 46px; padding-inline: 12px; border-radius: 5px; background: var(--rail); font-size: 16px; }
-#signInForm button { margin-top: 5px; }
 .hosted-account-details { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
 .hosted-account-identity { flex: 1 1 155px; min-width: 0; }
 .hosted-account-identity p { margin: 0; }
