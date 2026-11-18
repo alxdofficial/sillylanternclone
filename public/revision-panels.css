@@ -53,7 +53,7 @@
 .revision-dock .revision-finding > .form-note { margin: 0 0 8px; }
 .revision-dock .revision-finding > button,
 .revision-dock .revision-actions > button { margin-inline-end: 10px; padding-inline: 0; text-align: start; }
-.revision-dock .revision-actions { column-gap: 8px; row-gap: 2px; }
+.revision-dock .revision-actions { gap: var(--control-gap); }
 .revision-dock .revision-citation blockquote { font-size: 14px; line-height: 1.56; }
 .revision-dock .revision-citation button,
 .revision-dock .revision-citation-label { font-size: 12px; }
@@ -103,7 +103,7 @@
   border-color: transparent;
 }
 .revision-dock.pacing-view .revision-rail select:hover { background-color: var(--raised); }
-.pacing-views { display: flex; flex-wrap: wrap; gap: 4px; }
+.pacing-views { display: flex; flex-wrap: wrap; gap: var(--control-gap); }
 .pacing-views button { min-height: 36px; padding: 5px 10px; }
 .pacing-views [aria-pressed='true'] { color: var(--text); font-weight: 600; }
 .pacing-chart-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 3px 12px; margin-bottom: 9px; }
@@ -157,7 +157,7 @@
 .heatmap-summary:has(:not([hidden])) { margin-top: 12px; }
 .heatmap-summary .form-note { margin: 0; }
 .heatmap-summary .button { margin-inline-start: auto; }
-.heatmap-navigation { display: inline-flex; align-items: center; gap: 2px; }
+.heatmap-navigation { display: inline-flex; align-items: center; gap: var(--control-gap); }
 .heatmap-summary .heatmap-navigation { margin-inline-start: auto; }
 .heatmap-navigation .icon, .heatmap-navigation .text-button { min-height: 34px; }
 .heatmap-navigation .icon { min-width: 34px; display: inline-grid; place-items: center; }

@@ -20,8 +20,7 @@
 .scene-board-count, .scene-board-instructions { margin: 0; color: var(--muted); font-size: 13px; }
 .scene-board-instructions { padding: 0 clamp(16px,3vw,40px) 15px; }
 .scene-board-touch-instructions { display: none; }
-.scene-board-controls, .scene-board-order, .scene-board-history { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
-.scene-board-history { gap: 4px; }
+.scene-board-controls, .scene-board-order, .scene-board-history { display: flex; align-items: center; flex-wrap: wrap; gap: var(--control-gap); }
 .scene-board-order { padding: 2px; gap: 2px; background: var(--rail); }
 .scene-board-order button { padding-inline: 10px; }
 .scene-board-order button[aria-pressed="true"] { color: var(--text); background: var(--raised); }
@@ -115,7 +114,7 @@
 :is(.scene-board-fields,.scene-board-move-fields) label { display: block; margin: 0; font-size: 12px; }
 .scene-board-fields .scene-board-field-summary { grid-column: 1 / -1; }
 :is(.scene-board-fields,.scene-board-move-fields) :is(input,select) { min-width: 0; margin: 4px 0 0; }
-.scene-board-editor-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; margin-top: 9px; }
+.scene-board-editor-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--control-gap); margin-top: 9px; }
 .scene-board-chapter-actions { padding-top: 6px; margin-top: 9px; border-top: 1px solid var(--border); }
 .scene-board-chapter-actions .text-button, .scene-board-transition { padding-inline: 0; }
 .scene-board-transition { color: var(--focus); }

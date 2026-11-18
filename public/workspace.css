@@ -3,6 +3,8 @@
 #writeView {
   position: relative;
   grid-template: "manuscript" minmax(0, 1fr) / minmax(0, 1fr);
+  column-gap: var(--workspace-gap);
+  background: color-mix(in srgb, var(--page), black 20%);
   overflow: hidden;
 }
 #writeView[data-layout="outline"] { grid-template: "chapters manuscript" minmax(0, 1fr) / var(--outline-width) minmax(0, 1fr); }
@@ -12,11 +14,12 @@
   grid-template: "manuscript tools" minmax(0, 1fr) / minmax(0, 1fr) minmax(0, var(--tools-share));
 }
 #writeView[data-layout="tool"] { grid-template-areas: "tools"; }
-#writeView [data-workspace-divider="outline"] { grid-area: chapters; justify-self: end; transform: translateX(50%); }
-#writeView [data-workspace-divider="tools"] { grid-area: tools; justify-self: start; transform: translateX(-50%); }
+#writeView [data-workspace-divider="outline"] { grid-area: chapters; justify-self: end; transform: translateX(100%); }
+#writeView [data-workspace-divider="tools"] { grid-area: tools; justify-self: start; transform: translateX(-100%); }
 #writeView .story-panel {
   grid-area: manuscript;
   overflow: clip;
+  background: var(--page);
   --writing-gutter: clamp(12px, 2vw, 26px);
 }
 #writeView .transcript { min-height: min(112px, 28%); }
@@ -96,9 +99,9 @@
   background: var(--page);
 }
 .workspace-divider::before, .workspace-divider::after { content: ''; position: absolute; }
-.side-divider { width: 5px; cursor: col-resize; background: transparent; }
+.side-divider { width: var(--workspace-gap); cursor: col-resize; background: transparent; }
 .side-divider::before { inset: 0 -4px; }
-.side-divider::after { inset: 0 2px; }
+.side-divider::after { inset: 0 calc((var(--workspace-gap) - 1px) / 2); }
 .bottom-divider { width: 100%; height: 5px; cursor: row-resize; }
 .bottom-divider::before { inset: -4px 0; }
 .bottom-divider::after { inset: 2px 0; }
@@ -115,7 +118,7 @@
 .workspace-tools-heading {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--control-gap);
   padding: 5px 11px 5px 16px;
 }
 .workspace-tools-heading h2 {
@@ -212,23 +215,25 @@
   position: relative;
   padding: 0 var(--writing-gutter);
 }
+#writeView #storyFlowPanel:has(#storyFlowBody:not([hidden])) { margin-block-end: var(--workspace-gap); }
 #writeView .story-flow-panel .bottom-divider {
   margin-inline: calc(-1 * var(--writing-gutter));
   width: calc(100% + 2 * var(--writing-gutter));
 }
-.story-flow-header { align-self: stretch; display: flex; align-items: center; gap: 6px 10px; min-height: 35px; }
+.story-flow-header { align-self: stretch; display: flex; align-items: center; gap: var(--control-gap); min-height: 35px; }
 .story-flow-header #toggleStoryFlow { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; margin-inline-start: -6px; }
 #toggleStoryFlow .tool-mark { width: 13px; }
 #toggleStoryFlow[aria-expanded="true"] .tool-mark { transform: rotate(90deg); }
 .story-flow-header .story-flow-action { margin-inline-start: auto; }
 .story-flow-header:has(#toggleStoryFlow[aria-expanded="false"]) { min-height: 30px; }
 .story-flow-status { font-size: 11px; }
-.story-flow-body { align-self: stretch; display: flex; align-items: stretch; gap: 2px; }
+.story-flow-body { align-self: stretch; display: flex; align-items: stretch; gap: var(--workspace-gap); }
 #writeView .story-flow-options {
   flex: 1;
   min-width: 0;
   max-height: var(--flow-height);
-  padding-block-end: 0;
+  padding: 0;
+  gap: var(--workspace-gap);
   grid-template-columns: repeat(3, minmax(min(100%, 12rem), 1fr));
   overflow-x: auto;
   overflow-y: hidden;
@@ -269,7 +274,6 @@
 #writeView[data-compact-composer] #composerDock .route-bar {
   padding: 0;
   margin: 0 0 6px;
-  row-gap: 2px;
 }
 #writeView[data-compact-composer] #composerDock #toggleComposerModels:not([hidden]) {
   display: flex;

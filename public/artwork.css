@@ -4,7 +4,7 @@
 }
 .artwork-view-buttons, .artwork-source-toggle {
   display: flex;
-  gap: 4px;
+  gap: var(--control-gap);
   flex-wrap: wrap;
 }
 .artwork-view-buttons {
@@ -93,7 +93,7 @@
 .artwork-badges, .artwork-card-actions, .artwork-insert-form, .artwork-revision-form {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 7px;
+  gap: var(--control-gap);
   align-items: center;
 }
 .artwork-badge { font-size: 11px; color: var(--muted); padding: 3px 6px; background: var(--raised); }
