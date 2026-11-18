@@ -69,7 +69,7 @@ test('direct providers draft and exchange native tool results without crossing c
       if (url === 'https://api.anthropic.com/v1/messages') {
         assert.equal(options.headers['x-api-key'],'claude-fixture');
         assert.equal(options.headers.authorization,undefined);
-        assert.equal(body.model,'claude-sonnet-5-5');
+        assert.ok(['claude-sonnet-5-5','claude-haiku-5-5'].includes(body.model));
         assert.ok(body.system);
         assert.ok(body.messages.every(message=>message.role !== 'system'));
         if (!body.tools) return Response.json({stop_reason:'end_turn',usage:{input_tokens:1000,output_tokens:20},
@@ -93,7 +93,7 @@ test('direct providers draft and exchange native tool results without crossing c
       assert.equal(url,'https://api.openai.com/v1/responses');
       assert.equal(options.headers.authorization,'Bearer openai-fixture');
       assert.equal(options.headers['x-api-key'],undefined);
-      assert.equal(body.model,'gpt-6.1-terra');
+      assert.ok(['gpt-6.1-terra','gpt-6-luna'].includes(body.model));
       assert.equal(body.store,false);
       if (JSON.stringify(body.input).includes('Oversized response fixture.')) {
         return new Response(' '.repeat(4_000_001));
@@ -163,7 +163,9 @@ test('direct providers draft and exchange native tool results without crossing c
     const project = {id:'fixture',title:'Ferry',lore:'The ferry is moored.',notes:'',cast:[],messages:[]};
     const claude = {provider:'anthropic',model:'claude-sonnet-5-5',key:'claude-fixture'};
     const openai = {provider:'openai',model:'gpt-6.1-terra',key:'openai-fixture'};
-    for (const [writer,agent] of [[claude,openai],[openai,claude]]) {
+    const haiku = {...claude,model:'claude-haiku-5-5'};
+    const luna = {...openai,model:'gpt-6-luna'};
+    for (const [writer,agent] of [[claude,openai],[openai,claude],[haiku,luna],[luna,haiku]]) {
       const reply = await send({project,instruction:'Ring the bell.',...writer,
         agentProvider:agent.provider,agentModel:agent.model,agentKey:agent.key});
       assert.equal(reply.status,200);
