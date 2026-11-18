@@ -344,3 +344,24 @@ test('a marked sensitive alternate has a single classification instruction', () 
   assert.match(system.content,/Set input to explicit/);
   assert.doesNotMatch(system.content,/Set input to safe/);
 });
+
+test('plot inspection and MCP story state expose only the supported event fields',()=>{
+  const event = {note:'The ferry docks.',turn:1,storyTime:sceneTime};
+  const project = {messages:[],plotEvents:[{...event,localAnnotation:'Synthetic private note'}]};
+  assert.deepEqual(inspectContinuity(project,{section:'plot'}).events,[{...event,eventIndex:0}]);
+  assert.deepEqual(storyEditContext(project).plotEvents,[event]);
+  assert.equal(project.plotEvents[0].localAnnotation,'Synthetic private note');
+});
+
+test('creating or renaming a character cannot redirect an existing cast alias',()=>{
+  for (const change of [
+    {kind:'character',name:'Pilot',description:'Another person.'},
+    {kind:'rename_character',name:'Orin',newName:'pilot'}
+  ]) {
+    const project = structuredClone(story);
+    assert.throws(()=>applyStoryEdits(project,[
+      {kind:'notes',action:'append',text:'A temporary note.'},change
+    ]),/already/);
+    assert.deepEqual(project,story);
+  }
+});

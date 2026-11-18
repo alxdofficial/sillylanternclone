@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { readFile, writeFile, mkdir, rename, stat } from 'node:fs/promises';
+import { readFile, mkdir, stat } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
@@ -32,6 +32,7 @@ import { createArtworkStore } from './artwork-store.mjs';
 import { artworkPlannerOutputLimit, generateArtwork } from './artwork-generation.mjs';
 import { createStoryVersions } from './story-versions.mjs';
 import { planManuscriptTransition, transitionPlannerOutputLimit } from './manuscript-transition.mjs';
+import { atomicWrite } from './data-store-files.mjs';
 
 const root=dirname(fileURLToPath(import.meta.url));
 const dataDir=process.env.STORY_STUDIO_DATA || join(homedir(),'Library','Application Support','Story Studio');
@@ -91,6 +92,9 @@ async function parseLibrary(path) {
   return migrateLibrary(library);
 }
 function migrateLibrary(library) {
+  if (!Array.isArray(library?.projects) || library.projects.some(project=>!project || typeof project !== 'object' || Array.isArray(project))) {
+    throw diagnosticError('LIBRARY_DATA_INVALID','The saved library has an invalid story list.');
+  }
   for (const project of library.projects) {
     migrateStoryFields(migrateLegacyCast(project));
     if (project.revisionNotes !== undefined) project.revisionNotes = normalizeRevisionNotes(project.revisionNotes);
@@ -190,10 +194,8 @@ function saveState(value, expectedRevision, starterOnly, restoration) {
       saved.activeId = previous.activeId;
     }
     if (!starterOnly && revisionOf(previous) !== revisionOf(saved)) {
-      await mkdir(dataDir, {recursive:true});
-      const tmp = join(dataDir, `.stories-${randomUUID()}.tmp`);
-      await writeFile(tmp, JSON.stringify(saved, null, 2), {mode:0o600});
-      await rename(tmp, statePath);
+      await mkdir(dataDir, {recursive:true,mode:0o700});
+      await atomicWrite(dataDir,'library.json',JSON.stringify(saved, null, 2));
       const before = new Map(previous.projects.map(project=>[project.id,project]));
       for (const project of saved.projects) {
         const older = before.get(project.id);
@@ -248,6 +250,21 @@ const apiStatusHints = {
 
 const keyRequired = provider => 'Add your ' + providerNames[provider] + ' key in Settings.';
 
+const providerResponseByteLimit = 4_000_000;
+async function providerResponseText(response, providerName) {
+  if (!response.body) return '';
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of response.body) {
+    size += chunk.byteLength;
+    if (size > providerResponseByteLimit) {
+      throw diagnosticError('PROVIDER_RESPONSE_TOO_LARGE',providerName + ' returned a response larger than Story Studio can process.');
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks,size).toString('utf8');
+}
+
 async function generateCompletion(messages, model, key, diagnostics, {
   stage = 'prose', maxOutputTokens = proseOutputLimit(model), tools, signal, prefixLength
 } = {}) {
@@ -290,7 +307,7 @@ async function generateCompletion(messages, model, key, diagnostics, {
   diagnostics[metadata ? 'metadataUpstreamStatus' : 'upstreamStatus'] = details.status = response.status;
   let raw, result, responseFailure;
   try {
-    raw = await response.text();
+    raw = await providerResponseText(response,providerName);
     result = JSON.parse(raw);
   } catch (error) {
     responseFailure = error;
@@ -321,6 +338,7 @@ async function generateCompletion(messages, model, key, diagnostics, {
     throw diagnosticError(code('HTTP_ERROR'),`${providerName} returned ${response.status}. ${hint}`);
   }
   if (responseFailure) {
+    if (responseFailure.diagnosticCode === 'PROVIDER_RESPONSE_TOO_LARGE') throw responseFailure;
     if (timedOut(responseFailure)) throw diagnosticError(code('TIMEOUT'),providerName + ' took too long to finish the reply.');
     throw diagnosticError(code('INVALID_RESPONSE'),providerName + ' returned an unreadable response.');
   }
@@ -417,7 +435,7 @@ async function generateSetup(req,res,diagnostics) {
 }
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8'};
 const staticAssets = new Set([
-  '/index.html','/app.js','/prompt.js','/models.js','/graph-history.js','/library.js',
+  '/index.html','/app.js','/prompt.js','/models.js','/graph-history.js','/library.js','/library-normalize.js',
   '/manuscript.js','/agent-context.js','/model-picker.js','/story-flow.js','/display-names.js','/sync.js','/revision.js','/revision-view.js','/style.css',
   '/workspace.js','/workspace.css','/expanded-editor.js','/expanded-editor.css','/revision-signals.js','/revision-panels.css','/passage-selection.js',
   '/scene-board.js','/scene-board.css','/draft-comparison.js','/draft-comparison.css','/book-exports.js','/fflate.js',
@@ -751,12 +769,16 @@ if (url.pathname === '/api/story-edits' && req.method === 'PUT') {
   if (index < 0) return json(res,404,{error:'Story not found.'});
   const story = library.projects[index];
   if (!Array.isArray(story.agentHistory)) return json(res,404,{error:'This proposal is no longer pending.'});
-  const receipt = story.agentHistory.find(item=>item?.proposalId === proposalId && item.resolution);
-  if (receipt) {
+  const sendReceipt = project => {
+    const history = project?.agentHistory;
+    const receipt = Array.isArray(history) && history.find(item=>item?.proposalId === proposalId && item.resolution);
+    if (!receipt) return false;
     const expected = decision === 'apply' ? 'applied' : 'dismissed';
-    if (receipt.resolution !== expected) return json(res,409,{error:'This proposal has already been resolved.'});
-    return json(res,200,{count:receipt.count});
-  }
+    if (receipt.resolution !== expected) json(res,409,{error:'This proposal has already been resolved.'});
+    else json(res,200,{count:receipt.count ?? 0});
+    return true;
+  };
+  if (sendReceipt(story)) return;
   if (liveRevision(library) !== revision) return json(res,409,{error:'The library changed. Reopen the proposal and try again.'});
   let project = structuredClone(story);
   const entry = project.agentHistory?.find(item=>item?.proposal?.id === proposalId && !item.resolution);
@@ -774,7 +796,11 @@ if (url.pathname === '/api/story-edits' && req.method === 'PUT') {
     return json(res,409,{error:failure.message});
   }
   library.projects[index] = project;
-  if (!await saveState(library,revision,false)) return json(res,409,{error:'The library changed before the proposal was saved.'});
+  if (!await saveState(library,revision,false)) {
+    const latest = (await getState()).projects.find(item=>item.id === storyId);
+    if (sendReceipt(latest)) return;
+    return json(res,409,{error:'The library changed before the proposal was saved.'});
+  }
   return json(res,200,{count});
 }
 

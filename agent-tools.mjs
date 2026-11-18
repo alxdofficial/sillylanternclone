@@ -17,7 +17,8 @@ export async function runAgentTask({messages,completions,action,reads = [],text,
     if (calls === undefined || Array.isArray(calls) && !calls.length) {
       if (!retryMissingAction || !finalName || nudged || round+1 >= roundLimit()) break;
       nudged = true;
-      if (typeof response?.content === 'string' && response.content.trim()) messages.push(response);
+      const reply = response?.content ?? response?.text;
+      if (typeof reply === 'string' && reply.trim()) messages.push({role:'assistant',content:reply});
       messages.push({role:'user',content:`Finish with the required ${finalName} tool. Include your reply in message. If you are only discussing the story, submit changes: [] with your reply.`});
       continue;
     }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {unzipSync,zipSync,strFromU8} from 'fflate';
 import {bookAo3File,bookDocx,copyBookForAo3,docxMimeType} from '../public/book-exports.js';
+import {bookMarkdown} from '../public/library.js';
 import {parseManuscript} from '../public/manuscript.js';
 
 const title = 'Ferry < Night & Day 🛳️';
@@ -27,6 +28,14 @@ test('AO3 export preserves numbered chapters, emphasis, dialogue line breaks and
   assert.doesNotMatch(html,/<img/u);
   assert.equal(html.match(/<hr>/gu)?.length,3);
   assert.throws(()=>bookAo3File(title,chapters,3,2),RangeError);
+});
+
+test('Markdown export retains imported scene breaks and leaves prose markup intact',()=>{
+  const markdown = bookMarkdown(title,chapters,2,2);
+  assert.equal(markdown.match(/^\* \* \*$/gmu)?.length,2);
+  assert.match(markdown,/said \*quietly\* and then \*\*loudly\*\*/u);
+  assert.match(markdown,/\* \* \*\n{2,}Captain _stayed_ put\./u);
+  assert.doesNotMatch(markdown,/# Chapter 2\n\n# Chapter|Scene 8|outside the range/u);
 });
 
 test('AO3 copy includes rich and plain representations and reports clipboard failures',async()=>{

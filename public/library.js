@@ -1,3 +1,5 @@
+import { sourceSceneBreaks } from './book-exports.js';
+
 // The starter is attached to the live library in memory and kept out of backups.
 export const starterStoryId = 'story-studio-starter-demo';
 export const libraryByteLimit = 16_000_000;
@@ -24,7 +26,10 @@ export function bookMarkdown(title, chapters, first, last) {
     throw new RangeError('Choose an existing chapter range.');
   }
   const heading = title.replace(/\s+/gu, ' ').trim().replace(/[\\`*_\[\]<>#&]/gu, '\\$&');
-  const selected = chapters.slice(first - 1,last).map((excerpts,index) =>
-    [`## Chapter ${first + index}`, ...excerpts].join('\n\n'));
+  const selected = chapters.slice(first - 1,last).map((excerpts,index) => {
+    const prose = excerpts.flatMap(excerpt=>typeof excerpt === 'string' ? [excerpt] :
+      [...sourceSceneBreaks(excerpt.sourcePrefix).map(()=>'* * *'),excerpt.content]);
+    return [`## Chapter ${first + index}`, ...prose].join('\n\n');
+  });
   return [`# ${heading || 'Untitled story'}`, ...selected].join('\n\n') + '\n';
 }

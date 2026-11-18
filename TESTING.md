@@ -2,6 +2,12 @@
 
 For current setup and controls, use the [README](README.md) and [MCP guide](MCP.md). The archival walkthroughs at the end retain the interface and model behavior observed at the time.
 
+## Reliability regression checks
+
+Use `npm test` on each branch from its own checkout. Agent approval fixtures exercise simultaneous requests, apply retries, rejection of conflicting decisions, and mixed prose and metadata previews from existing stories. Other fixtures check oversized provider replies, scoped graph context, corrupt version snapshots, and background analysis enrollment while the library is being read.
+
+Chrome checks on temporary libraries covered closing and reopening an Agent proposal, saving a second story during a Time Machine restore, and preserving unfamiliar library metadata through import and a Scene Board save. Mock responses arrived out of order to check that an older artwork read could not undo the approval shown on screen.
+
 ## Resizable workspace and writing tools
 
 In the bundled demo, verified Scene overview and Text highlights at 1,440, 940, and 390 CSS pixels. The default density pass highlighted four paragraphs across the book. Including subtler matches raised that to eleven and underlined four repeated phrases. Switching to Scene overview clears the overlays and preserves the selected controls. The mobile manuscript jump returns to the same tools and scope. The text stayed byte-for-byte identical and no generation or manual review requests were sent. Verified the bottom-right expand icons and draft round-trip in the composer and World setting. A separate stubbed-provider test detected conflicting passenger counts with both exact citations and recorded the number of pairs compared.

@@ -95,23 +95,27 @@ export function createStoryVersions(dataDir) {
     return access(storyId,async directory=>(await readManifest(directory,storyId)).reverse().map(metadata));
   }
 
+  async function readSnapshot(snapshots,digest,storyId) {
+    try {
+      const compressed = await readBoundedFile(join(snapshots,digest + '.json.gz'),compressedByteLimit,corrupt);
+      const contents = await gunzipAsync(compressed,{maxOutputLength:libraryByteLimit});
+      if (hash(contents) !== digest) throw corrupt();
+      const story = JSON.parse(contents.toString('utf8'));
+      if (!recordObject(story) || story.id !== storyId || !Array.isArray(story.messages)) throw corrupt();
+      return {story,compressed};
+    } catch {
+      throw corrupt();
+    }
+  }
+
   async function get(storyId,versionId) {
     if (!validVersionId(versionId)) return null;
     return access(storyId,async directory=>{
       const entry = (await readManifest(directory,storyId)).find(item=>item.id === versionId);
       if (!entry) return null;
-      try {
-        const snapshots = join(directory,'snapshots');
-        if (!await checkedDirectory(snapshots,false,corrupt)) throw corrupt();
-        const compressed = await readBoundedFile(join(snapshots,entry.digest + '.json.gz'),compressedByteLimit,corrupt);
-        const contents = await gunzipAsync(compressed,{maxOutputLength:libraryByteLimit});
-        if (hash(contents) !== entry.digest) throw corrupt();
-        const story = JSON.parse(contents.toString('utf8'));
-        if (!recordObject(story) || story.id !== storyId || !Array.isArray(story.messages)) throw corrupt();
-        return story;
-      } catch {
-        throw corrupt();
-      }
+      const snapshots = join(directory,'snapshots');
+      if (!await checkedDirectory(snapshots,false,corrupt)) throw corrupt();
+      return (await readSnapshot(snapshots,entry.digest,storyId)).story;
     });
   }
 
@@ -166,7 +170,7 @@ export function createStoryVersions(dataDir) {
         if (!await checkedDirectory(snapshots,false,corrupt)) throw corrupt();
         for (const digest of new Set(entries.map(entry=>entry.digest))) {
           const filename = `${digest}.json.gz`;
-          include(`${folder}/snapshots/${filename}`,await readBoundedFile(join(snapshots,filename),compressedByteLimit,corrupt));
+          include(`${folder}/snapshots/${filename}`,(await readSnapshot(snapshots,digest,storyId)).compressed);
         }
       });
     }

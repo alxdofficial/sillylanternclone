@@ -181,3 +181,18 @@ test('manual queries share a stable manuscript prefix and concurrent identical c
   await assert.rejects(review(story,{...options,kind:'continuity',scope:'scene:1'},complete),/two eligible prose scenes/);
   assert.equal(calls,1);
 });
+
+test('continuity review projects declared canon fields for both manuscripts',()=>{
+  const marker = 'Synthetic private annotation';
+  const project = {...story,cast:story.cast.map(member=>({...member,annotation:marker})),
+    plotEvents:story.plotEvents.map(event=>({...event,annotation:marker})),
+    relationships:[{from:'ada',to:'ira',label:'Ada calls Ira.',annotation:marker}]};
+  const review = buildReview(project,{kind:'continuity',scope:'book',comparison:project});
+  const {canon,comparisonCanon} = JSON.parse(review.messages[1].content);
+  for (const reference of [canon,comparisonCanon]) {
+    assert.equal(reference.cast[0].name,'Ada');
+    assert.equal(reference.plot[0].note,story.plotEvents[0].note);
+    assert.equal(reference.relationships[0].label,'Ada calls Ira.');
+    assert.equal(JSON.stringify(reference).includes(marker),false);
+  }
+});

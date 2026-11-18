@@ -95,6 +95,9 @@ test('direct providers draft and exchange native tool results without crossing c
       assert.equal(options.headers['x-api-key'],undefined);
       assert.equal(body.model,'gpt-6.1-terra');
       assert.equal(body.store,false);
+      if (JSON.stringify(body.input).includes('Oversized response fixture.')) {
+        return new Response(' '.repeat(4_000_001));
+      }
       if (!body.tools) return Response.json({status:'completed',usage:{input_tokens:1000,output_tokens:20},output:[
         {type:'message',role:'assistant',content:[{type:'output_text',text:'The ferry bell rang.'}]}]});
       if (body.tools.some(tool=>tool.name === 'edit_story_state')) {
@@ -173,6 +176,10 @@ test('direct providers draft and exchange native tool results without crossing c
       messages:[{role:'user',content:'Plan a story about a ferry.'}]},'/api/setup');
     assert.equal(setup.status,200);
     assert.equal((await setup.json()).draft.cast[0].name,'Ada');
+    const oversized = await send({project,instruction:'Oversized response fixture.',...openai,
+      agentProvider:claude.provider,agentModel:claude.model,agentKey:claude.key});
+    assert.equal(oversized.status,500);
+    assert.match((await oversized.json()).error,/response larger than Story Studio can process/);
     const state = await fetch(origin+'/api/state');
     const {activeId,projects} = await state.json();
     const original = projects.find(story=>story.id === activeId);
@@ -222,9 +229,11 @@ test('direct providers draft and exchange native tool results without crossing c
     const application = decision=>fetch(origin+'/api/story-edits',{method:'PUT',
       headers:{origin,'content-type':'application/json'},
       body:JSON.stringify({storyId:activeId,revision:approvalRevision,proposalId,decision})});
-    const applied = await application('apply');
-    assert.equal(applied.status,200);
-    assert.deepEqual(await applied.json(),{count:1});
+    const concurrent = await Promise.all([application('apply'),application('apply')]);
+    for (const applied of concurrent) {
+      assert.equal(applied.status,200);
+      assert.deepEqual(await applied.json(),{count:1});
+    }
     const retried = await application('apply');
     assert.equal(retried.status,200);
     assert.deepEqual(await retried.json(),{count:1});
@@ -266,6 +275,13 @@ test('direct providers draft and exchange native tool results without crossing c
       assert.doesNotMatch(trace,/claude-fixture|openai-fixture/);
     }
     assert.doesNotMatch(await readFile(join(directory,'logs','server.log'),'utf8'),/claude-fixture|openai-fixture/);
+    const invalidLibrary = '{"projects":[null],"activeId":""}';
+    const libraryPath = join(directory,'library.json');
+    await writeFile(libraryPath,invalidLibrary);
+    const unreadable = await fetch(origin+'/api/state');
+    assert.equal(unreadable.status,500);
+    assert.match((await unreadable.json()).error,/saved library has an invalid story list/);
+    assert.equal(await readFile(libraryPath,'utf8'),invalidLibrary);
   } finally {
     child.kill();
     await done;

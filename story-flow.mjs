@@ -34,7 +34,7 @@ const directions = agentTool('offer_story_directions','Show the writer three dis
     : {feedback:{error:'Give every option a different title and a meaningfully different direction.'}});
 
 export async function runStoryFlow(project,complete,{model = continuityModel,instruction = '',prose = '',sensitive = false,updates = []} = {}) {
-  const ending = !prose && project.sceneBoard?.chapters ? sceneIndex(project).at(-1) : undefined;
+  const ending = !prose ? sceneIndex(project).at(-1) : undefined;
   const request = JSON.stringify({
     task:'Offer three next-scene directions for the writer.',
     ...(sensitive || ending && !ending.eligible ? {scene:'The latest passage is held. Use the story state and approved continuity.'}

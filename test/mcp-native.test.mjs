@@ -9,6 +9,7 @@ import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { storyAtTurn } from '../public/graph-history.js';
+import { applyNativeStoryChange } from '../native-story.mjs';
 
 test('native chat creates, writes, edits, and branches without queued work or leaking held prose', async () => {
   const directory = await mkdtemp(join(tmpdir(),'story-studio-native-test-'));
@@ -228,4 +229,26 @@ test('native chat creates, writes, edits, and branches without queued work or le
     if (childPid) try { process.kill(childPid,'SIGTERM'); } catch {}
     await rm(directory,{recursive:true,force:true});
   }
+});
+
+test('native deletion removes the paired scene’s metadata and preserves unrelated drafts',()=>{
+  const project = {
+    id:'test',
+    messages:[
+      {turnNumber:1,role:'user',content:'Open at the dock.'},
+      {turnNumber:2,role:'assistant',content:'Mina watches the water.'},
+      {turnNumber:3,role:'assistant',content:'Hours pass.',standalone:true,startsChapter:true}
+    ],
+    draftCheckpoints:[{turn:2,id:'removed'},{turn:3,id:'kept'}],
+    sceneBoard:{chapters:[[3],[2]],scenes:{2:{summary:'Deleted scene'},3:{summary:'Remaining scene'}}},
+    agentRequest:{mode:'replace',replyTurnNumber:3},
+    agentNotice:{turnNumber:1,message:'Completed'}
+  };
+  const result = applyNativeStoryChange({projects:[project]},project,{kind:'delete_turn',turnNumber:1});
+  assert.deepEqual(result,{deletedTurns:2});
+  assert.deepEqual(project.messages.map(turn=>turn.turnNumber),[3]);
+  assert.deepEqual(project.draftCheckpoints,[{turn:3,id:'kept'}]);
+  assert.deepEqual(project.sceneBoard,{scenes:{3:{summary:'Remaining scene'}}});
+  assert.deepEqual(project.agentRequest,{mode:'replace',replyTurnNumber:3});
+  assert.equal(project.agentNotice,undefined);
 });

@@ -245,16 +245,17 @@ export function createTimeMachine({root,getStory,readHistory,readVersion,restore
   }
 
   async function restoreEarlier() {
+    const storyId = projectId;
     const entry = history.find(version=>version.id === left.value);
-    if (projectId === starterStoryId || !entry) return;
+    if (storyId === starterStoryId || !entry) return;
     restore.disabled = true;
     try {
-      if (await restoreVersion(projectId,entry)) {
+      if (await restoreVersion(storyId,entry) && getStory()?.id === storyId) {
         await refresh();
-        showStatus('Restored as a new version. Later versions are still available.');
+        if (getStory()?.id === storyId) showStatus('Restored as a new version. Later versions are still available.');
       }
     } catch (failure) {
-      showStatus(failure.message);
+      if (getStory()?.id === storyId) showStatus(failure.message);
     } finally {
       restore.disabled = false;
     }

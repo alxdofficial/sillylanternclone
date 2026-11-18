@@ -44,6 +44,23 @@ test('deep equality ignores key order and undefined properties', () => {
   assert.ok(!sameValue({a:[1, 2]}, {a:[2, 1]}));
 });
 
+test('concurrent sync preserves opaque library and story metadata including reserved key names', () => {
+  const base = library(), local = clone(base), server = clone(base);
+  local.projects[0].title = 'Revised title';
+  server.integration = {version:2};
+  Object.assign(server.projects[0],{constructor:'original label',toString:'original formatting'});
+  Object.defineProperty(server.projects[0],'__proto__',{value:{opaque:true},enumerable:true});
+  const merged = mergeLibrary(base,local,server).library;
+  assert.deepEqual(merged.integration,{version:2});
+  assert.equal(merged.projects[0].title,'Revised title');
+  assert.equal(merged.projects[0].constructor,'original label');
+  assert.equal(merged.projects[0].toString,'original formatting');
+  assert.equal(Object.hasOwn(merged.projects[0],'__proto__'),true);
+  assert.equal(Object.getPrototypeOf(merged.projects[0]),Object.prototype);
+  local.integration = {version:3};
+  assert.equal(mergeLibrary(base,local,server).library,null);
+});
+
 test('continuity conflicts with a concurrent change to its prose or author direction', () => {
   const base = agentReply(library());
   const pending = base.projects[0].messages.at(-1);

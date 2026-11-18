@@ -25,12 +25,15 @@ function pick(base, local, server) {
 
 // Merge an object field by field. Returns the local object itself when nothing changes.
 function mergeFields(base, local, server, special = {}) {
-  const result = {}, conflicts = [];
+  const entries = [], conflicts = [];
+  const field = (object,key) => Object.hasOwn(object,key) ? object[key] : undefined;
   for (const key of new Set([...Object.keys(local), ...Object.keys(server), ...Object.keys(base)])) {
-    const value = (special[key] || pick)(base[key], local[key], server[key]);
+    const merge = field(special,key) || pick;
+    const value = merge(field(base,key),field(local,key),field(server,key));
     if (value === unresolved) conflicts.push(key);
-    else if (value !== undefined) result[key] = value;
+    else if (value !== undefined) entries.push([key,value]);
   }
+  const result = Object.fromEntries(entries);
   return {value:sameValue(result, local) ? local : result, conflicts};
 }
 
@@ -166,5 +169,7 @@ export function mergeLibrary(base, local, server, {demoReset = false} = {}) {
   if (conflicts.length) return {library:null, conflicts};
   const ids = new Set(projects.map(project => project.id));
   const activeId = ids.has(local.activeId) ? local.activeId : ids.has(server.activeId) ? server.activeId : projects[0]?.id ?? '';
-  return {library:{...local, activeId, projects}, conflicts};
+  const merged = mergeFields(base || {},local,server,{activeId:()=>activeId,projects:()=>projects});
+  if (merged.conflicts.length) return {library:null,conflicts:merged.conflicts.map(key=>`Library field “${key}” changed in both places`)};
+  return {library:merged.value,conflicts};
 }

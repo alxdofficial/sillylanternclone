@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { checkMapUpdates, sceneTimeSchema, updateSchema } from './map-updates.mjs';
-import { clipEnds, getCast, resolveCastName } from './public/prompt.js';
+import { clipEnds, getCast, plotEventContext, resolveCastName } from './public/prompt.js';
 import { continuityContext, editorContext } from './public/agent-context.js';
 import { diagnosticError } from './diagnostics.mjs';
 import { agentTool, runAgentTask } from './agent-tools.mjs';
@@ -73,7 +73,7 @@ export function inspectContinuity(project,{section,character,field,offset = 0, i
   if (section === 'plot') {
     const events = project.plotEvents || [];
     const page = events.slice(offset,offset+24);
-    return {events:page.map((event,index)=>({...event,eventIndex:offset+index})),
+    return {events:page.map((event,index)=>({...plotEventContext(event),eventIndex:offset+index})),
       ...(offset + page.length < events.length ? {nextOffset:offset+page.length} : {})};
   }
   if (extraNativeSections.includes(section)) return readText(section,project[section],offset);

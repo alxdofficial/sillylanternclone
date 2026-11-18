@@ -61,10 +61,11 @@ const agentId = randomUUID();
 
 let cached;
 async function readLibrary({conditional = false} = {}) {
+  const requested = conditional ? cached : undefined;
   let response;
   try {
     response = await fetch(origin + '/api/state', {
-      headers:conditional && cached ? {'if-none-match':cached.revision} : {},
+      headers:requested ? {'if-none-match':requested.revision} : {},
       signal:AbortSignal.timeout(5000),
       redirect:'error'
     });
@@ -72,7 +73,7 @@ async function readLibrary({conditional = false} = {}) {
     throw diagnosticError(errorCode(error) === 'TIMEOUT' ? 'APP_TIMEOUT' : 'APP_UNREACHABLE',
       'Story Studio is not reachable. Start the app or call open_studio.');
   }
-  if (response.status === 304 && conditional && cached) return {library:structuredClone(cached.library), revision:cached.revision};
+  if (response.status === 304 && requested) return {library:structuredClone(requested.library), revision:requested.revision};
   if (!response.ok) throw diagnosticError('APP_HTTP_ERROR',`Could not read the local Story Studio library (HTTP ${response.status}).`);
   const revision = response.headers.get('etag');
   const library = await response.json();

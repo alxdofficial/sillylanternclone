@@ -117,6 +117,8 @@ test('version integrity checks reject corrupt and symlinked data without replaci
   await writeFile(snapshot,Buffer.from('tampered contents'));
   await assert.rejects(versionStore.get(baseline.id,entry.id),{code:'STORY_VERSION_STORAGE_INVALID'});
 
+  await assert.rejects(versionStore.archive([baseline.id]),{code:'STORY_VERSION_STORAGE_INVALID'});
+
   await rm(snapshot);
   await symlink(preserved,snapshot);
   await assert.rejects(versionStore.get(baseline.id,entry.id),{code:'STORY_VERSION_STORAGE_INVALID'});

@@ -58,6 +58,12 @@ function requireCastMember(project,name) {
   return member;
 }
 
+function castNameInUse(project,name,except) {
+  const key = name.trim().toLowerCase();
+  return getCast(project).some(member=>member !== except &&
+    [member.name,...(member.nickname || '').split(',')].some(value=>value.trim().toLowerCase() === key));
+}
+
 function updateFields(target,values) {
   let changed = false;
   for (const [key,value] of Object.entries(values)) {
@@ -89,7 +95,7 @@ function applyStructuredChange(project,change,originalEvents,originalPlot) {
       project.relationships = project.relationships.filter(edge=>edge.from !== member.id && edge.to !== member.id);
       return true;
     }
-    if (project.cast.some(item=>item !== member && item.name.toLowerCase() === change.newName.toLowerCase())) {
+    if (castNameInUse(project,change.newName,member)) {
       throw diagnosticError('STORY_EDIT_CAST_EXISTS','Another character already uses that name.');
     }
     return updateFields(member,{name:change.newName});
@@ -145,7 +151,7 @@ export function applyStoryEdits(project, changes) {
       if (applied === null) throw diagnosticError('STORY_EDIT_RELATIONSHIP_INVALID','Use two distinct cast names for a relationship.');
       if (applied) count++;
     } else if (change.kind === 'character') {
-      if (getCast(draft).some(member=>member.name.trim().toLowerCase() === change.name.toLowerCase())) {
+      if (castNameInUse(draft,change.name)) {
         throw diagnosticError('STORY_EDIT_CAST_EXISTS','A character with that name already exists. Edit their profile.');
       }
       draft.cast.push({id:randomUUID(),...Object.fromEntries(castFields.map(field=>[field,''])),
