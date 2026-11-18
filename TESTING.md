@@ -56,6 +56,10 @@ Separate live OpenRouter requests through the current Story Studio server verifi
 
 ## The Late Ferry starter
 
+On 18 November 2026, continued the exported manuscript in an isolated Chrome session. The direct Claude API with Sonnet 5.5 completed two scenes, both classified safe, saved seven graph updates, and offered three coda directions after the closing-line edit. Added chapter divisions and seven scene summaries through Scene Board. Saved a named checkpoint, revised the closing paragraph, and packaged four snapshots from the resulting Time Machine history. The horn count in the penultimate scene is left open for the Continuity example.
+
+Generated the illustration and comic through the Artwork panel with Sonnet 5.5 as planner and FLUX 3 Image Klein through OpenRouter as renderer. Approved four mood-board references and placed the opening-scene illustration. Kept the comic in the review queue. The packaged examples load without provider keys. The isolated build’s provider spend log reported US$0.30 rounded to the nearest cent.
+
 The refreshed demo adds Chapter 3 through the live direct Claude API with Sonnet 5.5 for prose, continuity, and Story Flow. The new scene ran to 196 words, both texts were classified safe, two dated plot updates were accepted through the standard graph update function, and three fresh Story Flow directions were saved. The bundled revision examples validate their exact source quotes and need no provider call to open.
 
 Regenerated from a blank story in the built-in browser on 17 November 2026. All live model calls used the direct Claude API with Sonnet 5.5. The setup chat and review generated five cast profiles and five initial relationships. Four prose and continuity passes recorded all author directions and replies as non-explicit. The exported graph has ten relationship entries and ten plot events. A live Editor exchange saved a radio style note in Writing notes. Chapter 2 begins with the first scene after midnight.

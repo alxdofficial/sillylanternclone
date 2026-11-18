@@ -16,7 +16,8 @@ function mapOffset(offset,replacements,toDisplay,isEnd) {
 export function createPassageSelection({transcript,getStory,getActions}) {
   const prose = new WeakMap();
   const marks = {finding:[],passages:[]};
-  const priorities = {'density-medium':0,'density-high':0,repeated:1,'active-density':2,'active-repeat':2,passages:3,finding:4};
+  const priorities = {'dialogue-runs':0,'density-medium':0,'density-high':0,repeated:1,'long-sentences':1,'repeated-openings':1,
+    'active-density':2,'active-repeat':2,'active-long-sentences':2,'active-repeated-openings':2,'active-dialogue-runs':2,passages:3,finding:4};
   const supportsHeatmap = Boolean(globalThis.CSS?.highlights && globalThis.Highlight);
   let layers = {};
   let renderEpoch = 0, lastPaint;

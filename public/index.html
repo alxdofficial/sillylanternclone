@@ -9,6 +9,8 @@
 <link rel="stylesheet" href="/revision-panels.css">
 <link rel="stylesheet" href="/scene-board.css">
 <link rel="stylesheet" href="/draft-comparison.css">
+<link rel="stylesheet" href="/artwork.css">
+<link rel="stylesheet" href="/time-machine.css">
 <link rel="stylesheet" href="/expanded-editor.css">
 </head>
 <body>
@@ -56,6 +58,7 @@
           <button type="button" id="writeTab" role="tab" aria-selected="true" aria-controls="writeView" aria-label="Write" title="Write and continue the manuscript"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5 5 5M4 20l5-1 11-11a2 2 0 0 0 0-3l-1-1a2 2 0 0 0-3 0L5 15Z"/></svg></button>
           <button type="button" id="bookTab" role="tab" aria-selected="false" aria-controls="bookView" aria-label="Book view" title="Read the story as a book" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1zm0 0v14"/></svg></button>
           <button type="button" id="sceneBoardTab" role="tab" aria-selected="false" aria-controls="sceneBoardView" aria-label="Scene board" title="Organize scenes and chapters" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h7v7H3zM14 4h7v7h-7zM3 15h7v5H3zM14 15h7v5h-7z"/></svg></button>
+          <button type="button" id="timeMachineTab" role="tab" aria-selected="false" aria-controls="timeMachineView" aria-label="Time Machine" title="Compare or restore any saved version" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5v5h5M3 10a9 9 0 1 1 1.5 8M12 7v5l3 2"/></svg></button>
           <button type="button" id="graphTab" role="tab" aria-selected="false" aria-controls="graphView" aria-label="Graph" title="Explore the cast and relationships" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="m10.8 7.2-4.6 8.6m7-8.6 4.6 8.6M7.5 18h9"/></svg></button>
           <button type="button" id="displayNamesTab" role="tab" aria-selected="false" aria-controls="displayNamesView" aria-label="Display names" title="Set alternate names for this story" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v14H3z"/><circle cx="8" cy="10" r="1.5"/><path d="M5.5 15c0-2.5 5-2.5 5 0m3.5-5h4m-4 4h4"/></svg></button>
         </div>
@@ -103,9 +106,13 @@
           <div id="messageList"></div>
           <p id="reviewProseEmpty" class="form-note">Write or import a scene to review your prose.</p>
           <div class="manual-prose">
-            <button type="button" id="pasteReply" class="icon add-prose" aria-label="Add prose" aria-expanded="false" aria-controls="pasteForm" title="Write or paste the next passage yourself.">
+            <button type="button" id="pasteReply" class="icon add-prose" aria-label="Add to manuscript" aria-expanded="false" aria-controls="manuscriptInsertOptions" title="Add to manuscript">
               <svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
             </button>
+            <div id="manuscriptInsertOptions" class="manuscript-insert-options" role="group" aria-label="Add to manuscript" hidden>
+              <button type="button" class="button subtle" id="insertProse">Add prose</button>
+              <button type="button" class="button subtle" id="insertChapterDivider">Add chapter divider</button>
+            </div>
             <form id="pasteForm" hidden>
               <label for="pasteText" class="sr-only">New story prose</label>
               <textarea id="pasteText" rows="4" placeholder="Write the next passage…" required></textarea>
@@ -125,6 +132,7 @@
         <aside class="heatmap-legend" id="heatmapLegend" aria-label="Active text highlights" hidden>
           <span id="densityLegend" hidden><span class="heatmap-swatch density-swatch" aria-hidden="true"></span> Detail density</span>
           <span id="repetitionLegend" hidden><span class="heatmap-swatch repetition-swatch" aria-hidden="true"></span> Repeated phrases</span>
+          <span id="extraHeatmapLegend"></span>
           <div id="proseHeatmapNavigation" class="heatmap-navigation" role="group" aria-label="Highlight matches" hidden></div>
           <button type="button" class="text-button" id="clearHeatmap">Clear highlights</button>
         </aside>
@@ -221,18 +229,20 @@
             <button type="button" data-workspace-tool="themes"><svg class="tool-mark workspace-tool-icon" aria-hidden="true"><use href="#icon-themes"/></svg><span><strong>Themes</strong><small>See how ideas and images recur</small></span><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
             <button type="button" data-workspace-tool="threads"><svg class="tool-mark workspace-tool-icon" aria-hidden="true"><use href="#icon-threads"/></svg><span><strong>Setups &amp; payoffs</strong><small>See which promises are still open</small></span><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
             <button type="button" data-workspace-tool="continuity"><svg class="tool-mark workspace-tool-icon" aria-hidden="true"><use href="#icon-continuity"/></svg><span><strong>Continuity</strong><small>Check whether story facts still fit</small></span><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
+            <button type="button" data-workspace-tool="artwork"><svg class="tool-mark workspace-tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v16H3zm2 13 5-5 3 3 3-4 3 5"/><circle cx="8" cy="8.5" r="1"/></svg><span><strong>Artwork</strong><small>Make a mood board, illustration, or comic</small></span><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
           </nav>
         <section class="scene-inspector" id="workspaceScene" aria-label="In this scene" hidden>
           <div id="sceneInspectorContent"></div>
           <button type="button" class="text-button" id="inspectSceneLore">Open Character &amp; lore</button>
         </section>
+        <section id="workspaceArtwork" class="workspace-artwork" aria-labelledby="workspaceToolHeading" hidden></section>
         <section class="revision-view" id="revisionView" aria-labelledby="workspaceToolHeading" hidden>
           <details class="revision-help">
             <summary title="Explain the revision tools and controls">How to use Revision</summary>
             <p data-revision-help="pacing">Longer bars mean more words. The highlighted part estimates quoted dialogue. Select a scene to see its excerpt and recorded graph events.</p>
             <p data-revision-help="themes" hidden>Leave the field empty and use <strong>Suggest themes with AI</strong> to discover possible themes. Enter a phrase to find exact mentions or ask AI for related passages. Pin a quote to revisit it later.</p>
             <p data-revision-help="threads" hidden>A setup plants a detail the story may return to. A payoff is the scene where it matters again. Add a thread yourself or move an AI suggestion into your tracked list.</p>
-            <p class="form-note">Scope applies to charts, searches, and AI reviews. Saved pins and tracked threads belong to the whole story. To add a chapter, use <strong>⋯ → Start new chapter here</strong> on a later prose turn in Write.</p>
+            <p class="form-note">Scope applies to charts, searches, and AI reviews. Saved pins and tracked threads belong to the whole story.</p>
           </details>
           <div class="revision-work">
             <aside class="revision-rail">
@@ -268,6 +278,10 @@
                       <input type="checkbox" id="heatmapRepetition" aria-labelledby="repetitionLabel" aria-describedby="repetitionDescription">
                     </label>
                   </div>
+                  <details class="heatmap-extras">
+                    <summary>More highlight types</summary>
+                    <div class="heatmap-controls" id="extraHeatmapControls"></div>
+                  </details>
                   <label class="heatmap-sensitivity" id="heatmapSensitivityLabel" hidden><input type="checkbox" id="heatmapSensitivity"> Include subtler matches</label>
                   <div class="heatmap-summary">
                     <p class="form-note" id="heatmapSummary" role="status" hidden></p>
@@ -390,6 +404,7 @@
         </div>
       </section>
       <section class="scene-board" id="sceneBoardView" role="tabpanel" aria-labelledby="sceneBoardTab" hidden></section>
+      <section class="time-machine" id="timeMachineView" role="tabpanel" aria-labelledby="timeMachineTab" hidden></section>
       <section class="display-names-view" id="displayNamesView" role="tabpanel" aria-labelledby="displayNamesTab" hidden>
         <div class="display-names-layout">
         <header class="display-names-heading"><h2>Display names</h2><p>Use alternate names when reading in Write and Book view.</p></header>
@@ -507,13 +522,24 @@
 </div>
 <div id="turnMenu" class="turn-menu" role="group" aria-label="Turn actions" hidden>
   <button type="button" id="turnDetails">Time and context</button>
-  <button type="button" id="chapterBreak" hidden>Start new chapter here</button>
   <button type="button" id="compareTurnDrafts" hidden>Compare drafts</button>
   <button type="button" id="confirmTurnContinuity" hidden>Mark continuity reviewed</button>
   <button type="button" id="branchTurn">Branch from here</button>
   <button type="button" class="danger" id="rewindTurn">Rewind to here</button>
 </div>
 <dialog id="draftComparison" class="draft-comparison" aria-labelledby="draftComparisonTitle"></dialog>
+<dialog id="transitionReview" class="draft-comparison" aria-labelledby="transitionReviewTitle">
+  <header class="dialog-top">
+    <h2 id="transitionReviewTitle">Review transitions</h2>
+    <form method="dialog"><button type="submit" class="text-button">Close</button></form>
+  </header>
+  <div class="dialog-body">
+    <p id="transitionStatus" class="form-note" role="status"></p>
+    <div class="history-diff-titles" id="transitionPreviewTitles" hidden><h3>Current prose</h3><h3>Proposed change</h3></div>
+    <div id="transitionPreview" class="history-diff"></div>
+    <button type="button" class="button primary" id="applyTransition" hidden>Apply as new take</button>
+  </div>
+</dialog>
 <dialog id="confirmDanger" class="form-dialog" aria-labelledby="dangerTitle" aria-describedby="dangerDetail">
   <form method="dialog">
     <header class="dialog-top"><h2 id="dangerTitle"></h2></header>

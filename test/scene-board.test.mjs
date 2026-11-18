@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { manuscriptChapters,moveManuscriptScene,normalizeSceneBoard,readingChapterBreak,
-  readingChapters,toggleReadingChapter,validSceneBoard } from '../public/scene-board.js';
+import { hasUpcomingChapter,manuscriptChapters,moveManuscriptScene,normalizeSceneBoard,readingChapterBreak,
+  readingChapters,setUpcomingChapter,toggleReadingChapter,validSceneBoard } from '../public/scene-board.js';
+import { appendTurn } from '../public/prompt.js';
 
 function story() {
   return {messages:[
@@ -66,4 +67,21 @@ test('scene-board normalization trims entries for removed scenes and prevents du
   project.messages.pop();
   assert.deepEqual(readingOrder(project),[[2],[4]]);
   assert.deepEqual(normalizeSceneBoard(project).scenes,{2:project.sceneBoard.scenes[2]});
+});
+
+test('an upcoming chapter survives a round trip without making an empty chapter and starts at the next prose',()=>{
+  const project = story();
+  project.sceneBoard = moveManuscriptScene(project,4,{chapter:2,beforeTurn:7});
+  project.sceneBoard = setUpcomingChapter(project,true);
+  assert.equal(validSceneBoard(project.sceneBoard),true);
+  assert.deepEqual(normalizeSceneBoard(project,JSON.parse(JSON.stringify(project.sceneBoard))),project.sceneBoard);
+  assert.equal(hasUpcomingChapter(project),true);
+  assert.deepEqual(readingOrder(project),[[2],[4,7]]);
+
+  appendTurn(project,{role:'user',content:'Take the last ferry.'});
+  assert.equal(hasUpcomingChapter(project),true);
+  const firstScene = appendTurn(project,{role:'assistant',content:'Vale untied the bow line.'});
+  const followingScene = appendTurn(project,{role:'assistant',content:'Sen switched on the radio.'});
+  assert.equal(hasUpcomingChapter(project),false);
+  assert.deepEqual(readingOrder(project),[[2],[4,7],[firstScene,followingScene]]);
 });

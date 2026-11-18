@@ -2,6 +2,7 @@
 // saved while the page had unsaved edits: base is the library the page last loaded or saved,
 // local is the page's library and server is the latest saved library.
 import { starterStoryId } from './library.js';
+import { lastProseTurn } from './scene-board.js';
 
 const unresolved = Symbol('conflict');
 
@@ -105,12 +106,21 @@ function conflictsWithRecordedContinuity(base, revised, completed) {
   });
 }
 
+function conflictsWithUpcomingChapter(base, revised, other) {
+  if (base.sceneBoard?.nextChapterAfter === revised.sceneBoard?.nextChapterAfter) return false;
+  const originalTail = lastProseTurn(base);
+  return lastProseTurn(revised) === originalTail && lastProseTurn(other) !== originalTail;
+}
+
 function mergeProject(base = {}, local, server) {
   if (conflictsWithQueuedReply(base,local,server) || conflictsWithQueuedReply(base,server,local)) {
     return {conflicts:[`turn ${base.agentRequest.turnNumber} was changed while its reply was being written`]};
   }
   if (base.messages && (conflictsWithRecordedContinuity(base,local,server) || conflictsWithRecordedContinuity(base,server,local))) {
     return {conflicts:['the scene changed while continuity was being recorded']};
+  }
+  if (base.messages && (conflictsWithUpcomingChapter(base,local,server) || conflictsWithUpcomingChapter(base,server,local))) {
+    return {conflicts:['the end of the manuscript changed while its chapter divider was being edited']};
   }
   const messages = mergeMessages(base.messages || [], local.messages || [], server.messages || []);
   const {value, conflicts} = mergeFields(base, local, server, {

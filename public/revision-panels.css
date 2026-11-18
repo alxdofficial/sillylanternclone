@@ -135,6 +135,14 @@
 .heatmap-swatch { display: inline-block; width: 13px; height: 11px; vertical-align: -.04em; }
 .density-swatch { background: rgb(205 149 65 / 48%); }
 .repetition-swatch { border-bottom: 2px solid #9cdbd0; }
+.long-sentences-swatch { border-bottom: 2px dotted #a5bded; }
+.repeated-openings-swatch { background: rgb(193 146 200 / 50%); }
+.dialogue-runs-swatch { background: rgb(113 163 140 / 50%); }
+.heatmap-extras { margin-block: 9px 3px; }
+.heatmap-extras summary { color: var(--muted); cursor: pointer; padding-block: 8px; }
+.heatmap-extras[open] .heatmap-controls { margin-top: 3px; }
+#extraHeatmapLegend { display: contents; }
+#extraHeatmapLegend .heatmap-swatch { margin-inline-end: 4px; }
 .revision-dock .heatmap-sensitivity {
   display: flex;
   width: fit-content;

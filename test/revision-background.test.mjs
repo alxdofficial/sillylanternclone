@@ -133,11 +133,12 @@ test('starter evidence is present without a provider and drops an edited anchor'
   const story = createStarterStory();
   const result = starterReview(story);
   assert.equal(result.state,'demo');
-  assert.equal(result.findings.pacing.length,4);
+  assert.equal(result.findings.pacing.length,6);
   assert.equal(result.findings.themes[0].refs.length,2);
   assert.equal(result.continuityExample.refs.length,2);
+  assert.match(result.findings.continuity[0].title,/horn/iu);
   story.messages.find(turn=>turn.turnNumber === 8).content += ' Dawn was coming.';
-  assert.equal(starterReview(story).findings.themes.length,1);
+  assert.equal(starterReview(story).findings.themes.length,2);
 });
 
 test('background continuity reports checked pairs and links differently phrased claims about the same subject',async t=>{

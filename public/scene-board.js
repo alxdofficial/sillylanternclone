@@ -1,6 +1,9 @@
+import { sameValue } from './sync.js';
+
 const statuses = {draft:'Draft',revising:'Revising',ready:'Ready'};
 const maxSummary = 180;
 const maxPov = 160;
+const historyLimit = 30;
 const validTurn = turn => Number.isSafeInteger(turn) && turn > 0;
 const record = value => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 const validStatus = status => typeof status === 'string' && Object.hasOwn(statuses,status);
@@ -30,7 +33,8 @@ function cleanMetadata(value) {
 }
 
 export function validSceneBoard(value) {
-  if (!record(value) || Object.keys(value).some(key=>key !== 'chapters' && key !== 'scenes')) return false;
+  if (!record(value) || Object.keys(value).some(key=>key !== 'chapters' && key !== 'scenes' && key !== 'nextChapterAfter')) return false;
+  if (value.nextChapterAfter !== undefined && !validTurn(value.nextChapterAfter)) return false;
   if (value.chapters !== undefined) {
     if (!Array.isArray(value.chapters)) return false;
     const seen = new Set();
@@ -78,8 +82,30 @@ export function normalizeSceneBoard(project,value = project.sceneBoard) {
   }
   const nativeOrder = chapters.length === native.length && chapters.every((chapter,index)=>
     chapter.length === native[index].length && chapter.every((turn,position)=>turn === native[index][position].turn));
-  const result = {...(chapters.length && !nativeOrder ? {chapters} : {}),...(Object.keys(scenes).length ? {scenes} : {})};
+  const nextChapterAfter = value.nextChapterAfter;
+  const result = {
+    ...(chapters.length && !nativeOrder ? {chapters} : {}),
+    ...(Object.keys(scenes).length ? {scenes} : {}),
+    ...(validTurn(nextChapterAfter) && nextChapterAfter === native.at(-1)?.at(-1)?.turn ? {nextChapterAfter} : {})
+  };
   return Object.keys(result).length ? result : undefined;
+}
+
+export function lastProseTurn(project) {
+  const index = project.messages.findLastIndex(message => message.role === 'assistant' && message.content.trim());
+  if (index < 0) return;
+  const {turnNumber} = project.messages[index];
+  return validTurn(turnNumber) ? turnNumber : index + 1;
+}
+
+export function hasUpcomingChapter(project) {
+  const anchor = project.sceneBoard?.nextChapterAfter;
+  return validTurn(anchor) && anchor === lastProseTurn(project);
+}
+
+export function setUpcomingChapter(project, enabled) {
+  const nextChapterAfter = enabled ? lastProseTurn(project) : undefined;
+  return normalizeSceneBoard(project,{...project.sceneBoard,nextChapterAfter});
 }
 
 function editorialChapters(native,placed) {
@@ -205,7 +231,7 @@ function reorderButton(scene,earlier,run) {
   return button;
 }
 
-export function createSceneBoard({root,getStory,onSave,onOpenScene}) {
+export function createSceneBoard({root,getStory,onSave,onOpenScene,onSceneTransition,getHistoryGeneration = ()=>undefined}) {
   root.classList.add('scene-board');
   const stories = new Map();
   const heading = node('h2','','Scene board');
@@ -225,8 +251,14 @@ export function createSceneBoard({root,getStory,onSave,onOpenScene}) {
   filterLabel.htmlFor = filter.id;
   const filterField = node('div','scene-board-filter');
   filterField.append(filterLabel,filter);
+  const historyControls = node('div','scene-board-history');
+  historyControls.setAttribute('role','group');
+  historyControls.setAttribute('aria-label','Scene board edits');
+  const undo = action('Undo',()=>travelHistory(-1),'button subtle');
+  const redo = action('Redo',()=>travelHistory(1),'button subtle');
+  historyControls.append(undo,redo);
   const controls = node('div','scene-board-controls');
-  controls.append(order,filterField);
+  controls.append(historyControls,order,filterField);
   const instructions = node('p','scene-board-instructions');
   const announcement = node('span','sr-only');
   announcement.setAttribute('role','status');
@@ -240,9 +272,27 @@ export function createSceneBoard({root,getStory,onSave,onOpenScene}) {
   let dragged, dropTarget;
 
   function ui() {
-    const id = getStory().id;
-    if (!stories.has(id)) stories.set(id,{order:'reading',pov:allPointsOfView,drafts:new Map()});
-    return stories.get(id);
+    const project = getStory();
+    const {id,sceneBoard} = project;
+    const generation = getHistoryGeneration(project);
+    let state = stories.get(id);
+    if (!state || state.generation !== generation) {
+      state = {order:'reading',pov:allPointsOfView,drafts:new Map(),generation,
+        board:structuredClone(sceneBoard),history:[],position:0};
+      stories.set(id,state);
+    }
+    return state;
+  }
+
+  function syncHistory(state) {
+    const {sceneBoard} = getStory();
+    if (!sameValue(state.board,sceneBoard)) {
+      // A different view, agent, or tab saved a board change. Do not overwrite it with a local undo.
+      state.board = structuredClone(sceneBoard);
+      state.history = [];
+      state.position = 0;
+      state.lastMoved = undefined;
+    }
   }
 
   function selectOrder(next) {
@@ -256,25 +306,65 @@ export function createSceneBoard({root,getStory,onSave,onOpenScene}) {
     (desired && !desired.disabled ? desired : card?.querySelector('[data-scene-board-focus="open"]') || filter).focus();
   }
 
-  function commit(board,turn,control,message) {
+  function applyBoard(state,board) {
+    state.board = structuredClone(board);
     onSave(board);
+  }
+
+  function commit(board,turn,control,message,label,moved = false) {
+    const state = ui();
+    syncHistory(state);
+    const before = normalizeSceneBoard(getStory());
+    if (!sameValue(before,board)) {
+      const movedAfter = moved ? turn : state.lastMoved;
+      state.history.splice(state.position,state.history.length - state.position,{before,after:board,label,
+        movedBefore:state.lastMoved,movedAfter});
+      if (state.history.length > historyLimit) state.history.shift();
+      state.position = state.history.length;
+      state.lastMoved = movedAfter;
+      applyBoard(state,board);
+    }
     render();
     focus(turn,control);
     announcement.textContent = message;
   }
 
+  function travelHistory(step) {
+    const state = ui();
+    syncHistory(state);
+    const backwards = step < 0;
+    const entry = state.history[backwards ? state.position - 1 : state.position];
+    if (!entry) return render();
+    state.position += step;
+    state.moving = undefined;
+    state.lastMoved = backwards ? entry.movedBefore : entry.movedAfter;
+    const snapshot = backwards ? entry.before : entry.after;
+    const board = snapshot === undefined ? undefined : normalizeSceneBoard(getStory(),snapshot);
+    applyBoard(state,board);
+    render();
+    const pressed = backwards ? undo : redo;
+    if (pressed.disabled) (backwards ? redo : undo).focus();
+    announcement.textContent = `${entry.label} ${backwards ? 'undone' : 'redone'}.`;
+  }
+
   function move(turn,destination,control) {
     const project = getStory();
+    const previous = manuscriptChapters(project);
     const board = moveManuscriptScene(project,turn,destination);
-    const changed = manuscriptChapters({...project,sceneBoard:board}).flat().find(scene=>scene.turn === turn);
+    const next = manuscriptChapters({...project,sceneBoard:board});
+    if (previous.length === next.length && previous.every((chapter,index)=>chapter.length === next[index].length
+      && chapter.every((scene,position)=>scene.turn === next[index][position].turn))) return;
+    const changed = next.flat().find(scene=>scene.turn === turn);
     if (!changed) return;
-    commit(board,turn,control,`Scene moved to chapter ${changed.chapter}, position ${changed.number} in the manuscript.`);
+    const state = ui();
+    state.moving = undefined;
+    const review = onSceneTransition ? ' A transition review is available for this scene.' : '';
+    commit(board,turn,control,`Scene moved to chapter ${changed.chapter}, position ${changed.number} in the manuscript.${review}`,'Scene move',true);
   }
 
   function metadataForm(scene,chapters) {
     const state = ui();
     const draft = state.drafts.get(scene.turn) || {summary:scene.summary || '',pov:scene.pov || '',status:scene.status || 'draft'};
-    state.drafts.set(scene.turn,draft);
     const form = node('form','scene-board-editor');
     const summary = node('input');
     summary.type = 'text';
@@ -304,7 +394,10 @@ export function createSceneBoard({root,getStory,onSave,onOpenScene}) {
       const caption = node('label','',label);
       caption.htmlFor = input.id;
       field.append(caption,input);
-      input.oninput = ()=>{ draft[name] = input.value; };
+      input.oninput = ()=>{
+        draft[name] = input.value;
+        state.drafts.set(scene.turn,draft);
+      };
       fields.append(field);
     }
     const controls = node('div','scene-board-editor-actions');
@@ -317,32 +410,20 @@ export function createSceneBoard({root,getStory,onSave,onOpenScene}) {
       focus(scene.turn,'edit');
     }),save);
     form.append(fields,people,controls);
-    if (state.order === 'reading' && (chapters.length > 1 || scene.number > 1)) {
-      const target = node('div','scene-board-chapter-move');
-      if (chapters.length > 1) {
-        const chapter = node('select');
-        chapter.setAttribute('aria-label',`Move scene ${scene.number} to another chapter`);
-        chapter.append(...chapters.map((_,index)=>new Option(`Chapter ${index + 1}`,String(index + 1))));
-        chapter.value = String(scene.chapter);
-        const moveAction = action('Move to chapter',()=>move(scene.turn,{chapter:Number(chapter.value)},'summary'),'button');
-        moveAction.disabled = true;
-        chapter.onchange = ()=>{ moveAction.disabled = Number(chapter.value) === scene.chapter; };
-        target.append(chapter,moveAction);
-      }
-      if (scene.number > 1) {
-        const startsHere = chapters[scene.chapter - 1][0].turn === scene.turn;
-        target.append(action(startsHere ? 'Join previous chapter' : 'Start chapter here',()=>{
-          commit(toggleReadingChapter(getStory(),scene.turn),scene.turn,'summary',
-            startsHere ? 'Joined the previous chapter.' : 'New chapter started.');
-        }));
-      }
-      form.append(target);
+    if (state.order === 'reading' && scene.number > 1) {
+      const chapterActions = node('div','scene-board-chapter-actions');
+      const startsHere = chapters[scene.chapter - 1][0].turn === scene.turn;
+      chapterActions.append(action(startsHere ? 'Join previous chapter' : 'Start chapter here',()=>{
+        commit(toggleReadingChapter(getStory(),scene.turn),scene.turn,'summary',
+          startsHere ? 'Joined the previous chapter.' : 'New chapter started.','Chapter boundary change');
+      }));
+      form.append(chapterActions);
     }
     form.onsubmit = event=>{
       event.preventDefault();
       state.drafts.delete(scene.turn);
       state.editing = undefined;
-      commit(withMetadata(getStory(),scene.turn,draft),scene.turn,'edit','Scene details saved.');
+      commit(withMetadata(getStory(),scene.turn,draft),scene.turn,'edit','Scene details saved.','Scene details edit');
     };
     return form;
   }
@@ -355,8 +436,85 @@ export function createSceneBoard({root,getStory,onSave,onOpenScene}) {
     move(scene.turn,{chapter:adjacent.chapter,beforeTurn},step < 0 ? 'earlier' : 'later');
   }
 
+  function followingTurn(scene,chapters) {
+    const chapter = chapters[scene.chapter - 1];
+    return chapter[chapter.indexOf(scene) + 1]?.turn;
+  }
+
+  function moveForm(scene,chapters) {
+    const state = ui();
+    const form = node('form','scene-board-move-form');
+    form.id = `scene-board-move-${scene.turn}`;
+    const chapter = node('select');
+    chapter.id = `${form.id}-chapter`;
+    chapter.dataset.sceneBoardFocus = 'move-chapter';
+    chapter.append(...chapters.map((_,index)=>new Option(`Chapter ${index + 1}`,String(index + 1))));
+    const position = node('select');
+    position.id = `${form.id}-position`;
+    position.dataset.sceneBoardFocus = 'move-position';
+    const submit = node('button','button primary','Move scene');
+    submit.type = 'submit';
+    submit.dataset.sceneBoardFocus = 'move-submit';
+    const close = ()=>{
+      state.moving = undefined;
+      render();
+      focus(scene.turn,'move');
+    };
+    const cancel = action('Cancel',close);
+    cancel.dataset.sceneBoardFocus = 'move-cancel';
+    const field = (label,control)=>{
+      const block = node('div');
+      const caption = node('label','',label);
+      caption.htmlFor = control.id;
+      block.append(caption,control);
+      return block;
+    };
+    const fields = node('div','scene-board-move-fields');
+    if (chapters.length > 1) fields.append(field('Destination chapter',chapter));
+    fields.append(field('Position',position));
+    const actions = node('div','scene-board-editor-actions');
+    actions.append(cancel,submit);
+    form.append(fields,actions);
+    const before = followingTurn(scene,chapters);
+    const targetChapter = ()=>Number(chapter.value);
+    const positionValue = ()=>Number(position.value) || undefined;
+    const reviseButton = ()=>{
+      submit.disabled = targetChapter() === scene.chapter && positionValue() === before;
+    };
+    function updatePositions() {
+      position.replaceChildren(...chapters[targetChapter() - 1]
+        .filter(item=>item.turn !== scene.turn).map(item=>new Option(`Before scene ${item.number}`,String(item.turn))),
+      new Option('End of chapter',''));
+      position.value = String(state.moving.beforeTurn || '');
+      if (position.selectedIndex < 0) position.value = '';
+      reviseButton();
+    }
+    chapter.value = String(chapters[state.moving.chapter - 1] ? state.moving.chapter : scene.chapter);
+    updatePositions();
+    chapter.onchange = ()=>{
+      state.moving.chapter = targetChapter();
+      state.moving.beforeTurn = targetChapter() === scene.chapter ? before : undefined;
+      updatePositions();
+    };
+    position.onchange = ()=>{
+      state.moving.beforeTurn = positionValue();
+      reviseButton();
+    };
+    form.onkeydown = event=>{
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      close();
+    };
+    form.onsubmit = event=>{
+      event.preventDefault();
+      if (!submit.disabled) move(scene.turn,{chapter:targetChapter(),beforeTurn:positionValue()},'move');
+    };
+    return form;
+  }
+
   function card(scene,all,chapters,last) {
     const state = ui();
+    const moving = state.order === 'reading' && state.moving?.turn === scene.turn;
     const item = node('li','scene-board-card');
     item.dataset.sceneBoardTurn = String(scene.turn);
     const top = node('div','scene-board-card-heading');
@@ -407,6 +565,7 @@ export function createSceneBoard({root,getStory,onSave,onOpenScene}) {
     }
     const footer = node('div','scene-board-card-footer');
     const edit = action(state.editing === scene.turn ? 'Editing' : 'Edit details',()=>{
+      if (moving) state.moving = undefined;
       state.editing = scene.turn;
       render();
       focus(scene.turn,'summary');
@@ -417,6 +576,18 @@ export function createSceneBoard({root,getStory,onSave,onOpenScene}) {
     footer.append(edit);
     if (state.order === 'reading') {
       const group = node('div','scene-board-moves');
+      if (all.length > 1) {
+        const direct = action('Move',()=>{
+          state.moving = moving ? undefined : {turn:scene.turn,chapter:scene.chapter,beforeTurn:followingTurn(scene,chapters)};
+          render();
+          focus(scene.turn,moving ? 'move' : chapters.length > 1 ? 'move-chapter' : 'move-position');
+        });
+        direct.dataset.sceneBoardFocus = 'move';
+        direct.setAttribute('aria-label',`Move scene ${scene.number}`);
+        direct.setAttribute('aria-expanded',String(moving));
+        if (moving) direct.setAttribute('aria-controls',`scene-board-move-${scene.turn}`);
+        group.append(direct);
+      }
       const earlier = reorderButton(scene,true,()=>moveRelative(scene,-1,all,chapters));
       const later = reorderButton(scene,false,()=>moveRelative(scene,1,all,chapters));
       earlier.disabled = scene.number === 1;
@@ -427,7 +598,13 @@ export function createSceneBoard({root,getStory,onSave,onOpenScene}) {
     item.append(top,synopsis);
     if (details.childElementCount) item.append(details);
     item.append(footer);
-    if (state.editing === scene.turn) item.append(metadataForm(scene,chapters));
+    if (moving) item.append(moveForm(scene,chapters));
+    else if (state.editing === scene.turn) item.append(metadataForm(scene,chapters));
+    if (state.order === 'reading' && state.lastMoved === scene.turn && onSceneTransition) {
+      const review = action('Review transitions',()=>onSceneTransition(scene.turn),'text-button scene-board-transition');
+      review.dataset.sceneBoardFocus = 'review-transition';
+      item.append(review);
+    }
     return item;
   }
 
@@ -457,6 +634,12 @@ export function createSceneBoard({root,getStory,onSave,onOpenScene}) {
 
   function render() {
     const state = ui();
+    syncHistory(state);
+    const before = state.history[state.position - 1], after = state.history[state.position];
+    undo.disabled = !before;
+    redo.disabled = !after;
+    undo.title = before ? `Undo ${before.label.toLowerCase()}` : 'No scene board change to undo';
+    redo.title = after ? `Redo ${after.label.toLowerCase()}` : 'No scene board change to redo';
     const chapters = manuscriptChapters(getStory());
     const all = chapters.flat();
     const pointsOfView = [...new Set(all.map(scene=>scene.pov).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
@@ -472,8 +655,8 @@ export function createSceneBoard({root,getStory,onSave,onOpenScene}) {
     chronology.setAttribute('aria-pressed',String(state.order === 'chronology'));
     total.textContent = `${all.length} ${all.length === 1 ? 'scene' : 'scenes'} · ${chapters.length} ${chapters.length === 1 ? 'chapter' : 'chapters'}`;
     if (state.order === 'reading') instructions.replaceChildren(
-      node('span','scene-board-drag-instructions','Drag scenes or use the arrows to change their reading order.'),
-      node('span','scene-board-touch-instructions','Use the arrows to change the reading order.')
+      node('span','scene-board-drag-instructions','Drag scenes, use the arrows, or choose Move to change their reading order.'),
+      node('span','scene-board-touch-instructions','Use Move or the arrows to change the reading order.')
     );
     else instructions.textContent = 'Scenes are sorted by story time, with undated scenes last.';
     instructions.hidden = !all.length;

@@ -5,9 +5,10 @@ import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
 import { agentOutputLimit, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isWriterModel, modelProvider, models, providerNames, proseOutputLimit, setupChatOutputLimit, setupDraftModel, setupDraftOutputLimit, usesSensitiveContinuity } from './public/models.js';
-import { buildWritingContext, getCast, legacyCastFields, migrateLegacyCast, migrateStoryFields, validPlotEvents, storyTextFields, validCast, validRelationships, validSensitivity, isStoryTime, estimateContextTokens } from './public/prompt.js';
+import { buildWritingContext, getCast, legacyCastFields, migrateLegacyCast, migrateStoryFields, validPlotEvents, storyTextFields, validCast, validRelationships, validSensitivity, isStoryTime, estimateContextTokens, nextTurnNumber } from './public/prompt.js';
 import { libraryByteLimit, maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory, starterReview } from './examples/the-late-ferry.mjs';
+import { listStarterArtwork, listStarterVersions, readStarterArtwork, readStarterVersion } from './examples/the-late-ferry-extras.mjs';
 import { isWritingRefusal, stripWritingPreamble } from './openrouter-format.mjs';
 import { runContinuity, runStoryEdit } from './continuity.mjs';
 import { validStoryEditInstruction } from './story-edits.mjs';
@@ -22,13 +23,20 @@ import { createCredentialStore, validKey } from './provider-credentials.mjs';
 import { createRevisionReviewer, reviewOutputLimit } from './revision-review.mjs';
 import { createBackgroundAnalysis } from './revision-background.mjs';
 import { analysisOutputLimit } from './revision-background-review.mjs';
-import { normalizeRevisionNotes } from './public/revision.js';
+import { normalizeRevisionNotes, sceneIndex } from './public/revision.js';
 import { normalizeSceneBoard, validSceneBoard } from './public/scene-board.js';
 import { normalizeDraftCheckpoints, validDraftCheckpoints } from './public/draft-comparison.js';
+import { artworkCanon, artworkCanonKey, artworkPassage, artworkStatus, artworkSubject } from './artwork-context.mjs';
+import { createArtworkStore } from './artwork-store.mjs';
+import { artworkPlannerOutputLimit, generateArtwork } from './artwork-generation.mjs';
+import { createStoryVersions } from './story-versions.mjs';
+import { planManuscriptTransition, transitionPlannerOutputLimit } from './manuscript-transition.mjs';
 
 const root=dirname(fileURLToPath(import.meta.url));
 const dataDir=process.env.STORY_STUDIO_DATA || join(homedir(),'Library','Application Support','Story Studio');
 const spend = createSpendLedger(dataDir);
+const artwork = createArtworkStore(dataDir);
+const versions = createStoryVersions(dataDir);
 const credentials = createCredentialStore(dataDir);
 const reviewStory = createRevisionReviewer();
 const statePath=join(dataDir,'library.json');
@@ -40,8 +48,12 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   console.error('Story Studio: PORT must be a number from 1 to 65535.');
   process.exit(1);
 }
-const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/generate','/api/story-edits','/api/story-flow','/api/setup','/api/export','/api/provider-keys','/api/revision','/api/writing-analysis']);
+const apiEndpoints = new Set(['/api/state','/api/starter','/api/starter/reset','/api/generate','/api/story-edits','/api/story-flow','/api/setup','/api/export','/api/provider-keys','/api/revision','/api/writing-analysis','/api/artwork','/api/artwork/image']);
 const foregroundEndpoints = new Set(['/api/generate','/api/story-edits','/api/story-flow','/api/setup','/api/revision']);
+const generatingArt = new Set();
+apiEndpoints.add('/api/story-versions');
+apiEndpoints.add('/api/manuscript-transition');
+foregroundEndpoints.add('/api/manuscript-transition');
 let foregroundRequests = 0;
 const background = createBackgroundAnalysis({dataDir,readLibrary:readSavedLibrary,
   hasKey:async model=>Boolean((await credentials.keys([[modelProvider(model)]]))[0]),
@@ -129,7 +141,30 @@ function updateState(operation) {
   return op;
 }
 
-function saveState(value, expectedRevision, starterOnly) {
+function versionSnapshot(project) {
+  const snapshot = structuredClone(project);
+  for (const field of ['agentRequest','agentEditRequest','agentNotice']) delete snapshot[field];
+  for (const turn of snapshot.messages) if (turn.continuityPending) {
+    delete turn.continuityPending;
+    turn.continuityNeedsReview = true;
+  }
+  return snapshot;
+}
+
+function versionLabel(previous, project) {
+  if (!previous) return 'Story created';
+  if (JSON.stringify(previous.sceneBoard?.chapters) !== JSON.stringify(project.sceneBoard?.chapters)) return 'Reordered manuscript';
+  if (project.messages.length > previous.messages.length) return 'Added story turns';
+  if (project.messages.length < previous.messages.length) return 'Removed story turns';
+  if (previous.sceneBoard?.nextChapterAfter !== project.sceneBoard?.nextChapterAfter) {
+    return project.sceneBoard?.nextChapterAfter === undefined ? 'Removed chapter divider' : 'Set chapter divider';
+  }
+  if (JSON.stringify(previous.draftCheckpoints) !== JSON.stringify(project.draftCheckpoints)) return 'Updated draft checkpoints';
+  if (JSON.stringify(previous.messages) !== JSON.stringify(project.messages)) return 'Revised story turns';
+  return 'Updated story state';
+}
+
+function saveState(value, expectedRevision, starterOnly, restoration) {
   return updateState(async () => {
     const previous = await readSavedLibrary();
     if (expectedRevision && liveRevision(withStarter(previous)) !== expectedRevision) return null;
@@ -143,6 +178,18 @@ function saveState(value, expectedRevision, starterOnly) {
       const tmp = join(dataDir, `.stories-${randomUUID()}.tmp`);
       await writeFile(tmp, JSON.stringify(saved, null, 2), {mode:0o600});
       await rename(tmp, statePath);
+      const before = new Map(previous.projects.map(project=>[project.id,project]));
+      for (const project of saved.projects) {
+        const older = before.get(project.id);
+        if (older && revisionOf(older) === revisionOf(project)) continue;
+        try {
+          if (older) await versions.record(versionSnapshot(older),{label:'Before update'});
+          const restoredFrom = restoration?.storyId === project.id ? restoration.versionId : undefined;
+          await versions.record(versionSnapshot(project),{label:restoredFrom ? 'Restored an earlier version' : versionLabel(older,project),restoredFrom});
+        } catch (failure) {
+          log('warn','story_version_failed',{storyRef:storyReference(project.id),code:errorCode(failure,'STORY_VERSION_FAILED')});
+        }
+      }
     }
     starter = value.projects.find(project => project.id === starterStoryId) || starter;
     starterSelected = selectedDemo;
@@ -354,7 +401,8 @@ const staticAssets = new Set([
   '/index.html','/app.js','/prompt.js','/models.js','/graph-history.js','/library.js',
   '/manuscript.js','/agent-context.js','/model-picker.js','/story-flow.js','/display-names.js','/sync.js','/revision.js','/revision-view.js','/style.css',
   '/workspace.js','/workspace.css','/expanded-editor.js','/expanded-editor.css','/revision-signals.js','/revision-panels.css','/passage-selection.js',
-  '/scene-board.js','/scene-board.css','/draft-comparison.js','/draft-comparison.css','/book-exports.js','/fflate.js'
+  '/scene-board.js','/scene-board.css','/draft-comparison.js','/draft-comparison.css','/book-exports.js','/fflate.js',
+  '/artwork-view.js','/artwork.css','/time-machine.js','/time-machine.css'
 ]);
 function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens = agentOutputLimit,{taskTimeout = true} = {}) {
   const budget = taskTimeout ? AbortSignal.timeout(300_000) : undefined;
@@ -457,7 +505,136 @@ async function runRevisionReview(req,res,diagnostics) {
   }
 }
 
+async function routeArtwork(req,res,url,diagnostics) {
+  const input = req.method === 'GET' ? undefined : await body(req,20_000);
+  const storyId = input?.storyId || url.searchParams.get('story');
+  const library = await getState();
+  const project = library.projects.find(item=>item.id === storyId);
+  if (!project) return json(res,404,{error:'Story not found.'});
+  const demo = storyId === starterStoryId;
+  if (url.pathname === '/api/artwork/image' && req.method === 'GET') {
+    const id = url.searchParams.get('id');
+    const image = demo ? await readStarterArtwork(id) : await artwork.file(storyId,id);
+    if (!image) return json(res,404,{error:'Artwork not found.'});
+    res.writeHead(200,{'content-type':image.mime,'cache-control':'no-store',
+      'x-content-type-options':'nosniff','cross-origin-resource-policy':'same-origin'});
+    return res.end(image.bytes);
+  }
+  if (url.pathname !== '/api/artwork') return json(res,405,{error:'Unsupported artwork request.'});
+  if (req.method === 'GET') {
+    const entries = demo ? await listStarterArtwork() : await artwork.list(storyId);
+    return json(res,200,artworkStatus(project,entries));
+  }
+  if (demo) return json(res,400,{error:'Branch the demo to keep artwork in your own story.'});
+  if (req.method === 'PUT') {
+    const {id,action,turn} = input || {};
+    if (action === 'place' && !sceneIndex(project).some(scene=>scene.turn === turn)) return json(res,400,{error:'Choose an existing prose scene.'});
+    const updated = await artwork.update(storyId,id,{action,turn});
+    if (!updated) return json(res,404,{error:'Artwork not found.'});
+    return json(res,200,artworkStatus(project,await artwork.list(storyId)));
+  }
+  if (req.method !== 'POST' || !['reference','illustration','comic'].includes(input?.kind)) {
+    return json(res,400,{error:'Choose a reference, illustration, or comic.'});
+  }
+  if (input.revision !== liveRevision(library)) return json(res,409,{error:'The story changed. Reload the passage and try again.'});
+  const {kind,model,ref} = input;
+  if (!isAgentModel(model)) return json(res,400,{error:'Choose an editor or continuity model to plan the artwork.'});
+  const provider = modelProvider(model);
+  const [planKey,imageKey] = await credentials.keys([[provider],['openrouter']]);
+  if (!planKey || !imageKey) return json(res,400,{error:'Set an OpenRouter key for rendering and a key for the selected planning model in Settings.'});
+  const subject = kind === 'reference' ? artworkSubject(project,input.subject) : undefined;
+  const passage = kind === 'reference' ? undefined : artworkPassage(project,ref);
+  if (generatingArt.has(storyId)) return json(res,409,{error:'Artwork is already generating for this story.'});
+  generatingArt.add(storyId);
+  foregroundRequests++;
+  const signal = disconnectSignal(res);
+  try {
+    diagnostics.storyRef = storyReference(storyId);
+    const saved = await artwork.list(storyId);
+    const ready = artworkStatus(project,saved).filter(item=>item.kind === 'reference' && item.status === 'approved' && !item.stale);
+    const availableRefs = passage ? ready.filter(item=>item.subject).map(item=>({id:item.id,subject:item.subject,async loadDataUrl() {
+      const image = await artwork.file(storyId,item.id);
+      return image ? `data:${image.mime};base64,${Buffer.from(image.bytes).toString('base64')}` : undefined;
+    }})) : [];
+    await generateArtwork({kind,subject,passage:passage?.text,canon:artworkCanon(project,subject),
+      style:typeof input.style === 'string' ? input.style : undefined,availableRefs,imageKey,signal,
+      complete:({messages,tools})=>generateCompletion(messages,model,planKey,diagnostics,{
+        stage:'artwork-plan',maxOutputTokens:artworkPlannerOutputLimit,tools,signal
+      }),
+      onUsage:usage=>spend.record(usage),
+      onImage:({image,...item})=>artwork.put(storyId,[{...item,bytes:image,source:{
+        canonKey:artworkCanonKey(project,item.subject),...(passage ? {scene:passage.scene} : {})
+      }}])
+    });
+    const latest = (await getState()).projects.find(item=>item.id === storyId) || project;
+    return json(res,200,artworkStatus(latest,await artwork.list(storyId)));
+  } finally {
+    generatingArt.delete(storyId);
+    foregroundRequests--;
+  }
+}
+
+async function routeStoryVersions(req,res,url) {
+  if (req.method === 'GET') {
+    const storyId = url.searchParams.get('story'), versionId = url.searchParams.get('version');
+    if (storyId === starterStoryId) {
+      if (!versionId) return json(res,200,await listStarterVersions());
+      const snapshot = await readStarterVersion(versionId);
+      return snapshot ? json(res,200,snapshot) : json(res,404,{error:'Version not found.'});
+    }
+    return await updateState(async ()=>{
+      const project = (await readSavedLibrary()).projects.find(item=>item.id === storyId);
+      if (!project) return json(res,404,{error:'Story not found.'});
+      if (versionId) {
+        const snapshot = await versions.get(storyId,versionId);
+        return snapshot ? json(res,200,snapshot) : json(res,404,{error:'Version not found.'});
+      }
+      let history = await versions.list(storyId);
+      if (!history.length) {
+        await versions.record(versionSnapshot(project),{label:'First saved version'});
+        history = await versions.list(storyId);
+      }
+      return json(res,200,history);
+    });
+  }
+  if (req.method !== 'PUT') return json(res,405,{error:'Unsupported version request.'});
+  const {storyId,versionId,revision} = await body(req,4096) || {};
+  if (storyId === starterStoryId) return json(res,400,{error:'The demo’s saved versions are read-only.'});
+  const library = await getState();
+  const index = library.projects.findIndex(item=>item.id === storyId);
+  if (index < 0) return json(res,404,{error:'Story not found.'});
+  if (revision !== liveRevision(library)) return json(res,409,{error:'The story changed. Reload its latest version before restoring.'});
+  const snapshot = await versions.get(storyId,versionId);
+  if (!snapshot) return json(res,404,{error:'Version not found.'});
+  const previous = library.projects[index];
+  const restored = versionSnapshot(snapshot);
+  // An older version can remove turns, but their IDs must never be reused.
+  restored.nextTurn = Math.max(nextTurnNumber(previous),nextTurnNumber(restored));
+  library.projects[index] = restored;
+  library.activeId = storyId;
+  const saved = await saveState(migrateLibrary(library),revision,false,{storyId,versionId});
+  return saved ? json(res,200,{revision:saved}) : json(res,409,{error:'The story changed before the restore was saved.'});
+}
+
 async function routeRequest(req,res,url,diagnostics) {
+if (url.pathname === '/api/artwork' || url.pathname === '/api/artwork/image') return routeArtwork(req,res,url,diagnostics);
+if (url.pathname === '/api/story-versions') return routeStoryVersions(req,res,url);
+if (url.pathname === '/api/manuscript-transition' && req.method === 'POST') {
+  const {storyId,turn,model,revision} = await body(req,4096) || {};
+  const library = await getState();
+  const project = library.projects.find(item=>item.id === storyId);
+  if (!project || !Number.isSafeInteger(turn) || !isAgentModel(model)) {
+    return json(res,400,{error:'Choose a prose scene and a configured review model.'});
+  }
+  if (revision !== liveRevision(library)) return json(res,409,{error:'The story changed. Reopen the scene and try again.'});
+  const [key] = await credentials.keys([[modelProvider(model)]]);
+  if (!key) return json(res,400,{error:'Add the review model’s provider key in Settings.'});
+  const signal = disconnectSignal(res);
+  diagnostics.storyRef = storyReference(storyId);
+  const proposal = await planManuscriptTransition({project,turn,signal,complete:({messages,tools})=>
+    generateCompletion(messages,model,key,diagnostics,{stage:'transition-review',maxOutputTokens:transitionPlannerOutputLimit,tools,signal})});
+  return json(res,200,proposal);
+}
 if (url.pathname === '/api/writing-analysis') {
   const settings = req.method === 'PUT' ? await body(req,4096) : undefined;
   if (req.method !== 'GET' && req.method !== 'PUT') return json(res,405,{error:'Unsupported analysis request.'});
@@ -535,6 +712,8 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
         ...(events.length ? ['Relationship timeline:\n' + events.join('\n')] : []), ...turns].join('\n\n')
     );
   });
+  const storyIds = library.projects.map(project=>project.id);
+  Object.assign(files,await artwork.archive(storyIds),await versions.archive(storyIds));
   const archive = zipSync(files);
   res.writeHead(200, {'content-type': 'application/zip', 'content-disposition': 'attachment; filename="story-studio-history.zip"', 'cache-control': 'no-store'});
   return res.end(Buffer.from(archive));

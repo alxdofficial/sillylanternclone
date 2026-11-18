@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createStarterStory } from '../examples/the-late-ferry.mjs';
 import { buildReview, createRevisionReviewer } from '../revision-review.mjs';
 import { branchRevisionNotes, continuityChecks, motifOccurrences, normalizeRevisionNotes, pacingRows, reference, resolveReference, resolveReferenceRange, sceneIndex, selectScenes } from '../public/revision.js';
-import { findRecurringDetails, manuscriptHeatmap, passageSignals } from '../public/revision-signals.js';
+import { findRecurringDetails, manuscriptHeatmap, passageSignals, proseHighlights } from '../public/revision-signals.js';
 
 const story = {
   id:'fixture',title:'The Pier',lore:'The pier has a storeroom.',notes:'',
@@ -145,4 +145,17 @@ test('ordinary prose stays mostly unshaded even when subtler detail density is e
   assert.ok(density.high.length > 0);
   assert.ok(density.high.length <= Math.floor(paragraphs * .10));
   assert.ok(density.high.length + density.medium.length <= Math.floor(paragraphs * .25));
+});
+
+test('local prose signals cite long sentences, repeated openings, and contiguous dialogue only',()=>{
+  const long = 'The harbor crew waited ' + 'while the tide rose behind the breakwater '.repeat(6).trim() + '.';
+  const exchange = '“Listen.”\n\n“Which bell?”\n\n“The outer one.”\n\n“Then stay here.”';
+  const content = `${long} Then Mara checked the door. Then Mara read the figures. Then Mara walked out.\n\n${exchange}\n\nA bell rang.\n\n"One."\n\n"Two."\n\n"Three."`;
+  const [scene] = sceneIndex({id:'signals',messages:[{role:'assistant',content}]});
+  const groups = proseHighlights([scene]);
+  const excerpts = (key,strength)=>groups[key][strength].map(ref=>resolveReference(ref,scene));
+  assert.deepEqual(excerpts('long-sentences','strong'),[long]);
+  assert.deepEqual(excerpts('repeated-openings','strong'),['Then Mara','Then Mara']);
+  assert.deepEqual(excerpts('dialogue-runs','strong'),[exchange]);
+  assert.deepEqual(excerpts('dialogue-runs','subtle'),['"One."\n\n"Two."\n\n"Three."']);
 });

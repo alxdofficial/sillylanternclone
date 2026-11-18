@@ -28,6 +28,12 @@ html, body { height: 100%; margin: 0; }
 ::highlight(studio-density-high) { background-color: rgb(205 149 65 / 34%); }
 ::highlight(studio-active-density) { background-color: rgb(205 149 65 / 58%); color: #fffaf0; }
 ::highlight(studio-active-repeat) { text-decoration: underline 2px #c3fff2; color: #edfff9; }
+::highlight(studio-long-sentences) { text-decoration: underline dotted #a5bded; }
+::highlight(studio-active-long-sentences) { background-color: rgb(124 152 206 / 36%); text-decoration: underline dotted #d4e3ff; }
+::highlight(studio-repeated-openings) { background-color: rgb(193 146 200 / 30%); }
+::highlight(studio-active-repeated-openings) { background-color: rgb(193 146 200 / 55%); }
+::highlight(studio-dialogue-runs) { background-color: rgb(113 163 140 / 24%); }
+::highlight(studio-active-dialogue-runs) { background-color: rgb(113 163 140 / 48%); }
 ::highlight(studio-repeated) { text-decoration: underline 2px #9cdbd0; }
 .message-text[data-passage-mark] { outline: 1px solid var(--focus); outline-offset: 4px; }
 .passage-actions {
@@ -198,13 +204,14 @@ textarea { caret-color: #f0c6de; }
 .message { padding: 12px 16px 16px; border-bottom: 1px solid #303034; }
 .message.user { background: var(--rail); }
 .message-body { max-width: var(--writing-measure); margin-inline: auto; }
-.message-header, .message-footer { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 9px; }
+.message-header { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 9px; }
 .message-header { margin-bottom: 5px; }
-.message-footer { margin-top: 3px; }
+.message[data-story-turn] .message-header { position: sticky; top: 0; z-index: 1; padding-block: 3px; background: var(--page); }
+.message.user[data-story-turn] .message-header { background: var(--rail); }
 .message-header strong { min-width: 0; overflow-wrap: anywhere; font-size: 15px; }
 .message-header .author-label { color: var(--muted); font-size: 13px; }
 .continuity-review-badge { color: #ecd4a8; font-size: 12px; }
-.message-actions { display: flex; flex-wrap: wrap; gap: 4px 7px; margin-inline-start: auto; }
+.message-actions { display: flex; align-items: center; gap: 4px 7px; margin-inline-start: auto; }
 .turn-menu {
   position: fixed;
   z-index: 3;
@@ -243,8 +250,6 @@ textarea { caret-color: #f0c6de; }
   background: var(--raised);
 }
 .message-text { font-size: 15px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; color: #e2deda; }
-.prose-with-copy { display: flex; align-items: flex-start; gap: 6px; }
-.prose-with-copy .message-text { flex: 1; min-width: 0; }
 .copy-prose {
   display: grid;
   flex: none;
@@ -284,6 +289,26 @@ textarea { caret-color: #f0c6de; }
   margin-inline: auto;
   padding-block: 6px 12px;
 }
+.write-chapter-divider {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: calc(100% - 2 * var(--writing-gutter));
+  max-width: var(--writing-measure);
+  margin: 10px auto 0;
+  color: var(--muted);
+}
+.write-chapter-divider::before, .write-chapter-divider::after {
+  content: '';
+  flex: 1 1 0;
+  min-width: 10px;
+  border-top: 1px solid var(--control-border);
+}
+.write-chapter-divider::after { order: 1; }
+.write-chapter-divider[data-upcoming]::before, .write-chapter-divider[data-upcoming]::after { border-top-style: dashed; }
+.write-chapter-divider h2 { margin: 0; color: var(--text); font-size: 14px; font-weight: 650; }
+.write-chapter-divider .text-button { order: 2; white-space: nowrap; }
+.write-chapter-note { font-size: 12px; }
 .add-prose {
   display: grid;
   width: 34px;
@@ -292,6 +317,17 @@ textarea { caret-color: #f0c6de; }
   border: 1px solid var(--control-border);
   border-radius: 50%;
   color: var(--muted);
+}
+.add-prose[aria-expanded="true"] { background: var(--raised); color: var(--text); }
+.manuscript-insert-options {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+@media (pointer: coarse) {
+  .write-chapter-divider .text-button, .manuscript-insert-options .button { min-height: 44px; }
 }
 .manual-prose-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .manual-prose-actions label { margin: 0; color: var(--muted); }
@@ -945,7 +981,6 @@ form textarea { resize: vertical; }
 @media (max-width: 395px) {
   .tool .tool-mark { display: none; }
   .tool { flex: 1 0 auto; justify-content: center; padding-inline: 4px; }
-  .message-actions { margin-inline-start: 0; }
 }
 @media (pointer: coarse) {
   .tool, .icon, .button, .project-item, .message-actions button, .alternatives button, .text-button {
@@ -1234,10 +1269,22 @@ form textarea { resize: vertical; }
 
 /* A turn that is queued for, or being written by, a model. */
 .message.pending { padding-block: 10px; }
-.pending-state { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+.pending-state { color: var(--muted); font-size: 13px; }
 .pending-state.active { color: var(--focus); }
-.pending-state.active::before {
-  content: ''; width: 7px; height: 7px; background: currentColor;
+:is(.pending-state.active, [data-activity]:not(:empty))::before {
+  content: '';
+  display: inline-block;
+  width: .9em;
+  height: .9em;
+  margin-inline-end: .55em;
+  vertical-align: -.1em;
+  border: 2px solid color-mix(in srgb,currentColor 26%,transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :is(.pending-state.active, [data-activity]:not(:empty))::before { animation: studio-activity 850ms linear infinite; }
+  @keyframes studio-activity { to { transform: rotate(360deg); } }
 }
 
 /* Keep the short tab transition inside the workspace. */
@@ -1297,7 +1344,6 @@ form textarea { resize: vertical; }
 .message.assistant { padding-block: 27px 14px; }
 #messageList > .message:last-child { border-bottom: 0; }
 .message.user .message-text { color: #d9d2d9; }
-.message-footer { margin-top: 10px; }
 .message-actions button { min-height: 32px; }
 .scene-inspector { min-width: 0; padding: 18px 23px; background: var(--rail); border-left: 1px solid var(--border); overflow: auto; }
 .scene-inspector h2 { margin: 0 0 23px; }
@@ -1537,6 +1583,7 @@ form textarea { resize: vertical; }
 @media (max-width: 360px) {
   .studio-navigation { min-width: 0; }
   .studio-navigation .tool { min-height: 32px; }
+  .story-tabs { gap: 0; }
 }
 
 .setup-chat-workspace {

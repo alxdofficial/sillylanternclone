@@ -1,5 +1,5 @@
 import { continuityChecks, motifOccurrences, normalizeRevisionNotes, pacingRows, reference, resolveReferenceRange, sceneIndex, selectScenes } from './revision.js';
-import { findRecurringDetails, manuscriptHeatmap, passageSignals } from './revision-signals.js';
+import { extraHighlightKinds, findRecurringDetails, manuscriptHeatmap, passageSignals, proseHighlights } from './revision-signals.js';
 import { models } from './models.js';
 
 const $ = id => document.getElementById(id);
@@ -83,7 +83,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
 
   const empty = text => el('p',text,'form-note');
   const newState = () => ({scopes:new Map(),themeQuery:'',themeSearch:'',comparisonId:'',canon:'',notice:new Map(),expanded:new Set(),highlighting:false,
-    pacingView:'overview',heatmap:{density:true,repetition:false,more:false}});
+    pacingView:'overview',heatmap:{density:true,repetition:false,more:false},extraHeatmap:new Set()});
   const sceneAt = (list,turn) => list.find(scene=>scene.turn === turn) || list.at(-1);
   const sourceKey = list => JSON.stringify(list.map(({turn,chapter,fingerprint,time,eligible})=>[turn,chapter,fingerprint,time,eligible]));
   const refKey = ({storyId,turn,fingerprint,start,end}) => `${storyId}:${turn}:${fingerprint}:${start}:${end}`;
@@ -263,12 +263,17 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
   function applyHeatmap(project,selected) {
     const available = canPaintHeatmap() && selected.length > 0;
     const {density,repetition,more} = state.heatmap;
-    const enabled = available && state.pacingView === 'highlights' && (density || repetition);
+    const extra = extraHighlightKinds.filter(({key})=>state.extraHeatmap.has(key));
+    const enabled = available && state.pacingView === 'highlights' && (density || repetition || extra.length);
     $('heatmapDensity').disabled = $('heatmapRepetition').disabled = $('heatmapSensitivity').disabled = !available;
     $('heatmapDensity').checked = density;
     $('heatmapRepetition').checked = repetition;
     $('heatmapSensitivity').checked = more;
     $('heatmapSensitivityLabel').hidden = !enabled;
+    for (const {id,key} of extraHighlightKinds) {
+      $(id).disabled = !available;
+      $(id).checked = state.extraHeatmap.has(key);
+    }
     const layers = {};
     if (enabled) {
       const index = derivedIndex;
@@ -291,21 +296,37 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
         results.repetition.all ||= [...results.repetition.strong,...results.repetition.subtle];
         layers.repeated = more ? results.repetition.all : results.repetition.strong;
       }
+      if (extra.length) {
+        results.extra ||= proseHighlights(selected);
+        for (const {key} of extra) {
+          const group = results.extra[key];
+          group.all ||= [...group.strong,...group.subtle];
+          layers[key] = more ? group.all : group.strong;
+        }
+      }
     }
     const shaded = Object.entries(layers).filter(([key])=>key.startsWith('density-')).reduce((sum,[,refs])=>sum+refs.length,0);
     const repeated = layers.repeated?.length || 0;
     const summary = $('heatmapSummary');
-    const matches = [density && countLabel(shaded,'dense paragraph'),repetition && countLabel(repeated,'repeated phrase')].filter(Boolean);
+    const count = Object.values(layers).reduce((sum,items)=>sum+items.length,0);
+    const matches = [density && countLabel(shaded,'dense paragraph'),repetition && countLabel(repeated,'repeated phrase'),
+      ...extra.map(({key,singular})=>countLabel(layers[key]?.length || 0,singular))].filter(Boolean);
     summary.hidden = available && !enabled;
     summary.textContent = !canPaintHeatmap() ? 'This browser does not support in-text highlights.'
       : !selected.length ? 'Write or import a scene to see highlights.'
-        : shaded || repeated ? matches.join(' · ') : more ? 'No matches in this scope.' : 'No strong matches here. Try subtler matches or a wider scope.';
-    $('heatmapLegend').hidden = !(shaded || repeated);
+        : count ? matches.join(' · ') : more ? 'No matches in this scope.' : 'No strong matches here. Try subtler matches or a wider scope.';
+    $('heatmapLegend').hidden = !count;
     $('densityLegend').hidden = !shaded;
     $('repetitionLegend').hidden = !repeated;
+    $('extraHeatmapLegend').replaceChildren(...extra.filter(({key})=>layers[key]?.length).map(({key,label})=>{
+      const text = el('span');
+      text.append(el('span','',`heatmap-swatch ${key}-swatch`),document.createTextNode(label));
+      return text;
+    }));
     const ordered = new Map(selected.map((scene,index)=>[scene.turn,index]));
     const entries = Object.entries(layers).flatMap(([layer,refs])=>refs.map(ref=>({
-      ref, key:layer + ':' + refKey(ref), activeLayer:layer === 'repeated' ? 'active-repeat' : 'active-density'
+      ref, key:layer + ':' + refKey(ref), activeLayer:layer.startsWith('density-') ? 'active-density'
+        : layer === 'repeated' ? 'active-repeat' : 'active-' + layer
     })));
     entries.sort((a,b)=>ordered.get(a.ref.turn)-ordered.get(b.ref.turn) || a.ref.start-b.ref.start);
     heatmapNavigation = {entries,layers,index:0};
@@ -642,6 +663,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     meta.hidden = !model;
     status.textContent = message;
     status.hidden = !message;
+    status.toggleAttribute('data-activity',pending?.key === key);
   }
 
   function setVisualization(refs) {
@@ -687,6 +709,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
       `${updateLabel} · ${progress?.completed || 0}/${progress?.total || 0} · ${waiting}`;
     const heading = $('backgroundReviewSummary');
     if (heading.textContent !== summary) heading.textContent = summary;
+    heading.toggleAttribute('data-activity',updating);
     const label = models.find(item=>item.id === model)?.name;
     const details = state === 'demo' ? 'Sample findings from this demo manuscript.' : [label,
       'Reviews eligible prose using your API key. Results are saved locally for each story.',
@@ -926,6 +949,27 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     heatmapControls.push({root,previous,next,position:jump.firstElementChild});
   }
   $('viewHeatmap').onclick = ()=>jumpToHeatmapMatch(0,{focus:true});
+  const extraHelp = {
+    'long-sentences':'Marks sentences of 36 words or more.',
+    'repeated-openings':'Marks matching first two words in runs of sentences.',
+    'dialogue-runs':'Shades runs of four or more quote-only paragraphs.'
+  };
+  for (const {id,key,label} of extraHighlightKinds) {
+    const input = el('input');
+    input.type = 'checkbox';
+    input.id = id;
+    const description = el('span');
+    description.append(el('span',label),el('small',extraHelp[key]));
+    const control = el('label');
+    control.append(el('span','',`heatmap-swatch ${key}-swatch`),description,input);
+    $('extraHeatmapControls').append(control);
+    input.onchange = ()=>{
+      if (input.checked) state.extraHeatmap.add(key);
+      else state.extraHeatmap.delete(key);
+      const match = applyHeatmap(activeStory(),selectScenes(scenes,scope));
+      if (input.checked && match) revealHeatmap(match);
+    };
+  }
   $('showPacingOverview').onclick = ()=>{
     state.pacingView = 'overview';
     renderPacingView(activeStory(),selectScenes(scenes,scope));
@@ -942,6 +986,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
   };
   $('clearHeatmap').onclick = ()=>{
     Object.assign(state.heatmap,{density:false,repetition:false});
+    state.extraHeatmap.clear();
     applyHeatmap(activeStory(),selectScenes(scenes,scope));
     const returnButton = $('returnToTool');
     if (!returnButton.hidden) returnButton.focus({preventScroll:true});

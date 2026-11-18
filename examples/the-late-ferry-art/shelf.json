@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "storyId": "story-studio-starter-demo",
+  "entries": [
+    {
+      "kind": "reference",
+      "label": "Lina Park",
+      "prompt": "A reusable visual reference sheet of a single subject. Show its full silhouette and distinguishing details clearly on a quiet neutral background. Do not add other people, a story action, labels, or lettering.\n\nAdult woman in her thirties, dispatcher at a ferry office. Dark hair pulled back, attentive and careful expression, wearing a dark wool cardigan over a collared shirt. Calm, observant posture.\n\nCreate a safe-for-work fictional illustration. Use fully clothed subjects. Leave out nudity, sexual imagery, graphic injury, and gore. Use atmosphere and indirect detail for mature themes.",
+      "mime": "image/jpeg",
+      "subject": {
+        "kind": "character",
+        "name": "Lina Park"
+      },
+      "source": {
+        "scene": {
+          "turn": 2,
+          "fingerprint": "vg-1wqke98",
+          "start": 0,
+          "end": 1132
+        },
+        "canonKey": "ba3a0b705299bf822b5dc9d8bd9371281c79c8d9c906a4fe9348c21408259493"
+      },
+      "references": [],
+      "id": "35c5822a-97c8-4f60-a801-b3af180cfd0b",
+      "createdAt": "2026-11-18T11:58:32.447Z",
+      "status": "approved",
+      "byteLength": 150730
+    },
+    {
+      "kind": "reference",
+      "label": "Bellwether dispatch office",
+      "prompt": "A reusable visual reference sheet of a single subject. Show its full silhouette and distinguishing details clearly on a quiet neutral background. Do not add other people, a story action, labels, or lettering.\n\nSmall 1990s paper-record harbor dispatch office at night, with a wooden desk, green-shaded brass lamp, grey metal log cabinet, rotary telephone, and a large window overlooking a dark harbor, ferry dock, quay tide-board, and an east beacon light in the distance.\n\nCreate a safe-for-work fictional illustration. Use fully clothed subjects. Leave out nudity, sexual imagery, graphic injury, and gore. Use atmosphere and indirect detail for mature themes.",
+      "mime": "image/jpeg",
+      "subject": {
+        "kind": "location",
+        "name": "Bellwether dispatch office"
+      },
+      "source": {
+        "scene": {
+          "turn": 2,
+          "fingerprint": "vg-1wqke98",
+          "start": 0,
+          "end": 1132
+        },
+        "canonKey": "823cc5c8f0927e4a712ac86f947749648a82f607b8f6742205d9e2476dcd0c9b"
+      },
+      "references": [],
+      "id": "68d2867d-6a98-4a47-9911-3a4974030883",
+      "createdAt": "2026-11-18T11:58:39.273Z",
+      "status": "approved",
+      "byteLength": 271175
+    },
+    {
+      "kind": "illustration",
+      "label": "Ghost of a Figure — Lina Park at the Dispatch Desk, 23:40",
+      "prompt": "One finished editorial illustration of the selected scene. Compose a single clear moment, with a legible focal point, intentional lighting and a sense of place. No layout panels, captions, watermarks or lettering.\n\nUse each supplied reference image for the exact subject assigned in the same order: 1. Lina Park; 2. Bellwether dispatch office. Fit their likeness to the requested composition without copying the reference layout.\n\nEditorial illustration of a quiet, tense moment in a small harbor dispatch office at night, autumn 1998. In the foreground, a woman in her thirties, Lina Park, leans over a wooden desk under a green-shaded brass desk lamp, tilting a paper log page toward the light so the low raking beam reveals faint pressed indentations of a handwritten number in the sheet beneath. She wears a practical dark wool cardigan over a collared shirt, with dark hair pulled back, and her expression is focused and careful. Her hand hovers without touching the page. On the desk: a blotter, a corded rotary telephone with its receiver off the cradle nearby, a pale blue carbon duplicate sheet, a ballpoint pen, and a grey metal log cabinet behind her with a small brass key in its lock. Beyond her, a large office window looks out over a dark harbor: a ferry dock with a lit, idling white-and-navy passenger ferry, a tide-board on the quay, and, in the far distance at the harbor's edge, a red beacon light caught mid-flash with a faint second glow. Reflections of the lamp float on the glass. Mood: hushed, watchful, humane. Palette: warm amber lamplight against deep blue-black night, with a small red accent from the beacon. Painterly realism, cinematic composition with the page and her face as the focal point, no text or lettering legible anywhere.\n\nCreate a safe-for-work fictional illustration. Use fully clothed subjects. Leave out nudity, sexual imagery, graphic injury, and gore. Use atmosphere and indirect detail for mature themes.",
+      "mime": "image/jpeg",
+      "source": {
+        "scene": {
+          "turn": 2,
+          "fingerprint": "vg-1wqke98",
+          "start": 0,
+          "end": 1132
+        },
+        "canonKey": "823cc5c8f0927e4a712ac86f947749648a82f607b8f6742205d9e2476dcd0c9b"
+      },
+      "references": [
+        "35c5822a-97c8-4f60-a801-b3af180cfd0b",
+        "68d2867d-6a98-4a47-9911-3a4974030883"
+      ],
+      "id": "ace40426-b54b-4554-894e-0fe493eca2d2",
+      "createdAt": "2026-11-18T11:58:59.891Z",
+      "status": "approved",
+      "byteLength": 581769,
+      "placedTurn": 2
+    },
+    {
+      "kind": "reference",
+      "label": "Mae Chen",
+      "prompt": "A reusable visual reference sheet of a single subject. Show its full silhouette and distinguishing details clearly on a quiet neutral background. Do not add other people, a story action, labels, or lettering.\n\nAdult woman, clerk, precise and practical in manner. Dark hair pulled back neatly, wearing a plain cardigan over a collared shirt, with a focused, careful expression.\n\nCreate a safe-for-work fictional illustration. Use fully clothed subjects. Leave out nudity, sexual imagery, graphic injury, and gore. Use atmosphere and indirect detail for mature themes.",
+      "mime": "image/jpeg",
+      "subject": {
+        "kind": "character",
+        "name": "Mae Chen"
+      },
+      "source": {
+        "scene": {
+          "turn": 6,
+          "fingerprint": "117-101onab",
+          "start": 0,
+          "end": 1339
+        },
+        "canonKey": "d61c1ac9a4ca7b07f27312b5a7cc44c618d0ccd8b1e8335eaf491613533a750a"
+      },
+      "references": [],
+      "id": "5f35f371-4348-4ed9-bb48-fdb5a913a34b",
+      "createdAt": "2026-11-18T12:01:26.679Z",
+      "status": "approved",
+      "byteLength": 115101
+    },
+    {
+      "kind": "reference",
+      "label": "Noor Haddad",
+      "prompt": "A reusable visual reference sheet of a single subject. Show its full silhouette and distinguishing details clearly on a quiet neutral background. Do not add other people, a story action, labels, or lettering.\n\nAdult woman, weather observer, methodical and independent. Wears a rain-dampened dark waterproof jacket, wind-tossed hair, and carries a battered notebook under her arm.\n\nCreate a safe-for-work fictional illustration. Use fully clothed subjects. Leave out nudity, sexual imagery, graphic injury, and gore. Use atmosphere and indirect detail for mature themes.",
+      "mime": "image/jpeg",
+      "subject": {
+        "kind": "character",
+        "name": "Noor Haddad"
+      },
+      "source": {
+        "scene": {
+          "turn": 6,
+          "fingerprint": "117-101onab",
+          "start": 0,
+          "end": 1339
+        },
+        "canonKey": "8f0137c1e6bd6411fd517e836845fd5251c2bd4aca0fce54aa8c9d38e628c7e0"
+      },
+      "references": [],
+      "id": "9827aa31-2aac-432e-bc61-a602393fecfd",
+      "createdAt": "2026-11-18T12:01:32.970Z",
+      "status": "approved",
+      "byteLength": 176659
+    },
+    {
+      "kind": "comic",
+      "label": "The Altered Log: Night in the Bellwether Dispatch Office",
+      "prompt": "One landscape comic page of three distinct panels with clear gutters and a left-to-right reading order. Use sequential poses and framing to show the action without legible lettering, captions or dialogue balloons. Keep faces and costumes consistent across the panels.\n\nUse each supplied reference image for the exact subject assigned in the same order: 1. Mae Chen; 2. Noor Haddad; 3. Bellwether dispatch office. Fit their likeness to the requested composition without copying the reference layout.\n\nOne landscape comic page with three distinct panels separated by clear white gutters, read left to right. No legible lettering, captions, or speech balloons; any numbers or writing on paper are only illegible scribbles. Consistent faces, hair, and clothing across all panels. Muted, moody 1990s harbor-night palette with warm desk-lamp amber against cold blue-grey rain light. Setting: the Bellwether dispatch office, with a window onto the dark harbor and a distant east beacon flashing, a wooden desk with a blotter and a desk lamp, and a wooden log cabinet.\n\nPanel 1 (left): Close-up of Mae Chen's hand turning a brass key with a filed tooth in the cabinet lock. The cabinet door is opening to show a thick paper log with a cracked, soft spine and pale blue duplicate sheets interleaved between the pages. Her face is partly visible, focused and precise.\n\nPanel 2 (center): Medium shot at the desk under the lamp. Mae Chen, an adult clerk, neat and practical, in a cardigan with dark hair pulled back, sits with the open log and a flattened page beside it. She unfolds a pale blue carbon sheet. Noor Haddad, an adult weather observer in a rain-damp dark slicker with a battered notebook under her arm, stands across the desk. She tilts the carbon sheet to show a faint pressed groove of a number. Rain on her sleeves, wind-blown hair, and a rain-streaked window with the beacon glow behind them.\n\nPanel 3 (right): Tight, tense framing on Mae Chen holding an uncapped pen poised over the margin of the log page, hesitating without writing. Noor watches quietly in soft focus in the background. The lamp lights Mae's troubled, thoughtful face. Out the window, a small ferry sits tied at a dock in the dark harbor.\n\nCreate a safe-for-work fictional illustration. Use fully clothed subjects. Leave out nudity, sexual imagery, graphic injury, and gore. Use atmosphere and indirect detail for mature themes.",
+      "mime": "image/jpeg",
+      "source": {
+        "scene": {
+          "turn": 6,
+          "fingerprint": "117-101onab",
+          "start": 0,
+          "end": 1339
+        },
+        "canonKey": "823cc5c8f0927e4a712ac86f947749648a82f607b8f6742205d9e2476dcd0c9b"
+      },
+      "references": [
+        "5f35f371-4348-4ed9-bb48-fdb5a913a34b",
+        "9827aa31-2aac-432e-bc61-a602393fecfd",
+        "68d2867d-6a98-4a47-9911-3a4974030883"
+      ],
+      "id": "a62422e7-8c6d-470c-901f-044408053e7a",
+      "createdAt": "2026-11-18T12:01:50.499Z",
+      "status": "pending",
+      "byteLength": 634919
+    }
+  ]
+}

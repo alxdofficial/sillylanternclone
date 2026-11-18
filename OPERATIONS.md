@@ -28,12 +28,14 @@ Start here if you are installing, updating, or troubleshooting Story Studio for 
 | Display names and custom model list | Browser storage for the current Studio address and port. Display names are per story. |
 | Workspace layout and recent AI review results | Dock sizes and open preferences are saved in the browser. Recent review findings can survive reloads in the same tab when the model, scope, and source still match. Accepted pins and threads are saved with the story. |
 | Background writing analysis | `writing-analysis/cache.json` under the Studio data directory. Contains review settings and derived findings, with source anchors. Restarting Studio resumes work. Library exports include accepted pins and threads. Importing into a fresh installation lets Story Studio rebuild derived findings from the manuscript. |
+| Time Machine | `story-versions/` under the Studio data directory. Contains story version indexes and compressed snapshots. |
+| Mood boards and scene artwork | `artwork/` under the Studio data directory. Contains image files, placement, and their source references. |
 | Provider spend | Under the active data directory in `provider-spend/`. Daily records contain timestamps, provider, model, and cost. They are separate from story exports. |
 | Provider API keys | `credentials/providers.json` in the Studio data directory. Shared across stories and sessions. Manage through Settings. |
 
 Provider keys live in a folder restricted to the current OS user. Keep that folder out of shared backups. Story exports already exclude it. Keep your previous keys handy when upgrading from a release that kept keys in the browser tab. Enter them once in the new Settings screen to persist them.
 
-Use **Stories → Export history ZIP** for a library backup. For a file-based migration, stop Studio and copy the library and any diagnostic or spend files you want to keep. To restore via the browser, unzip the export and use **Import library** with `library.json`. Import replaces the active library. Display preferences live in the browser and are separate from the library backup. Treat the library and exports as private writing.
+Use **Stories → Export history ZIP** for a library backup with saved versions and artwork. To restore those items on another machine, stop Studio and copy `library.json`, `story-versions/`, and `artwork/` from the extracted backup into the Studio data directory. Keep a copy of the destination data before replacing it. The browser’s **Import library** replaces the active library using `library.json` only. If browsing reports that the artwork or history is too large to export, copy those items directly from the Studio data folder. Display preferences live in the browser. Treat the library and exports as private writing.
 
 ## Isolated checks and troubleshooting
 

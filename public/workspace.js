@@ -5,7 +5,8 @@ const labels = {
   pacing: 'Pacing',
   themes: 'Themes',
   threads: 'Setups & payoffs',
-  continuity: 'Continuity'
+  continuity: 'Continuity',
+  artwork: 'Artwork'
 };
 const revisionTools = new Set(['pacing', 'themes', 'threads']);
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
@@ -223,6 +224,7 @@ export function createWorkspace({ onToolChange, onComposerChange, onProseModeCha
     catalogue.hidden = true;
     get('backToTools').hidden = false;
     get('workspaceScene').hidden = tool !== 'scene';
+    get('workspaceArtwork').hidden = tool !== 'artwork';
     get('revisionView').hidden = !revisionTools.has(tool);
     get('continuityReview').hidden = tool !== 'continuity';
     toolHeading.textContent = labels[tool];
@@ -238,6 +240,7 @@ export function createWorkspace({ onToolChange, onComposerChange, onProseModeCha
     returnTool = undefined;
     get('backToTools').hidden = true;
     get('workspaceScene').hidden = true;
+    get('workspaceArtwork').hidden = true;
     get('revisionView').hidden = true;
     get('continuityReview').hidden = true;
     catalogue.hidden = false;

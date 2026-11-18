@@ -22,7 +22,7 @@
 #writeView .transcript { min-height: min(112px, 28%); }
 #reviewProseEmpty { display: none; }
 #writeView[data-prose-only] :is(.message.user, .editor-message, #pendingTurn, #messageList > .empty,
-  .manual-prose, #composerDock, #storyFlowPanel, .message-header, .message-footer, .alternatives, .copy-prose, [data-direction-only]) {
+  .manual-prose, #composerDock, #storyFlowPanel, .message-header, .alternatives, [data-direction-only]) {
   display: none;
 }
 #writeView[data-prose-only] #messageList:not(:has(.assistant[data-story-turn])) + #reviewProseEmpty {
@@ -37,7 +37,6 @@
 #writeView[data-prose-only] #messageList { padding-top: 20px; }
 #writeView[data-prose-only] .message.assistant[data-story-turn]:focus { outline: none; }
 #writeView[data-prose-only] .message.assistant[data-story-turn]:focus-visible { outline: 1px solid var(--control-border); outline-offset: -3px; }
-#writeView[data-prose-only] .prose-with-copy { display: block; }
 #writeView .story-turn-sidebar {
   grid-area: chapters;
   min-width: 0;
@@ -307,18 +306,10 @@
   #storyFlowActionLabel { font-size: 11px; }
 }
 @media (max-width: 560px) {
-  .studio-brand { grid-column: 1 / -1; }
-  .studio-tools, .studio-navigation { grid-column: auto; grid-row: 2; }
-  .studio-navigation { justify-content: start; }
-  .studio-tools { justify-self: end; }
-  .story-tabs { gap: 0; justify-content: start; }
-  .story-tabs button { min-width: 33px; }
+  .story-tabs { gap: 0; }
+  .story-tabs button { flex: 1; }
   #toggleStoryTurns:not([hidden]), #toggleWritingTools:not([hidden]) { font-size: 11px; padding-inline: 4px; min-height: 38px; }
   .workspace-layout-menu summary { min-width: 30px; min-height: 38px; }
-}
-@media (max-width: 380px) {
-  .studio-tools { grid-column: 1 / -1; grid-row: 3; justify-self: stretch; }
-  .story-heading-actions { justify-content: space-between; }
 }
 @media (pointer: coarse) {
   #writeView[data-compact-composer] #composerDock #toggleComposerModels:not([hidden]),

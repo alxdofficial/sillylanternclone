@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mergeLibrary, sameValue } from '../public/sync.js';
 import { starterStoryId } from '../public/library.js';
+import { appendTurn } from '../public/prompt.js';
+import { setUpcomingChapter } from '../public/scene-board.js';
 
 const clone = value => structuredClone(value);
 
@@ -70,6 +72,21 @@ test('agent reply merges with cast edits', () => {
   assert.equal(story.messages[2].storyTime, '2026-01-01T09:00');
   assert.equal(story.nextTurn, 5);
   assert.equal(story.agentRequest, undefined);
+});
+
+test('editing an upcoming chapter divider conflicts with an independently appended scene',()=>{
+  for (const pending of [false,true]) {
+    const base = library();
+    base.projects[0].sceneBoard = setUpcomingChapter(base.projects[0],pending);
+    const local = clone(base), server = clone(base);
+    local.projects[0].sceneBoard = setUpcomingChapter(local.projects[0],!pending);
+    appendTurn(server.projects[0],{role:'assistant',content:'Steam pours out.'});
+    for (const [first,second] of [[local,server],[server,local]]) {
+      const result = mergeLibrary(base,first,second);
+      assert.equal(result.library,null);
+      assert.match(result.conflicts.join(),/chapter divider was being edited/);
+    }
+  }
 });
 
 test('a queued reply conflicts with a concurrent edit or deletion of its direction', () => {

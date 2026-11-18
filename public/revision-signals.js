@@ -208,3 +208,51 @@ export function manuscriptHeatmap(project,scenes,selected,{density = true,repeti
   }
   return {...(density ? {density:densityBands(paragraphs)} : {}),...(repeatsEnabled ? {repetition} : {})};
 }
+
+const sentenceSegmenter = Intl.Segmenter && new Intl.Segmenter(undefined,{granularity:'sentence'});
+const quotedParagraph = /^(?:“[^”]+”|"[^"]+")$/su;
+
+export const extraHighlightKinds = [
+  {id:'heatmapSentences',key:'long-sentences',label:'Long sentences',singular:'long sentence'},
+  {id:'heatmapOpenings',key:'repeated-openings',label:'Repeated openings',singular:'repeated opening'},
+  {id:'heatmapDialogue',key:'dialogue-runs',label:'Dialogue runs',singular:'dialogue run'}
+];
+
+export function proseHighlights(scenes) {
+  const groups = Object.fromEntries(extraHighlightKinds.map(({key})=>[key,{strong:[],subtle:[]}]));
+  function add(key,strength,scene,start,end) { groups[key][strength].push(reference(scene,start,end)); }
+  for (const scene of scenes) {
+    let opening = '', openings = [], dialogue = [];
+    function flushOpenings() {
+      if (openings.length > 1) for (const {start,end} of openings.slice(1)) {
+        add('repeated-openings',openings.length >= 3 ? 'strong' : 'subtle',scene,start,end);
+      }
+      openings = [];
+    }
+    function flushDialogue() {
+      if (dialogue.length >= 3) add('dialogue-runs',dialogue.length >= 4 ? 'strong' : 'subtle',scene,dialogue[0].start,dialogue.at(-1).end);
+      dialogue = [];
+    }
+    for (const paragraph of scene.text.matchAll(paragraphPattern)) {
+      const text = paragraph[0];
+      if (quotedParagraph.test(text.trim())) dialogue.push({start:paragraph.index,end:paragraph.index+text.trimEnd().length});
+      else flushDialogue();
+      const sentences = sentenceSegmenter?.segment(text) ||
+        Array.from(text.matchAll(/[^.!?]+(?:[.!?]+|$)/gu),match=>({segment:match[0],index:match.index}));
+      for (const {segment,index} of sentences) {
+        const sentence = segment.trim();
+        const offset = paragraph.index + index + segment.length - segment.trimStart().length;
+        const words = [...sentence.matchAll(wordPattern)];
+        if (words.length >= 28) add('long-sentences',words.length >= 36 ? 'strong' : 'subtle',scene,offset,offset+sentence.length);
+        const first = words.slice(0,2);
+        const next = first.length === 2 ? first.map(word=>keyWord(word[0])).join(' ') : '';
+        if (!next || next !== opening) flushOpenings();
+        opening = next;
+        if (next) openings.push({start:offset+first[0].index,end:offset+first[1].index+first[1][0].length});
+      }
+    }
+    flushOpenings();
+    flushDialogue();
+  }
+  return groups;
+}

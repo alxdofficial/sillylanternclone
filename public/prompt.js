@@ -1,6 +1,7 @@
 // Conversation assembly follows the block order of SillyTavern's default
 // Chat Completion preset. Implemented independently; see RESEARCH.md.
 import { modelContextWindow, proseOutputLimit } from './models.js';
+import { hasUpcomingChapter, setUpcomingChapter } from './scene-board.js';
 
 export const storyTextFields = ['premise', 'loreRules'];
 export const legacyCastFields = ['characterName', 'characterNickname', 'character', 'personality', 'scenario', 'examples', 'personaName', 'persona'];
@@ -315,7 +316,13 @@ export function nextTurnNumber(project) {
 }
 export function appendTurn(project, message) {
   const turnNumber = nextTurnNumber(project);
-  project.messages.push({...message,turnNumber});
+  const startsChapter = message.role === 'assistant' && message.content.trim() && hasUpcomingChapter(project);
+  if (startsChapter) {
+    const board = setUpcomingChapter(project,false);
+    if (board) project.sceneBoard = board;
+    else delete project.sceneBoard;
+  }
+  project.messages.push({...message,...(startsChapter ? {startsChapter:true} : {}),turnNumber});
   project.nextTurn = turnNumber + 1;
   return turnNumber;
 }
