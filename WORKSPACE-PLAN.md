@@ -105,6 +105,12 @@ The story library stays the source of truth. Existing data uses the same scene a
 
 Background observations and pairing decisions have independent recipe versions in `revision-background-review.mjs`. Bump the extraction version if passage splitting, observation prompts, or observation semantics change. Bump the link version if topic grouping, pairing, or link validation changes. A link-only change keeps passage extraction and refreshes links. Source hashes include the selected take, in-story timestamp, and exact ranges. Matching pacing and setup observations can stay visible during a refresh. Ineligible, edited, or removed sources drop out of published results. A storage-format change can discard and rebuild derived cache entries while carrying forward the saved model and pause preference.
 
+### Which in-text signals are useful
+
+Repetition and detail density answer different questions. Repetition marks a specific later occurrence that the writer can read aloud and decide to keep. The local scan uses exact nearby phrases with distinctive content words and a 900-word lookback. Density gives the writer a place to check whether several details arrive together. It combines recently unseen words with concrete anchors such as names from the cast or numbers. The strongest shade needs a new anchor. Treat both overlays as prompts to reread.
+
+A sentence-rhythm overlay could point to clusters of similarly long sentences using local sentence segmentation. A quoted-dialogue overlay could show where a run of dialogue starts and ends. Semantic echoes would need a separate signal. Embed passages once per text fingerprint, then use cosine similarity to retrieve earlier passages and show them together. Evaluate it on exact repeats, paraphrases, and unrelated passages that share a setting or mood before applying it across a manuscript.
+
 ### Prompts and validation
 
 Use a shared review instruction for source handling, cited evidence, and the result format. Add a short task for the requested finding. **Pacing** explains the function of a measured transition or contrast. **Themes** describes a repeated idea with evidence from distinct scenes and explains how it develops. **Threads** extracts a specific promise and cites a later scene only when it follows through. **Continuity** identifies the exact facts in tension and accounts for viewpoint, uncertainty, and in-story time. Model outputs are candidates. The app resolves passage IDs, checks quotes and scope, and keeps original and display names separate.

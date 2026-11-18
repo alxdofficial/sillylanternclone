@@ -1,9 +1,23 @@
 form .expanded-field { margin-block: 7px 13px; }
-.expanded-field-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.expanded-field-header > label { margin: 0; }
-.expanded-field-header > .expanded-editor-trigger { margin-inline-start: auto; }
-button.expanded-editor-trigger { display: inline-grid; place-items: center; flex: none; min-width: 32px; min-height: 32px; padding: 5px; }
+.expanded-field > label { margin: 0; }
+.expanded-field-input { position: relative; min-width: 0; }
+.expanded-field-input > .expanded-editor:not(.expanded) > textarea { padding-inline-end: 42px; resize: none; }
+button.expanded-editor-trigger {
+  position: absolute;
+  inset: auto 3px 3px auto;
+  display: grid;
+  place-items: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 5px;
+  color: var(--muted);
+}
+.expanded-editor-trigger:hover, .expanded-editor-trigger:focus-visible { color: var(--text); }
 .expanded-editor-trigger > svg { width: 17px; height: 17px; }
+@media (pointer: coarse) {
+  .expanded-field-input > .expanded-editor:not(.expanded) > textarea { padding-inline-end: 50px; }
+  button.expanded-editor-trigger { min-width: 44px; min-height: 44px; }
+}
 
 .expanded-editor:not(.expanded) { display: contents; }
 dialog.expanded-editor:modal {

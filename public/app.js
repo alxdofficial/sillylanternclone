@@ -688,6 +688,8 @@ const revisionViews = createRevisionViews({
   openTool:tool=>workspaceTools.open(tool),
   readManuscript:()=>workspaceTools.backToManuscript({focus:true}),
   highlight:refs=>passageSelection.highlight(refs),
+  paintHeatmap:layers=>passageSelection.heatmap(layers),
+  canPaintHeatmap:()=>passageSelection.supportsHeatmap,
   backgroundReview:project=>backgroundReviews.get(project.id),
   setBackgroundReview:settings=>syncBackgroundReview(settings),
   reviewModel() {
@@ -701,7 +703,7 @@ const revisionViews = createRevisionViews({
     markDirty(project);
     updateWritingTools();
   },
-  async openScene(storyId,turn,view = 'write',ref) {
+  async openScene(storyId,turn,view = 'write',ref,{mark = true} = {}) {
     if (storyView !== view && !await navigateStoryView(view)) return;
     if (current().id !== storyId) {
       if (!state.projects.some(story=>story.id === storyId)) return;
@@ -721,7 +723,7 @@ const revisionViews = createRevisionViews({
     const target = $('#messages').querySelector(`[data-story-turn="${turn}"]`);
     if (!target) return;
     selectStoryTurn(outlineTurn || turn);
-    passageSelection.focus(ref,target);
+    passageSelection.focus(ref,target,mark);
   },
   async requestReview(payload,signal) {
     const project = current();

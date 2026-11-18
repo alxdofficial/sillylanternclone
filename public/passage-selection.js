@@ -16,6 +16,10 @@ function mapOffset(offset,replacements,toDisplay,isEnd) {
 export function createPassageSelection({transcript,getStory,getActions}) {
   const prose = new WeakMap();
   const marks = {finding:[],passages:[]};
+  const priorities = {'density-low':0,'density-medium':0,'density-high':0,repeated:1,passages:2,finding:3};
+  const supportsHeatmap = Boolean(globalThis.CSS?.highlights && globalThis.Highlight);
+  let layers = {};
+  let renderEpoch = 0, lastPaint;
   const toolbar = document.createElement('div');
   toolbar.className = 'passage-actions';
   toolbar.setAttribute('role','group');
@@ -32,12 +36,11 @@ export function createPassageSelection({transcript,getStory,getActions}) {
       shift += displayLength - originalLength;
     }) : content;
     prose.set(element,replacements);
+    renderEpoch++;
   }
 
-  function sceneRange(ref,scenes) {
-    const scene = scenes.find(scene=>scene.turn === ref.turn && scene.storyId === ref.storyId);
+  function sceneRange(ref,scene,element) {
     if (resolveReference(ref,scene) === undefined) return;
-    const element = transcript.querySelector(`.assistant[data-story-turn="${scene.turn}"] .message-text`);
     const replacements = prose.get(element);
     if (!replacements || !element.firstChild) return;
     const range = document.createRange();
@@ -48,20 +51,36 @@ export function createPassageSelection({transcript,getStory,getActions}) {
 
   function render() {
     const project = getStory();
-    const scenes = project && (marks.finding.length || marks.passages.length) ? sceneIndex(project) : [];
-    const supportsHighlights = Boolean(globalThis.CSS?.highlights && globalThis.Highlight);
-    if (!supportsHighlights) {
+    const all = {...marks,...layers};
+    if (lastPaint && lastPaint.project === project && lastPaint.epoch === renderEpoch && Object.keys(priorities).every(kind=>
+      all[kind] === lastPaint.all[kind] || !all[kind]?.length && !lastPaint.all[kind]?.length)) return;
+    lastPaint = {project,epoch:renderEpoch,all};
+    const active = project && Object.values(all).some(refs=>refs.length);
+    const scenes = active ? new Map(sceneIndex(project).map(scene=>[scene.turn,scene])) : new Map();
+    const elements = active ? new Map([...transcript.querySelectorAll('.assistant[data-story-turn]')]
+      .map(article=>[Number(article.dataset.storyTurn),article.querySelector('.message-text')])) : new Map();
+    if (!supportsHeatmap) {
       for (const element of transcript.querySelectorAll('[data-passage-mark]')) delete element.dataset.passageMark;
     }
-    for (const [kind,refs] of Object.entries(marks)) {
-      const matches = refs.map(ref=>sceneRange(ref,scenes)).filter(Boolean);
-      if (supportsHighlights) {
+    for (const kind of Object.keys(priorities)) {
+      const matches = active ? (all[kind] || []).map(ref=>sceneRange(ref,scenes.get(ref.turn),elements.get(ref.turn))).filter(Boolean) : [];
+      if (supportsHeatmap) {
         CSS.highlights.delete(`studio-${kind}`);
-        if (matches.length) CSS.highlights.set(`studio-${kind}`,new Highlight(...matches.map(({range})=>range)));
-      } else {
+        if (matches.length) {
+          const layer = new Highlight();
+          layer.priority = priorities[kind];
+          for (const {range} of matches) layer.add(range);
+          CSS.highlights.set(`studio-${kind}`,layer);
+        }
+      } else if (kind in marks) {
         for (const {element} of matches) element.dataset.passageMark = kind;
       }
     }
+  }
+
+  function heatmap(next = {}) {
+    layers = next;
+    render();
   }
 
   function highlight(refs = []) {
@@ -70,10 +89,10 @@ export function createPassageSelection({transcript,getStory,getActions}) {
     render();
   }
 
-  function focus(ref,element) {
-    marks.finding = ref ? [ref] : [];
+  function focus(ref,element,mark = true) {
+    marks.finding = ref && mark ? [ref] : [];
     render();
-    const match = ref && sceneRange(ref,sceneIndex(getStory()));
+    const match = ref && sceneRange(ref,sceneIndex(getStory()).find(scene=>scene.turn === ref.turn),element.querySelector('.message-text'));
     const anchor = match?.range.getClientRects()[0] || element.getBoundingClientRect();
     transcript.scrollTop += anchor.top - transcript.getBoundingClientRect().top - 18;
     element.focus({preventScroll:true});
@@ -151,5 +170,5 @@ export function createPassageSelection({transcript,getStory,getActions}) {
   document.addEventListener('focusin',scheduleRefresh);
   transcript.addEventListener('scroll',scheduleRefresh,{passive:true});
   window.addEventListener('resize',scheduleRefresh,{passive:true});
-  return {register,render,focus,highlight};
+  return {register,render,focus,highlight,heatmap,supportsHeatmap};
 }

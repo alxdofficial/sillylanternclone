@@ -114,6 +114,11 @@
             </form>
           </div>
         </div>
+        <aside class="heatmap-legend" id="heatmapLegend" aria-label="Active text highlights" hidden>
+          <span id="densityLegend" hidden><span class="heatmap-swatch density-swatch" aria-hidden="true"></span> Detail density</span>
+          <span id="repetitionLegend" hidden><span class="heatmap-swatch repetition-swatch" aria-hidden="true"></span> Repeated phrases</span>
+          <button type="button" class="text-button" id="clearHeatmap">Clear highlights</button>
+        </aside>
         <button type="button" class="icon jump-latest" id="latestStoryTurn" aria-controls="messages" aria-label="Jump to bottom" title="Jump to bottom" hidden>
           <svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14m-5-5 5 5 5-5"/></svg>
         </button>
@@ -136,7 +141,6 @@
           </div>
         </section>
         <div class="composer-dock" id="composerDock">
-        <div id="composerExpandEditor"></div>
         <div class="workspace-divider bottom-divider" data-workspace-divider="composer" role="separator" tabindex="0" aria-label="Resize composer" aria-orientation="horizontal" aria-controls="writingComposer" hidden></div>
         <button type="button" class="text-button" id="toggleComposerModels" aria-expanded="false" aria-controls="routeModels" hidden>Mode and models <svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
         <button type="button" class="icon composer-collapse" id="toggleComposer" aria-label="Hide composer" title="Hide composer" aria-expanded="true" aria-controls="writingComposer">
@@ -227,6 +231,19 @@
             </aside>
             <div class="revision-content">
               <section id="revisionPacing">
+                <fieldset class="pacing-heatmap" id="pacingHeatmap">
+                  <legend>Text heatmap</legend>
+                  <div class="heatmap-controls">
+                    <label><input type="checkbox" id="heatmapDensity"><span class="heatmap-swatch density-swatch" aria-hidden="true"></span> Detail density</label>
+                    <label><input type="checkbox" id="heatmapRepetition"><span class="heatmap-swatch repetition-swatch" aria-hidden="true"></span> Repeated phrases</label>
+                  </div>
+                  <label class="heatmap-sensitivity">Highlight <select id="heatmapSensitivity"><option value="strong">Strong signals</option><option value="more">More signals</option></select></label>
+                  <div class="heatmap-summary"><p class="form-note" id="heatmapSummary" role="status" hidden></p><button class="text-button" type="button" id="viewHeatmap" hidden>View highlights</button></div>
+                  <details>
+                    <summary>How highlights are picked</summary>
+                    <p>Shading estimates how many names, numbers, and distinctive words are new to the last six paragraphs. Darker shading marks more signals per word. Underlines mark a phrase repeated within about 900 words. More signals adds lighter shading and three-word repeats.</p>
+                  </details>
+                </fieldset>
                 <h3 id="pacingSummary"></h3>
                 <p class="form-note">Bar length shows words. The shaded part estimates dialogue. Select a scene to read it.</p>
                 <div id="pacingStandout" class="revision-metric-details" hidden></div>
@@ -288,10 +305,12 @@
         <section id="continuityReview" class="revision-dialog workspace-continuity" aria-labelledby="workspaceToolHeading" hidden>
           <div class="dialog-body">
             <p class="form-note" id="continuityCoverage"></p>
+            <p class="form-note" id="continuityProseStatus"></p>
             <div class="revision-tools">
               <label title="Choose a scene, chapter, or the whole book for the check.">Scope<select id="continuityScope"></select></label>
             </div>
             <div id="continuityFindings"></div>
+            <section id="continuityExample" hidden></section>
             <details class="continuity-review-options">
               <summary>Compare another story or add canon notes</summary>
               <label title="Optionally compare the selected passages against another story in your library.">Comparison story<select id="continuityComparison"></select></label>

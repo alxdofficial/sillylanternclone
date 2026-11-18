@@ -8,7 +8,7 @@ import { reference, reviewFindingId, sceneIndex } from './public/revision.js';
 export const analysisOutputLimit = 3072;
 export const hashAnalysis = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 // Each stage can be regenerated independently. Bump only the stage whose output changes.
-export const analysisVersions = Object.freeze({extract:1,link:1});
+export const analysisVersions = Object.freeze({extract:1,link:1,continuity:2});
 const kinds = ['pacing','themes','setup','payoff','continuity'];
 const topicKey = text => text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
 const passageSize = 12_000;
@@ -16,6 +16,11 @@ const firstBoundary = /[\n\r]/gu;
 const lastBoundary = /\s/gu;
 const subjectWords = new Set(['a','an','the','of','in','to','and','on','for']);
 const subjectKey = topic => topicKey(topic).split(' ').filter(word=>!subjectWords.has(word)).join(' ') || topicKey(topic);
+
+function sharedSubjectKeys(subject) {
+  const words = [...new Set(subject.split(' ').filter(word=>word.length > 2))].slice(0,8).sort();
+  return words.flatMap((word,index)=>words.slice(index + 1).map(other=>`${word} ${other}`));
+}
 
 function passageEnd(text,start) {
   if (text.length - start <= passageSize) return text.length;
@@ -95,29 +100,38 @@ export async function extractAnalysis(units,complete) {
 
 export function analysisPairs(plan,results,versions = analysisVersions) {
   const topics = new Map();
+  const nearbySubjects = new Map();
   const pairs = new Map();
   for (const unit of plan.units) {
     for (const item of results.get(unit.key) || []) {
       if (item.kind === 'pacing') continue;
       const kind = ['setup','payoff'].includes(item.kind) ? 'threads' : item.kind;
-      const key = kind + ':' + subjectKey(item.topic);
+      const subject = subjectKey(item.topic);
+      const key = kind + ':' + subject;
       const group = topics.get(key) || {first:undefined,latest:undefined,setup:undefined};
       const {text,time} = unit.scene;
       const entry = {item,time,quote:text.slice(item.ref.start,item.ref.end),
         neighborhood:text.slice(Math.max(0,item.ref.start - 100),item.ref.end + 100)};
       const earlier = kind === 'threads' ? item.kind === 'payoff' && group.setup : group.latest;
       const candidates = kind === 'themes' || kind === 'continuity' ? [earlier,group.first] : [earlier];
+      const sharedKeys = kind === 'continuity' ? sharedSubjectKeys(subject) : [];
+      if (!candidates.some(previous=>previous && previous.item.ref.turn !== item.ref.turn)) {
+        const related = sharedKeys.map(key=>nearbySubjects.get(key)).find(previous=>previous && previous.item.ref.turn !== item.ref.turn);
+        if (related) candidates.push(related);
+      }
       for (const previous of new Set(candidates.filter(Boolean))) {
         if (previous.item.ref.turn === item.ref.turn) continue;
         const evidence = [previous,entry];
         const source = hashAnalysis([kind,...evidence]);
-        const id = hashAnalysis([versions.link,source]);
+        const recipe = kind === 'continuity' ? versions.continuity ?? versions.link : versions.link;
+        const id = hashAnalysis([recipe,source]);
         pairs.set(id,{id,source,kind,evidence});
       }
       group.first ||= entry;
       group.latest = entry;
       if (item.kind === 'setup') group.setup ||= entry;
       topics.set(key,group);
+      for (const shared of sharedKeys) nearbySubjects.set(shared,entry);
     }
   }
   return [...pairs.values()];

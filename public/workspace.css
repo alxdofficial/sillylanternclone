@@ -226,11 +226,7 @@
 .story-flow-pages { display: flex; flex-direction: column; align-self: center; }
 .story-flow-pages .icon { min-height: 26px; min-width: 28px; }
 .story-flow-pages .tool-mark { width: 14px; }
-#composerExpandEditor {
-  position: absolute;
-  inset: 10px calc(var(--writing-gutter) + 36px) auto auto;
-}
-#composerDock .route-bar { padding-inline-end: 79px; }
+#composerDock .route-bar { padding-inline-end: 40px; }
 #composerDock #instruction {
   display: block;
   width: 100%;
@@ -260,8 +256,7 @@
 }
 #toggleComposerModels .tool-mark { width: 13px; transform: rotate(-90deg); }
 #toggleComposerModels[aria-expanded="true"] .tool-mark { transform: rotate(90deg); }
-#writeView[data-compact-composer] #composerDock #toggleComposer:not([hidden]),
-#writeView[data-compact-composer] #composerExpandEditor { top: 2px; }
+#writeView[data-compact-composer] #composerDock #toggleComposer:not([hidden]) { top: 2px; }
 #writeView[data-compact-composer] #composerDock:has(.composer[hidden]) #toggleComposer { top: 0; }
 #writeView[data-compact-composer] #composerDock .composer { padding-block: 0 8px; }
 #writeView[data-compact-composer] #composerDock #routeModels { display: none; }
@@ -290,7 +285,6 @@
 #writeView[data-very-short] .story-flow-description { -webkit-line-clamp: 1; }
 @media (max-width: 650px) {
   .workspace .message { padding-inline: var(--writing-gutter); }
-  #composerDock .route-bar { padding-inline-end: 72px; }
   #storyFlowActionLabel { font-size: 11px; }
 }
 @media (max-width: 560px) {

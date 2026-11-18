@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildReview, createRevisionReviewer } from '../revision-review.mjs';
 import { branchRevisionNotes, continuityChecks, motifOccurrences, normalizeRevisionNotes, pacingRows, reference, resolveReference, resolveReferenceRange, sceneIndex } from '../public/revision.js';
-import { findRecurringDetails, passageSignals } from '../public/revision-signals.js';
+import { findRecurringDetails, manuscriptHeatmap, passageSignals } from '../public/revision-signals.js';
 
 const story = {
   id:'fixture',title:'The Pier',lore:'The pier has a storeroom.',notes:'',
@@ -112,4 +112,17 @@ test('local signals cite exact recurring details across scenes and refresh after
   project.messages[1].content = 'Rain filled the harbor.';
   assert.deepEqual(findRecurringDetails(sceneIndex(project)),[]);
   assert.deepEqual(passageSignals(sceneIndex(project)),[]);
+});
+
+test('manuscript heatmap marks exact later phrases and distinguishes stronger anchored density',()=>{
+  const project = {id:'heatmap',cast:[{id:'ada',name:'Ada Bell',description:''}],messages:[
+    {role:'assistant',content:'The brass cabinet key fell beside the lamp.'},
+    {role:'assistant',startsChapter:true,content:'She lifted the brass cabinet key.\n\nAt 23:15 Ada Bell counted 37 passengers, located both exits, and recorded the departure alongside the dockmaster.\n\nSlowly, waves smoothed loose stones around the headland as distant sparrows gathered near driftwood.'}
+  ]};
+  const scenes = sceneIndex(project);
+  const result = manuscriptHeatmap(project,scenes,[scenes[1]]);
+  assert.deepEqual(result.repetition.strong.map(ref=>resolveReference(ref,scenes[1])),['the brass cabinet key']);
+  assert.ok(result.density.high.some(ref=>resolveReference(ref,scenes[1]).includes('37 passengers')));
+  assert.ok(result.density.high.every(ref=>!resolveReference(ref,scenes[1]).includes('sparrows')));
+  assert.deepEqual(manuscriptHeatmap(project,scenes,[scenes[0]]).repetition.strong,[]);
 });

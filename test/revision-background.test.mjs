@@ -79,7 +79,7 @@ test('background review resumes checkpoints, backfills long scenes, and refreshe
   assert.deepEqual(project,original);
 
   const beforeUpgrade = calls.length;
-  worker = createBackgroundAnalysis({...options,versions:{extract:1,link:2}});
+  worker = createBackgroundAnalysis({...options,versions:{extract:1,link:3}});
   const awaitingUpgrade = await worker.status(project);
   assert.equal(awaitingUpgrade.reviewed,3);
   assert.equal(awaitingUpgrade.linksRemaining,1);
@@ -124,6 +124,32 @@ test('starter evidence is present without a provider and drops an edited anchor'
   assert.equal(result.state,'demo');
   assert.equal(result.findings.pacing.length,4);
   assert.equal(result.findings.themes[0].refs.length,2);
+  assert.equal(result.continuityExample.refs.length,2);
   story.messages.find(turn=>turn.turnNumber === 8).content += ' Dawn was coming.';
   assert.equal(starterReview(story).findings.themes.length,1);
+});
+
+test('background continuity reports checked pairs and links differently phrased claims about the same subject',async t=>{
+  const dataDir = await mkdtemp(join(tmpdir(),'studio-continuity-pairs-'));
+  t.after(()=>rm(dataDir,{recursive:true,force:true}));
+  const sources = ['Only twelve passengers boarded the night ferry.','Twenty passengers boarded the night ferry.'];
+  const project = {id:'fixture',messages:sources.map((content,i)=>scene(i+1,content,{storyTime:'1998-10-25T00:10'}))};
+  const worker = createBackgroundAnalysis({dataDir,readLibrary:async()=>({projects:[project]}),hasKey:async()=>true,
+    complete:async({messages,tools})=>{
+      const name = tools[0].function.name;
+      if (name === 'record_passage_observations') return answer(name,{passages:sources.map((quote,index)=>({passage:index+1,
+        observations:[{kind:'continuity',topic:index ? 'night ferry headcount' : 'night ferry passengers',detail:'Passenger count at 00:10.',quote}]}))});
+      const [pair] = JSON.parse(messages[1].content);
+      assert.deepEqual(pair.evidence.map(item=>item.quote),sources);
+      return answer(name,{links:[{pair:1,supportsFinding:true,title:'Passenger count differs',detail:'The two scenes report different counts at the same time.'}]});
+    }});
+  await worker.configure(project,{model});
+  await worker.tick();
+  assert.equal((await worker.status(project)).continuityChecked,0);
+  await worker.tick();
+  const result = await worker.status(project);
+  assert.equal(result.state,'ready');
+  assert.equal(result.continuityPairs,1);
+  assert.equal(result.continuityChecked,1);
+  assert.deepEqual(result.findings.continuity[0].refs.map(ref=>ref.turn),[1,2]);
 });

@@ -24,6 +24,10 @@ html, body { height: 100%; margin: 0; }
 ::selection { color: #fff; background: #67515f; }
 ::highlight(studio-passages) { color: var(--text); background: #564350; }
 ::highlight(studio-finding) { color: #fff1f5; background: #775769; }
+::highlight(studio-density-low) { background-color: rgb(205 149 65 / 19%); }
+::highlight(studio-density-medium) { background-color: rgb(205 149 65 / 32%); }
+::highlight(studio-density-high) { background-color: rgb(205 149 65 / 45%); }
+::highlight(studio-repeated) { text-decoration: underline 2px #9cdbd0; }
 .message-text[data-passage-mark] { outline: 1px solid var(--focus); outline-offset: 4px; }
 .passage-actions {
   position: fixed;

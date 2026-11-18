@@ -49,33 +49,18 @@ function addEditor(field, number) {
   button.setAttribute('aria-controls',dialog.id);
   button.innerHTML = '<svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6m0-6-6 6M10 20H4v-6m0 6 6-6"/></svg>';
 
+  const frame = document.createElement('div');
+  frame.className = 'expanded-field-input';
   const inlineLabel = field.closest('label');
   if (inlineLabel) {
     const wrapper = document.createElement('div');
     wrapper.className = 'expanded-field';
-    const labelHeader = document.createElement('div');
-    labelHeader.className = 'expanded-field-header';
     if (!field.id) field.id = `expandableField-${number}`;
     inlineLabel.htmlFor = field.id;
     inlineLabel.before(wrapper);
-    wrapper.append(labelHeader,dialog);
-    labelHeader.append(inlineLabel,button);
-  } else {
-    field.before(dialog);
-    const composerSlot = field.id === 'instruction' && (document.querySelector('#composerExpandEditor') || document.querySelector('#routeModels'));
-    if (composerSlot) composerSlot.append(button);
-    else {
-      const labelHeader = document.createElement('div');
-      labelHeader.className = 'expanded-field-header';
-      const label = field.labels[0];
-      dialog.before(labelHeader);
-      if (label?.parentElement === dialog.parentElement) {
-        label.classList.remove('sr-only');
-        labelHeader.append(label);
-      }
-      labelHeader.append(button);
-    }
-  }
+    wrapper.append(inlineLabel,frame);
+  } else field.before(frame);
+  frame.append(dialog,button);
   footer.before(field);
 
   const viewport = window.visualViewport;

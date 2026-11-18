@@ -589,14 +589,18 @@ const reviewExamples = {
 export function starterReview(project) {
   const base = new Map(sceneIndex(createStarterStory()).map(scene=>[scene.turn,scene]));
   const live = new Map(sceneIndex(project).map(scene=>[scene.turn,scene]));
-  const findings = Object.fromEntries(Object.entries(reviewExamples).map(([kind,entries])=>[kind,entries.flatMap(([title,detail,...sources])=>{
+  const withEvidence = ([title,detail,...sources])=>{
     const refs = sources.map(([turn,quote])=>{
       const scene = live.get(turn);
       if (!scene?.eligible || scene.fingerprint !== base.get(turn)?.fingerprint) return;
       const start = scene.text.indexOf(quote);
       if (start >= 0 && scene.text.lastIndexOf(quote) === start) return reference(scene,start,start + quote.length);
     });
-    return refs.every(Boolean) ? [{id:reviewFindingId(title,refs),title,detail,refs}] : [];
-  })]));
-  return {state:'demo',findings};
+    if (refs.every(Boolean)) return {id:reviewFindingId(title,refs),title,detail,refs};
+  };
+  const findings = Object.fromEntries(Object.entries(reviewExamples).map(([kind,entries])=>[kind,entries.map(withEvidence).filter(Boolean)]));
+  const continuityExample = withEvidence(['Two tide readings can both be accurate',
+    'Noor records 3.1 m at 23:15 and 3.0 m at 00:34. The timestamps explain the difference.',
+    [6,'Her own line for 23:15 read 3.1, timed and initialed.'],[10,'00:34. Gauge reads 3.0 m. Current reading.']]);
+  return {state:'demo',findings,continuityExample};
 }

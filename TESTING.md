@@ -4,6 +4,8 @@ For current setup and controls, use the [README](README.md) and [MCP guide](MCP.
 
 ## Resizable workspace and writing tools
 
+In the bundled demo, verified that detail shading and phrase underlines can coexist, that changing sensitivity and clearing overlays changes the rendered ranges, and that the mobile jump leaves both tools and the manuscript reachable. The text stayed byte-for-byte identical and no generation or manual review requests were sent. Verified the bottom-right expand icons and draft round-trip in the composer and World setting. A separate stubbed-provider test detected conflicting passenger counts with both exact citations and recorded the number of pairs compared.
+
 The default background review passed an isolated browser test with a simulated OpenRouter model. It enrolled an existing story automatically, linked a setup and payoff across chapters, skipped a withheld scene, and preserved two completed scenes through pause and resume before picking up a third. Automated tests also cover a single passage larger than the former 24,000-token review ceiling, recovery from persisted checkpoints, source withdrawal during review, and a link-recipe upgrade that reused all saved passage observations.
 
 The follow-up responsive sweep covered Write, Book and export, Graph and its settings panels, Display names, the library, provider settings, and the setup wizard at six viewport sizes from 320 × 650 to 1440 × 900. Touch emulation in Chromium and WebKit exercised the composer picker, Story Flow insertion, tool navigation and evidence links, a real Markdown download, cast inspection, display names, story options, and the narrow import form. Phone sizes were emulated.

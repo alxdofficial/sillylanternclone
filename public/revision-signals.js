@@ -1,7 +1,9 @@
 import { reference } from './revision.js';
+import { getCast } from './prompt.js';
 
 const ignored = new Set('a above across after against along among an and are around as at be been before behind below beneath beside between beyond but by can could did do does down for from had has have he her here him his how i if in inside into is it its just me more my near no not of on one or our out over past said she so some than that the their them then there these they this those through to toward under up upon us was we were what when where which who will with within without would you your'.split(' '));
 const wordPattern = /[\p{L}\p{N}]+(?:[’'-][\p{L}\p{N}]+)*/gu;
+const paragraphPattern = /\S(?:[^\n]|\n(?!\s*\n))*?(?=\n\s*\n|\s*$)/gu;
 const sceneCache = new Map();
 const cacheLimit = 350;
 
@@ -15,7 +17,7 @@ function scan(scene) {
   }
 
   const phrases = new Map(), paragraphs = [];
-  for (const paragraph of scene.text.matchAll(/\S(?:[^\n]|\n(?!\s*\n))*?(?=\n\s*\n|\s*$)/gu)) {
+  for (const paragraph of scene.text.matchAll(paragraphPattern)) {
     const words = [...paragraph[0].matchAll(wordPattern)].map(match=>({
       value:match[0].toLowerCase(), start:match.index, end:match.index + match[0].length
     }));
@@ -92,4 +94,95 @@ export function passageSignals(scenes) {
     if (previousScenes.length > 72) previousScenes.splice(0,previousScenes.length - 72);
   }
   return echoes.slice(-4);
+}
+
+const keyWord = word => word.toLowerCase().normalize('NFC').replaceAll('’',"'");
+const distinctive = word => word.length >= 4 && !ignored.has(word) && /\p{L}/u.test(word);
+const phraseText = /^[\p{L}\p{M}\p{N}\s'’\-]+$/u;
+const recentWordLimit = 900;
+
+function castTerms(project) {
+  const terms = new Map();
+  for (const member of getCast(project)) {
+    const names = [member.name,...(member.nickname || '').split(/[\n,;/]+/u)];
+    for (const name of names) {
+      const words = (name.match(wordPattern) || []).map(keyWord);
+      if (!words.length) continue;
+      const list = terms.get(words[0]) || [];
+      list.push({words,key:`cast:${member.id}`});
+      terms.set(words[0],list);
+    }
+  }
+  return terms;
+}
+
+function paragraphDensity(text,words,cast,recent) {
+  const values = words.map(word=>word.value);
+  const terms = new Set(values.filter(distinctive));
+  const anchors = new Set([...text.matchAll(/(?<![\p{L}\p{N}])\d+(?:[.,:/-]\d+)*/gu)].map(([number])=>`number:${number}`));
+  for (const [index,word] of values.entries()) {
+    for (const name of cast.get(word) || []) {
+      if (name.words.every((part,offset)=>values[index+offset] === part)) anchors.add(name.key);
+    }
+  }
+  const fresh = set => [...set].filter(item=>!recent.some(past=>past.has(item))).length;
+  const newAnchors = fresh(anchors);
+  const score = (fresh(terms) + 3 * newAnchors) / Math.max(16,words.length);
+  recent.push(new Set([...terms,...anchors]));
+  if (recent.length > 6) recent.shift();
+  if (score >= .52 && newAnchors) return 'high';
+  if (score >= .40) return 'medium';
+  if (score >= .29) return 'low';
+}
+
+function paragraphRepeats(text,words,offset,history,scene,include) {
+  const repeats = [];
+  let lastEnd = 0;
+  for (const [index,word] of words.entries()) {
+    const position = offset + index;
+    let previousMatch;
+    for (let count = Math.min(5,words.length-index); count >= 3; count--) {
+      const phrase = words.slice(index,index+count);
+      if (phrase.filter(item=>distinctive(item.value)).length < 2 || !phraseText.test(text.slice(word.start,phrase.at(-1).end))) continue;
+      const key = phrase.map(item=>item.value).join(' ');
+      const occurrences = history.get(key) || [];
+      const earlier = occurrences.findLast(previous=>position - previous >= count);
+      occurrences.push(position);
+      if (occurrences.length > 5) occurrences.shift();
+      history.delete(key);
+      history.set(key,occurrences);
+      if (!previousMatch && include && word.start >= lastEnd && Number.isInteger(earlier) && position - earlier <= recentWordLimit) {
+        previousMatch = {start:word.start,end:phrase.at(-1).end,weight:count >= 4 ? 'strong' : 'subtle'};
+      }
+    }
+    if (previousMatch) {
+      lastEnd = previousMatch.end;
+      repeats.push({...previousMatch,scene});
+    }
+  }
+  while (history.size && offset + words.length - history.values().next().value.at(-1) > recentWordLimit) history.delete(history.keys().next().value);
+  return repeats;
+}
+
+export function manuscriptHeatmap(project,scenes,selected) {
+  const included = new Set(selected.map(scene=>scene.turn));
+  const last = scenes.findLastIndex(scene=>included.has(scene.turn));
+  const cast = castTerms(project), recent = [], history = new Map();
+  const density = {low:[],medium:[],high:[]}, repetition = {strong:[],subtle:[]};
+  let position = 0;
+  for (let index = 0; index <= last; index++) {
+    const scene = scenes[index];
+    const include = included.has(scene.turn);
+    for (const paragraph of scene.text.matchAll(paragraphPattern)) {
+      const [text] = paragraph;
+      const words = [...text.matchAll(wordPattern)].map(match=>({value:keyWord(match[0]),start:match.index,end:match.index+match[0].length}));
+      if (!words.length) continue;
+      const band = paragraphDensity(text,words,cast,recent);
+      if (include && band) density[band].push(reference(scene,paragraph.index,paragraph.index+text.length));
+      const repeats = paragraphRepeats(text,words,position,history,scene,include);
+      for (const {start,end,weight} of repeats) repetition[weight].push(reference(scene,paragraph.index+start,paragraph.index+end));
+      position += words.length;
+    }
+  }
+  return {density,repetition};
 }

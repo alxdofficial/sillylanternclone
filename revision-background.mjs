@@ -98,6 +98,7 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
     const {plan,missing,pairs,outstanding} = work;
     const due = pairs.filter(pair=>!record?.links.has(pair.id)).length;
     const total = plan.scenes.filter(scene=>scene.eligible).length;
+    const continuityPairs = pairs.filter(pair=>pair.kind === 'continuity');
     const day = dayOf(clock());
     const estimatedUsd = record?.day === day ? record.reserved || 0 : 0;
     let state = 'waiting-model';
@@ -109,7 +110,9 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
     else if (record?.error === 'failed' && record.retryAt === null) state = 'failed';
     else if (record?.model && await hasKey(record.model)) state = record.error === 'failed' && record.retryAt > clock() ? 'retrying' : 'queued';
     return {state,enabled:record?.enabled !== false,model:record?.model,reviewed:total - outstanding.size,total,
-      held:plan.scenes.length - total,linksRemaining:due,estimatedUsd,dailyBudget:analysisDailyBudget,findings:findings(work,record)};
+      held:plan.scenes.length - total,linksRemaining:due,continuityPairs:continuityPairs.length,
+      continuityChecked:continuityPairs.filter(pair=>record?.links.has(pair.id)).length,
+      estimatedUsd,dailyBudget:analysisDailyBudget,findings:findings(work,record)};
   }
 
   function reserve(record,messages,tools) {

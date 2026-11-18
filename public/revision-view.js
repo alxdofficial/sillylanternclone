@@ -1,5 +1,5 @@
 import { continuityChecks, motifOccurrences, normalizeRevisionNotes, pacingRows, reference, resolveReferenceRange, sceneIndex, selectScenes } from './revision.js';
-import { findRecurringDetails, passageSignals } from './revision-signals.js';
+import { findRecurringDetails, manuscriptHeatmap, passageSignals } from './revision-signals.js';
 import { models } from './models.js';
 
 const $ = id => document.getElementById(id);
@@ -68,7 +68,7 @@ function addSection(parent,title,id) {
 
 export function createRevisionViews({activeStory,stories,writeNotes,openScene,requestReview,
   currentTurn = ()=>undefined, openTool = ()=>{}, readManuscript = ()=>{}, highlight = ()=>{}, reviewModel = ()=>'',
-  backgroundReview = ()=>undefined, setBackgroundReview = ()=>{}}) {
+  backgroundReview = ()=>undefined, setBackgroundReview = ()=>{}, paintHeatmap = ()=>{}, canPaintHeatmap = ()=>true}) {
   const view = $('revisionView');
   const continuityView = $('continuityReview');
   const states = new Map();
@@ -80,7 +80,8 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
   let derivedIndex, rendered, storageLookup;
 
   const empty = text => el('p',text,'form-note');
-  const newState = () => ({scopes:new Map(),themeQuery:'',themeSearch:'',comparisonId:'',canon:'',notice:new Map(),expanded:new Set(),highlighting:false});
+  const newState = () => ({scopes:new Map(),themeQuery:'',themeSearch:'',comparisonId:'',canon:'',notice:new Map(),expanded:new Set(),highlighting:false,
+    heatmap:{density:false,repetition:false,sensitivity:'more'}});
   const sceneAt = (list,turn) => list.find(scene=>scene.turn === turn) || list.at(-1);
   const sourceKey = list => JSON.stringify(list.map(({turn,chapter,fingerprint,time,eligible})=>[turn,chapter,fingerprint,time,eligible]));
   const refKey = ({storyId,turn,fingerprint,start,end}) => `${storyId}:${turn}:${fingerprint}:${start}:${end}`;
@@ -94,7 +95,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     const signature = JSON.stringify([project.id,sourceKey(list),project.plotEvents,project.relationships,project.cast]);
     if (derivedIndex?.signature === signature) return derivedIndex;
     const rows = pacingRows(project,list);
-    derivedIndex = {signature,list,rows,max:rows.reduce((max,row)=>Math.max(max,row.length),1),recurring:new Map(),signals:new Map()};
+    derivedIndex = {signature,list,rows,max:rows.reduce((max,row)=>Math.max(max,row.length),1),recurring:new Map(),signals:new Map(),heatmaps:new Map()};
     return derivedIndex;
   }
 
@@ -263,6 +264,58 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     return [...findings.flatMap(finding=>finding.refs),...signals.flatMap(({ref,comparison})=>[ref,comparison])];
   }
 
+  function applyHeatmap(project,selected) {
+    const available = canPaintHeatmap() && selected.length > 0;
+    const {density,repetition,sensitivity} = state.heatmap;
+    const enabled = available && (density || repetition);
+    $('heatmapDensity').disabled = $('heatmapRepetition').disabled = $('heatmapSensitivity').disabled = !available;
+    $('heatmapDensity').checked = density;
+    $('heatmapRepetition').checked = repetition;
+    $('heatmapSensitivity').value = sensitivity;
+    const layers = {};
+    if (enabled) {
+      const index = derivedIndex;
+      const key = sourceKey(selected);
+      if (!index.heatmaps.has(key)) {
+        if (index.heatmaps.size >= 4) index.heatmaps.delete(index.heatmaps.keys().next().value);
+        index.heatmaps.set(key,manuscriptHeatmap(project,index.list,selected));
+      }
+      const results = index.heatmaps.get(key);
+      if (density) {
+        if (sensitivity === 'more') layers['density-low'] = results.density.low;
+        layers['density-medium'] = results.density.medium;
+        layers['density-high'] = results.density.high;
+      }
+      if (repetition) {
+        results.repetition.all ||= [...results.repetition.strong,...results.repetition.subtle];
+        layers.repeated = sensitivity === 'more' ? results.repetition.all : results.repetition.strong;
+      }
+    }
+    const shaded = Object.entries(layers).filter(([key])=>key.startsWith('density-')).reduce((sum,[,refs])=>sum+refs.length,0);
+    const repeated = layers.repeated?.length || 0;
+    const summary = $('heatmapSummary');
+    summary.hidden = !(enabled || !canPaintHeatmap());
+    summary.textContent = !canPaintHeatmap() ? 'This browser does not support in-text overlays.' : [
+      density ? countLabel(shaded,'shaded paragraph') : '', repetition ? countLabel(repeated,'repeated phrase') : ''
+    ].filter(Boolean).join(' · ');
+    $('heatmapLegend').hidden = !(shaded || repeated);
+    $('densityLegend').hidden = !shaded;
+    $('repetitionLegend').hidden = !repeated;
+    const availableRefs = Object.values(layers).flat();
+    const first = availableRefs.reduce((earliest,ref)=>!earliest || ref.turn < earliest.turn ||
+      ref.turn === earliest.turn && ref.start < earliest.start ? ref : earliest,undefined);
+    const view = $('viewHeatmap');
+    view.hidden = !first;
+    view.onclick = first ? ()=>void openScene(first.storyId,first.turn,'write',first,{mark:false}) : null;
+    paintHeatmap(layers);
+  }
+
+  function clearHeatmap() {
+    if (state) Object.assign(state.heatmap,{density:false,repetition:false});
+    $('heatmapLegend').hidden = true;
+    paintHeatmap({});
+  }
+
   function themePins() {
     const groups = new Map();
     for (const note of notes.filter(item=>item.kind === 'theme')) {
@@ -424,7 +477,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     return [...threads.filter(note=>note.status !== 'shelved').flatMap(note=>note.refs),...suggestions.flatMap(finding=>finding.refs)];
   }
 
-  function renderContinuity(project,findings) {
+  function renderContinuity(project,findings,analysis,selected,other,manualReviewDone) {
     options($('continuityComparison'),[['','This story only'],...stories().filter(item=>item.id !== project.id).map(item=>[item.id,item.title])],state.comparisonId);
     const local = continuityChecks(project,scenes,scope,notes);
     const container = $('continuityFindings');
@@ -433,7 +486,13 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     container.replaceChildren();
     const combined = [...local,...findings];
     const evaluated = new Set(combined.map(finding=>finding.id));
-    const included = new Set(selectScenes(scenes,scope).map(scene=>scene.turn));
+    const included = new Set(selected.map(scene=>scene.turn));
+    const eligible = selected.filter(scene=>scene.eligible).length;
+    const comparisonEligible = other ? sceneIndex(other).filter(scene=>scene.eligible).length : 0;
+    $('reviewContinuity').disabled ||= !eligible || eligible + comparisonEligible < 2;
+    $('reviewContinuity').title = !eligible || eligible + comparisonEligible < 2
+      ? 'Choose a scope with two eligible scenes, or add a comparison story.'
+      : 'Ask AI to compare claims in the selected passages.';
     $('continuityCoverage').textContent = included.size
       ? `${countLabel(included.size,'scene')} in scope. ${scope === 'book' ? 'Local checks look at graph links and the dates on tracked payoffs.' : 'Local checks compare setup and payoff dates for tracked threads in this scope.'}`
       : 'Add a scene to begin checking continuity.';
@@ -458,11 +517,34 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
         highlights.push(...finding.refs);
       }
     }
-    if (!container.childElementCount && included.size) container.append(empty('No open findings from the checks run so far.'));
+    if (!container.childElementCount && included.size) {
+      container.append(empty(analysis?.continuityChecked || manualReviewDone
+        ? 'No open conflicts flagged in this scope.' : 'No open graph or date findings in this scope.'));
+    }
     if (reviewed.childElementCount) {
       reviewed.prepend(el('summary',`Reviewed (${reviewed.childElementCount})`));
       container.append(reviewed);
     }
+    const proseStatus = $('continuityProseStatus');
+    const checked = analysis?.continuityChecked || 0;
+    const waiting = (analysis?.continuityPairs || 0) - checked;
+    let text;
+    if (analysis?.state === 'demo') text = 'The demo shows a checked example below.';
+    else if (analysis?.reviewed) {
+      text = `Across the manuscript, background review read ${analysis.reviewed} of ${analysis.total} eligible scenes. `;
+      if (checked) text += `${countLabel(checked,'pair of claims','pairs of claims')} compared.`;
+      else text += analysis.state === 'ready' ? 'No comparable claims found.' : 'No claims compared yet.';
+      if (waiting) text += ` ${countLabel(waiting,'pair')} waiting for comparison.`;
+    } else if (analysis?.state === 'waiting-model') text = 'Prose review awaits a configured model.';
+    else if (analysis?.state === 'paused') text = 'Background prose review is paused.';
+    else text = 'No prose reviewed in the background yet.';
+    if (eligible && eligible + comparisonEligible < 2) text += ' Manual comparison needs two eligible scenes.';
+    proseStatus.textContent = text;
+    const example = $('continuityExample');
+    const sample = analysis?.continuityExample;
+    example.hidden = !sample || !sample.refs.some(ref=>included.has(ref.turn)) || !sample.refs.every(ref=>byTurn.get(ref.turn)?.eligible && liveRef(ref));
+    example.replaceChildren();
+    if (!example.hidden) example.append(el('h3','Checked example'),findingCard(sample,['Earlier reading','Later reading']));
     return highlights;
   }
 
@@ -599,7 +681,8 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
       finding.refs.every(ref=>ref.storyId === owner && byTurn.get(ref.turn)?.eligible && liveRef(ref))).slice(0,12);
     const customQuery = mode === 'themes' && state.themeQuery.trim() || mode === 'continuity' && (state.comparisonId || state.canon.trim());
     const findings = [...new Map([...(customQuery ? [] : localFindings),...(cache?.findings || [])].map(item=>[item.id,item])).values()];
-    const presentation = JSON.stringify([owner,mode,scope,derivedIndex.signature,notes,pending?.key,key,cache?.status,localFindings,
+    const coverage = mode === 'continuity' && [analysis?.state,analysis?.reviewed,analysis?.total,analysis?.continuityChecked,analysis?.continuityPairs,analysis?.continuityExample];
+    const presentation = JSON.stringify([owner,mode,scope,derivedIndex.signature,notes,pending?.key,key,cache?.status,localFindings,coverage,
       state.notice.get(mode),state.themeSearch,state.payoff,mode === 'continuity' && stories().map(({id,title})=>[id,title])]);
     if (rendered?.presentation === presentation && rendered.cache === cache) return;
     rendered = {presentation,cache};
@@ -608,10 +691,13 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     if (!cache) void restoreReview(key,mode,selected,other);
     updateReview(key,cache);
     let refs;
-    if (mode === 'pacing') refs = renderPacing(project,selected,findings);
+    if (mode === 'pacing') {
+      refs = renderPacing(project,selected,findings);
+      applyHeatmap(project,selected);
+    }
     if (mode === 'themes') refs = renderThemes(project,selected,findings);
     if (mode === 'threads') refs = renderThreads(findings);
-    if (mode === 'continuity') refs = renderContinuity(project,findings);
+    if (mode === 'continuity') refs = renderContinuity(project,findings,analysis,selected,other,Boolean(cache));
     if (refs) setVisualization(refs);
   }
 
@@ -645,6 +731,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     if (mode !== tool) {
       rendered = undefined;
       if (state) state.highlighting = false;
+      if (mode === 'pacing') clearHeatmap();
       highlight([]);
     }
     mode = tool;
@@ -672,7 +759,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
       pacing:`${countLabel(row.length,'word')} · ~${row.dialogue}% quoted dialogue`,
       themes:[pinned && countLabel(pinned,'pinned theme'),recurring && countLabel(recurring,'recurring detail')].filter(Boolean).join(' · ') || 'Find and pin recurring details',
       threads:`${activeThreads.length - paid} open · ${paid} paid off`,
-      continuity:local.length ? countLabel(local.length,'local finding') : 'No local findings in this chapter'
+      continuity:local.length ? countLabel(local.length,'local finding') : 'Check for conflicting story facts'
     };
   }
 
@@ -708,7 +795,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
   function installVisualization(parent,kind,before = null) {
     const root = el('div','','revision-visualization');
     const controls = {root,refs:[],index:-1};
-    const toggle = button('Highlight in text',()=>{
+    const toggle = button(kind === 'pacing' ? 'Highlight findings' : 'Highlight in text',()=>{
       state.highlighting = !state.highlighting;
       controls.index = -1;
       setVisualization(controls.refs);
@@ -767,7 +854,8 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     threadForm.after($(reviewButtons.threads));
     for (const kind of ['pacing','themes','threads','continuity']) {
       const parent = kind === 'continuity' ? $('continuityFindings').parentElement : $(toolSections[kind]);
-      installVisualization(parent,kind,kind === 'continuity' ? $('continuityFindings') : parent.firstElementChild);
+      const before = kind === 'continuity' ? $('continuityFindings') : kind === 'pacing' ? $('pacingSummary') : parent.firstElementChild;
+      installVisualization(parent,kind,before);
       if (kind in reviewButtons) {
         const meta = el('span','','revision-review-model');
         meta.id = `${kind}ReviewModel`;
@@ -778,6 +866,16 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
   }
 
   installMarkup();
+  for (const id of ['heatmapDensity','heatmapRepetition','heatmapSensitivity']) $(id).onchange = ()=>{
+    state.heatmap = {density:$('heatmapDensity').checked,repetition:$('heatmapRepetition').checked,sensitivity:$('heatmapSensitivity').value};
+    applyHeatmap(activeStory(),selectScenes(scenes,scope));
+  };
+  $('clearHeatmap').onclick = ()=>{
+    clearHeatmap();
+    applyHeatmap(activeStory(),selectScenes(scenes,scope));
+    const returnButton = $('returnToTool');
+    (returnButton.hidden ? $('heatmapDensity') : returnButton).focus({preventScroll:true});
+  };
   $('revisionScope').onchange = ()=>{
     state.scopes.set(mode,$('revisionScope').value);
     state.notice.delete(mode);

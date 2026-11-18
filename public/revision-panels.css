@@ -92,6 +92,57 @@
 }
 .revision-dock .revision-metric-details button { padding-inline: 0; font-size: inherit; text-align: start; }
 .revision-dock #pacingStandout { justify-content: start; margin-bottom: 12px; }
+.pacing-heatmap {
+  min-inline-size: 0;
+  border: 0;
+  padding: 0;
+  margin: 0 0 16px;
+}
+.pacing-heatmap > legend {
+  padding: 0;
+  margin-bottom: 5px;
+  font-size: 15px;
+  font-weight: 550;
+}
+.heatmap-controls { display: flex; flex-wrap: wrap; gap: 2px 16px; }
+.revision-dock .heatmap-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--text);
+}
+.heatmap-controls input { margin: 0; accent-color: var(--focus); }
+.heatmap-swatch { display: inline-block; width: 13px; height: 11px; vertical-align: -.04em; }
+.density-swatch { background: rgb(205 149 65 / 48%); }
+.repetition-swatch { border-bottom: 2px solid #9cdbd0; }
+.revision-dock .heatmap-sensitivity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 6px 0;
+}
+.pacing-heatmap .form-note { margin: 6px 0; }
+.heatmap-summary { display: flex; gap: 0 10px; align-items: center; flex-wrap: wrap; }
+.pacing-heatmap details { font-size: 12px; color: var(--muted); }
+.pacing-heatmap details p { margin: 6px 0 0; max-width: 64ch; line-height: 1.55; }
+.pacing-heatmap summary { padding-block: 5px; cursor: pointer; }
+.heatmap-legend {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 13px;
+  padding: 2px var(--writing-gutter);
+  background: var(--rail);
+  color: var(--muted);
+  font-size: 12px;
+}
+.heatmap-legend button { margin-inline-start: auto; }
+.transcript:has(.heatmap-legend:not([hidden])) .jump-latest { bottom: 55px; }
+@media (pointer: coarse) {
+  .revision-dock .heatmap-controls label { min-height: 44px; }
+}
 .revision-dock .revision-link-notice {
   display: flex;
   flex-wrap: wrap;
@@ -116,6 +167,8 @@
 .continuity-review-options label { margin-top: 12px; }
 .continuity-review-options select { margin: 0; }
 .workspace-continuity #continuityCoverage { margin-top: 0; }
+.workspace-continuity #continuityProseStatus { margin-top: 0; }
+.workspace-continuity #continuityExample { margin-block: 14px; }
 .workspace-continuity #continuityReviewModel { margin-inline-start: 8px; }
 .revision-dock [hidden] { display: none !important; }
 .background-review { padding: 0 16px 8px; }

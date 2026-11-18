@@ -148,7 +148,6 @@ export function createWorkspace({ onToolChange, onComposerChange, onResize }) {
     composerToggle.disabled = composerEditing;
     modelToggle.hidden = !showComposer || !compactControls || routeModels.hidden;
     modelToggle.setAttribute('aria-expanded', String(!modelToggle.hidden && modelsOpen));
-    get('composerExpandEditor').hidden = !showComposer;
     outlineToggle.hidden = !writing;
     toolsToggle.hidden = !writing;
     controls.hidden = !writing;
