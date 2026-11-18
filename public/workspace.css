@@ -5,15 +5,15 @@
   grid-template: "manuscript" minmax(0, 1fr) / minmax(0, 1fr);
   overflow: hidden;
 }
-#writeView[data-layout="outline"] { grid-template: "chapters outline-handle manuscript" minmax(0, 1fr) / var(--outline-width) 5px minmax(0, 1fr); }
-#writeView[data-layout="tools"] { grid-template: "manuscript tools-handle tools" minmax(0, 1fr) / minmax(0, 1fr) 5px var(--tools-width); }
-#writeView[data-layout="outline-tools"] { grid-template: "chapters outline-handle manuscript tools-handle tools" minmax(0, 1fr) / var(--outline-width) 5px minmax(0, 1fr) 5px var(--tools-width); }
+#writeView[data-layout="outline"] { grid-template: "chapters manuscript" minmax(0, 1fr) / var(--outline-width) minmax(0, 1fr); }
+#writeView[data-layout="tools"] { grid-template: "manuscript tools" minmax(0, 1fr) / minmax(0, 1fr) var(--tools-width); }
+#writeView[data-layout="outline-tools"] { grid-template: "chapters manuscript tools" minmax(0, 1fr) / var(--outline-width) minmax(0, 1fr) var(--tools-width); }
 #writeView[data-layout="split"] {
-  grid-template: "manuscript tools-handle tools" minmax(0, 1fr) / minmax(0, 1fr) 5px minmax(0, var(--tools-share));
+  grid-template: "manuscript tools" minmax(0, 1fr) / minmax(0, 1fr) minmax(0, var(--tools-share));
 }
 #writeView[data-layout="tool"] { grid-template-areas: "tools"; }
-#writeView [data-workspace-divider="outline"] { grid-area: outline-handle; }
-#writeView [data-workspace-divider="tools"] { grid-area: tools-handle; }
+#writeView [data-workspace-divider="outline"] { grid-area: chapters; justify-self: end; transform: translateX(50%); }
+#writeView [data-workspace-divider="tools"] { grid-area: tools; justify-self: start; transform: translateX(-50%); }
 #writeView .story-panel {
   grid-area: manuscript;
   overflow: clip;
@@ -96,7 +96,7 @@
   background: var(--page);
 }
 .workspace-divider::before, .workspace-divider::after { content: ''; position: absolute; }
-.side-divider { width: 5px; cursor: col-resize; }
+.side-divider { width: 5px; cursor: col-resize; background: transparent; }
 .side-divider::before { inset: 0 -4px; }
 .side-divider::after { inset: 0 2px; }
 .bottom-divider { width: 100%; height: 5px; cursor: row-resize; }
