@@ -105,7 +105,7 @@
         <div id="messages" class="messages">
           <div id="messageList"></div>
           <p id="reviewProseEmpty" class="form-note">Write or import a scene to review your prose.</p>
-          <div class="manual-prose">
+          <div class="manual-prose" id="manualProseDock">
             <button type="button" id="pasteReply" class="icon add-prose" aria-label="Add to manuscript" aria-expanded="false" aria-controls="manuscriptInsertOptions" title="Add to manuscript">
               <svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
             </button>
@@ -528,6 +528,10 @@
   <button type="button" class="danger" id="rewindTurn">Rewind to here</button>
 </div>
 <dialog id="draftComparison" class="draft-comparison" aria-labelledby="draftComparisonTitle"></dialog>
+  <dialog id="insertPassageDialog" class="form-dialog" aria-labelledby="insertPassageTitle">
+    <header class="dialog-top"><h2 id="insertPassageTitle">Insert prose</h2></header>
+    <div class="dialog-body" id="insertPassageBody"><p id="insertPassageLocation" class="form-note"></p></div>
+  </dialog>
 <dialog id="transitionReview" class="draft-comparison" aria-labelledby="transitionReviewTitle">
   <header class="dialog-top">
     <h2 id="transitionReviewTitle">Review transitions</h2>

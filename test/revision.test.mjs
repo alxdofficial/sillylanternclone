@@ -95,14 +95,14 @@ test('AI review filters held passages, rejects invented quotes, and reuses ident
 test('theme discovery needs no search phrase and respects the selected chapter', () => {
   const options = {kind:'themes',scope:'chapter:2',model:'gpt-6.1-terra'};
   const discovery = buildReview(story,options);
-  assert.match(discovery.messages[0].content,/Suggest distinct themes or motifs/);
+  assert.match(discovery.messages[2].content,/Suggest distinct themes or motifs/);
   const source = JSON.parse(discovery.messages[1].content);
   assert.equal(source.theme,undefined);
   assert.equal(source.passages.length,1);
   assert.equal(source.passages[0].chapter,2);
   const search = buildReview(story,{...options,query:'blue light'});
-  assert.match(search.messages[0].content,/requested motif or theme/);
-  assert.equal(JSON.parse(search.messages[1].content).theme,'blue light');
+  assert.match(search.messages[2].content,/requested motif or theme/);
+  assert.equal(JSON.parse(search.messages[2].content).theme,'blue light');
 });
 test('local signals cite exact recurring details across scenes and refresh after an edit', () => {
   const project = {id:'signals',messages:[
@@ -158,4 +158,26 @@ test('local prose signals cite long sentences, repeated openings, and contiguous
   assert.deepEqual(excerpts('repeated-openings','strong'),['Then Mara','Then Mara']);
   assert.deepEqual(excerpts('dialogue-runs','strong'),[exchange]);
   assert.deepEqual(excerpts('dialogue-runs','subtle'),['"One."\n\n"Two."\n\n"Three."']);
+});
+
+test('manual queries share a stable manuscript prefix and concurrent identical calls pay once',async()=>{
+  const options = {kind:'themes',scope:'book',model:'gpt-6.1-terra',query:'light'};
+  const one = buildReview(story,options);
+  const two = buildReview({...story,notes:'Other background instructions.'},{...options,query:'memory'});
+  assert.deepEqual(one.messages.slice(0,2),two.messages.slice(0,2));
+  assert.notEqual(one.messages[2].content,two.messages[2].content);
+  assert.equal(JSON.parse(one.messages[1].content).canon,undefined);
+  const review = createRevisionReviewer();
+  let calls = 0;
+  const complete = async (messages,tools,prefixLength)=>{
+    calls++;
+    assert.equal(prefixLength,2);
+    return {tool_calls:[{id:'ok',type:'function',function:{name:tools[0].function.name,arguments:'{"findings":[]}'}}]};
+  };
+  const [first,second] = await Promise.all([review(story,options,complete),review(story,options,complete)]);
+  assert.equal(first.sceneCount,2);
+  assert.equal(second.cached,true);
+  assert.equal(calls,1);
+  await assert.rejects(review(story,{...options,kind:'continuity',scope:'scene:1'},complete),/two eligible prose scenes/);
+  assert.equal(calls,1);
 });

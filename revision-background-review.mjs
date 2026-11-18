@@ -12,6 +12,8 @@ export const analysisVersions = Object.freeze({extract:1,link:1,continuity:2});
 const kinds = ['pacing','themes','setup','payoff','continuity'];
 const topicKey = text => text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
 const passageSize = 12_000;
+const extractionBudget = model => Math.min(11_000,agentBudget(model,analysisOutputLimit).inputLimit) - 1800;
+const passageTokens = text => estimateContextTokens(JSON.stringify(text)) + 80;
 const firstBoundary = /[\n\r]/gu;
 const lastBoundary = /\s/gu;
 const subjectWords = new Set(['a','an','the','of','in','to','and','on','for']);
@@ -22,10 +24,19 @@ function sharedSubjectKeys(subject) {
   return words.flatMap((word,index)=>words.slice(index + 1).map(other=>`${word} ${other}`));
 }
 
-function passageEnd(text,start) {
-  if (text.length - start <= passageSize) return text.length;
-  const target = start + passageSize;
-  const tail = text.slice(target - 1000,target);
+function passageEnd(text,start,budget) {
+  let target = Math.min(start + passageSize,text.length);
+  if (passageTokens(text.slice(start,target)) > budget) {
+    let low = start + 1, high = target;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      if (passageTokens(text.slice(start,mid)) <= budget) low = mid;
+      else high = mid - 1;
+    }
+    target = low;
+  }
+  if (target === text.length) return target;
+  const tail = text.slice(Math.max(start,target - 1000),target);
   const boundary = [...tail.matchAll(firstBoundary)].at(-1) || [...tail.matchAll(lastBoundary)].at(-1);
   // Leave a surrogate pair together even in a passage without word breaks.
   return boundary ? target - tail.length + boundary.index + 1 : /[\uDC00-\uDFFF]/u.test(text[target]) ? target - 1 : target;
@@ -36,24 +47,27 @@ export function planAnalysis(project,model,versions = analysisVersions) {
   const units = [];
   for (const scene of scenes.filter(scene=>scene.eligible)) {
     for (let start = 0; start < scene.text.length;) {
-      const end = passageEnd(scene.text,start);
+      const end = passageEnd(scene.text,start,extractionBudget(model));
       const text = scene.text.slice(start,end);
       if (text.trim()) {
         const source = hashAnalysis([scene.turn,scene.fingerprint,scene.time,start,end,text]);
-        units.push({scene,start,end,text,source,key:hashAnalysis([versions.extract,model,source])});
+        const key = hashAnalysis([versions.extract,model,source]);
+        // A citation binds to the complete scene, while extraction sees only this passage and its time.
+        const reuseKey = start || end < scene.text.length ? hashAnalysis([versions.extract,model,scene.turn,scene.time,start,end,text]) : undefined;
+        units.push({scene,start,end,text,source,key,reuseKey});
       }
       start = end;
     }
   }
-  return {scenes,units};
+  return {scenes,units,model};
 }
 
 export function analysisBatch(missing,model) {
-  const budget = Math.min(11_000,agentBudget(model,analysisOutputLimit).inputLimit) - 1800;
+  const budget = extractionBudget(model);
   const batch = [];
   let used = 0;
   for (const item of missing) {
-    const tokens = estimateContextTokens(JSON.stringify(item.text)) + 80;
+    const tokens = passageTokens(item.text);
     if (batch.length && (used + tokens > budget || batch.length === 5)) break;
     batch.push(item);
     used += tokens;
@@ -124,7 +138,7 @@ export function analysisPairs(plan,results,versions = analysisVersions) {
         const evidence = [previous,entry];
         const source = hashAnalysis([kind,...evidence]);
         const recipe = kind === 'continuity' ? versions.continuity ?? versions.link : versions.link;
-        const id = hashAnalysis([recipe,source]);
+        const id = plan.model + ':' + hashAnalysis([recipe,source]);
         pairs.set(id,{id,source,kind,evidence});
       }
       group.first ||= entry;

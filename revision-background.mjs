@@ -5,7 +5,7 @@ import { isAgentModel, models } from './public/models.js';
 import { starterStoryId } from './public/library.js';
 import { estimateContextTokens } from './public/prompt.js';
 import { reviewFindingId } from './public/revision.js';
-import { analysisBatch, analysisOutputLimit, analysisPairs, analysisVersions, extractAnalysis, planAnalysis, verifyAnalysis } from './revision-background-review.mjs';
+import { analysisBatch, analysisOutputLimit, analysisPairs, analysisVersions, extractAnalysis, hashAnalysis, planAnalysis, verifyAnalysis } from './revision-background-review.mjs';
 
 export const analysisDailyBudget = 1;
 const cacheVersion = 1;
@@ -13,17 +13,37 @@ const comparisonBatchSize = 6;
 const dayOf = time => new Date(time).toISOString().slice(0,10);
 const stop = code => Object.assign(new Error(code),{diagnosticCode:code});
 
-export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,shouldYield = ()=>false,
+export function createBackgroundAnalysis({dataDir,readLibrary,libraryVersion,hasKey,complete,shouldYield = ()=>false,
   reportError = ()=>{},clock = Date.now,intervalMs = 5000,versions = analysisVersions}) {
   const directory = join(dataDir,'writing-analysis');
   const path = join(directory,'cache.json');
   let records = new Map(), active, writes = Promise.resolve(), ticking = false;
-  let timer;
+  let timer, snapshot;
+  const plans = new WeakMap();
+  const progress = new WeakMap();
+  const settled = new WeakSet();
+
+  async function library() {
+    if (!libraryVersion) return readLibrary();
+    const version = await libraryVersion();
+    if (snapshot?.version === version) return snapshot.library;
+    const saved = await readLibrary();
+    snapshot = {version,library:saved};
+    return saved;
+  }
+
+  async function projectById(id) {
+    return (await library()).projects.find(project=>project.id === id);
+  }
   const ready = readFile(path,'utf8').then(text=>{
     const saved = JSON.parse(text);
     records = new Map(saved.records.map(([id,record])=>[id,{
-      ...record, units:new Map(saved.version === cacheVersion ? record.units : []),
-      links:new Map(saved.version === cacheVersion ? record.links : [])
+      ...record, units:new Map(saved.version === cacheVersion ? record.units.map(([key,entry])=>{
+        const model = entry.model ?? models.find(candidate=>hashAnalysis([versions.extract,candidate.id,entry.source]) === key)?.id;
+        return [key,{...entry,model}];
+      }) : []),
+      // Legacy link IDs recorded no verifying model. Recheck these once with the selected model.
+      links:new Map(saved.version === cacheVersion ? record.links.filter(([,entry])=>entry.model) : [])
     }]));
   }).catch(error=>{ if (error.code !== 'ENOENT') reportError(error); });
 
@@ -57,31 +77,51 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
     const previous = record || {units:new Map(),links:new Map()};
     records.set(project.id,{...previous,enabled:next,model:selected,failures:0,retryAt:0,error:undefined,
       batchLimit:previous.model === selected ? previous.batchLimit : undefined,
+      linkBatchLimit:previous.model === selected ? previous.linkBatchLimit : undefined,
       timings:previous.model === selected ? previous.timings : undefined});
     await persist();
   }
 
   function currentPlan(project,record) {
-    const plan = planAnalysis(project,record?.model,versions);
-    const available = record?.units || new Map();
+    // Only disk-versioned snapshots are immutable. Injected readers can return mutable objects.
+    const cached = libraryVersion && plans.get(project);
+    const generation = progress.get(record) || 0;
+    if (cached && cached.record === record && cached.generation === generation) return cached.work;
+    const plan = cached?.plan && cached.model === record?.model ? cached.plan : planAnalysis(project,record?.model,versions);
+    const saved = record?.units || new Map();
+    const available = new Map(saved);
+    const reusable = new Map([...saved.values()].filter(entry=>entry.reuseKey).map(entry=>[entry.reuseKey,entry]));
+    const refreshed = new Map();
+    for (const unit of plan.units) {
+      if (!unit.reuseKey) continue;
+      const old = saved.get(unit.key);
+      const entry = old || reusable.get(unit.reuseKey);
+      if (!entry || old?.reuseKey) continue;
+      const items = entry.items.map(item=>({...item,ref:{...item.ref,fingerprint:unit.scene.fingerprint}}));
+      const current = {...entry,source:unit.source,reuseKey:unit.reuseKey,items};
+      available.set(unit.key,current);
+      refreshed.set(unit.key,current);
+    }
     const missing = plan.units.filter(unit=>!available.has(unit.key));
     const outstanding = new Set(missing.map(unit=>unit.scene.turn));
     const observations = new Map(plan.units.flatMap(unit=>available.has(unit.key) ? [[unit.key,available.get(unit.key).items]] : []));
     const pairs = analysisPairs(plan,observations,versions);
-    return {plan,available,missing,pairs,outstanding};
+    const work = {plan,available,missing,pairs,outstanding,refreshed};
+    if (libraryVersion) plans.set(project,{model:record?.model,plan,record,generation,work});
+    return work;
   }
 
   function findings({plan,available,pairs},record) {
     const result = {pacing:[],themes:[],threads:[],continuity:[]};
     const linked = new Set();
-    const previousLinks = new Map([...(record?.links.values() || [])].map(entry=>[entry.source,entry.finding]));
+    const previousLinks = new Map([...(record?.links.values() || [])].filter(entry=>entry.model === record?.model).map(entry=>[entry.source,entry.finding]));
     for (const pair of pairs) {
       const found = record?.links.has(pair.id) ? record.links.get(pair.id).finding : previousLinks.get(pair.source);
       if (!found) continue;
       result[found.kind].push(found);
       if (found.kind === 'threads') linked.add(JSON.stringify(found.refs[0]));
     }
-    const previousUnits = new Map([...available.values()].map(entry=>[entry.source,entry.items]));
+    const previousUnits = new Map([...available.values()].filter(entry=>entry.model === record?.model).map(entry=>[entry.source,entry.items]));
     for (const unit of plan.units) {
       for (const item of available.get(unit.key)?.items || previousUnits.get(unit.source) || []) {
         if (item.kind !== 'pacing' && (item.kind !== 'setup' || linked.has(JSON.stringify(item.ref)))) continue;
@@ -133,12 +173,12 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
     if (record.day !== day) { record.day = day; record.reserved = 0; }
     if (record.reserved + estimate > analysisDailyBudget) throw stop('REVIEW_DAILY_BUDGET');
     record.reserved += estimate;
-    return persist();
+    return {day,estimate};
   }
 
   async function run(project,record,work) {
     const {missing,pairs} = work;
-    const links = pairs.filter(pair=>!record.links.has(pair.id)).slice(0,comparisonBatchSize);
+    const links = missing.length ? [] : pairs.filter(pair=>!record.links.has(pair.id)).slice(0,record.linkBatchLimit ?? comparisonBatchSize);
     const batch = missing.length ? analysisBatch(missing,record.model).slice(0,record.batchLimit) : [];
     if (!batch.length && !links.length) return;
     const id = project.id, controller = new AbortController();
@@ -147,7 +187,7 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
     const current = () => records.get(id) === record && record.enabled && !controller.signal.aborted;
     const verifySources = async (requireAll = true) => {
       if (!current()) throw stop('REVIEW_DEFERRED');
-      const latest = (await readLibrary()).projects.find(story=>story.id === id);
+      const latest = await projectById(id);
       if (!latest || !current()) throw stop('REVIEW_DEFERRED');
       const next = currentPlan(latest,record);
       const source = new Set((batch.length ? next.plan.units : next.pairs).map(item=>item.key || item.id));
@@ -158,17 +198,36 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
       const request = async (messages,tools)=>{
         if (shouldYield()) throw stop('REVIEW_DEFERRED');
         await verifySources();
-        await reserve(record,messages,tools);
-        await verifySources();
-        return complete({storyId:id,model:record.model,messages,tools,signal:controller.signal});
+        const {day,estimate} = reserve(record,messages,tools);
+        let submitted = false;
+        try {
+          await persist();
+          await verifySources();
+          if (shouldYield()) throw stop('REVIEW_DEFERRED');
+          submitted = true;
+          return await complete({storyId:id,model:record.model,messages,tools,signal:controller.signal});
+        } catch (error) {
+          // A deferred request never reached the provider. Retain estimates for ambiguous transport failures.
+          if (!submitted || ['REVIEW_DEFERRED','AGENT_CONTEXT_FULL'].includes(error.diagnosticCode)) {
+            const owner = records.get(id);
+            if (owner?.day === day) owner.reserved = Math.max(0,owner.reserved - estimate);
+            await persist();
+          }
+          throw error;
+        }
       };
       const results = batch.length ? await extractAnalysis(batch,request) : await verifyAnalysis(links,request);
       const surviving = await verifySources(false);
       if (batch.length) {
-        for (const {key,source} of batch) if (surviving.has(key)) record.units.set(key,{source,items:results[key]});
+        for (const {key,source,reuseKey} of batch) if (surviving.has(key)) {
+          record.units.set(key,{model:record.model,source,reuseKey,items:results[key]});
+        }
       } else {
-        for (const {id,source} of links) if (surviving.has(id)) record.links.set(id,{source,finding:results[id]});
+        for (const {id,source,evidence} of links) if (surviving.has(id)) {
+          record.links.set(id,{model:record.model,source,refs:evidence.map(({item})=>item.ref),finding:results[id]});
+        }
       }
+      progress.set(record,(progress.get(record) || 0) + 1);
       record.error = undefined;
       record.failures = 0;
       record.retryAt = 0;
@@ -182,8 +241,10 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
     } catch (error) {
       if (!current() || error.diagnosticCode === 'REVIEW_DEFERRED') return;
       if (error.diagnosticCode === 'REVIEW_DAILY_BUDGET') record.error = 'budget';
-      else if (batch.length > 1 && /CONTEXT_FULL|REVIEW_EXTRACTION_FAILED/.test(error.diagnosticCode || '')) {
+      else if (batch.length > 1 && /CONTEXT_FULL|AGENT_TOOL_OUTPUT_TRUNCATED|REVIEW_EXTRACTION_FAILED/.test(error.diagnosticCode || '')) {
         record.batchLimit = Math.ceil(batch.length / 2);
+      } else if (links.length > 1 && /CONTEXT_FULL|AGENT_TOOL_OUTPUT_TRUNCATED|REVIEW_LINK_FAILED/.test(error.diagnosticCode || '')) {
+        record.linkBatchLimit = Math.ceil(links.length / 2);
       } else {
         record.error = 'failed';
         record.failures++;
@@ -205,7 +266,7 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
     if (ticking || !records.size || shouldYield()) return;
     ticking = true;
     try {
-      const {projects} = await readLibrary();
+      const {projects} = await library();
       const byId = new Map(projects.map(project=>[project.id,project]));
       let removed = false;
       for (const [id] of records) if (!byId.has(id)) { records.delete(id); removed = true; }
@@ -216,15 +277,26 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
         if (records.get(id) !== record || shouldYield()) continue;
         const project = byId.get(id);
         const work = currentPlan(project,record);
+        if (settled.has(work)) continue;
         const liveUnits = new Map(work.plan.units.map(unit=>[unit.source,unit.key]));
+        const fingerprints = new Map(work.plan.scenes.filter(scene=>scene.eligible).map(scene=>[scene.turn,scene.fingerprint]));
         const liveLinks = new Map(work.pairs.map(pair=>[pair.source,pair.id]));
         // Keep cached results for a pause or same-model re-enable. Rewrites and exclusions invalidate their sources.
-        let stale = false;
-        for (const [key,{source}] of record.units) {
+        let stale = work.refreshed.size > 0;
+        for (const [key,entry] of work.refreshed) record.units.set(key,entry);
+        for (const [key,{source,model}] of record.units) {
           const current = liveUnits.get(source);
-          if (!current || key !== current && record.units.has(current)) { record.units.delete(key); stale = true; }
+          if (!current || model === record.model && key !== current && record.units.has(current)) { record.units.delete(key); stale = true; }
         }
-        for (const [id,{source}] of record.links) {
+        for (const [id,{source,model,refs,finding}] of record.links) {
+          if (model !== record.model) {
+            const evidence = refs || finding?.refs;
+            if (!evidence || evidence.some(ref=>fingerprints.get(ref.turn) !== ref.fingerprint)) {
+              record.links.delete(id);
+              stale = true;
+            }
+            continue;
+          }
           const current = liveLinks.get(source);
           if (!current && !work.missing.length || current && id !== current && record.links.has(current)) {
             record.links.delete(id);
@@ -237,6 +309,7 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
           await run(project,record,work);
           break;
         }
+        settled.add(work);
       }
     } finally {
       ticking = false;
@@ -244,7 +317,7 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
   }
 
   return {
-    configure,status,tick,
+    configure,status,tick,projectById,
     start() { timer ||= setInterval(()=>void tick().catch(reportError),intervalMs); timer.unref(); },
     stop() { clearInterval(timer); timer = undefined; active?.controller.abort(); }
   };

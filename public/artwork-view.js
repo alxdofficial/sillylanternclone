@@ -1,8 +1,10 @@
 import { starterStoryId } from './library.js';
+import { sameValue } from './sync.js';
 
 export const ARTWORK_DRAG_TYPE = 'application/x-studio-artwork';
 export const ARTWORK_MAX_WORDS = 1200;
 export const ARTWORK_MAX_CHARACTERS = 6000;
+const maxRevisionNote = 300;
 
 export function artworkPassageSize(text) {
   const trimmed = text.trim();
@@ -279,11 +281,11 @@ export function createArtworkView({root,getStory,getScenes,getCurrentTurn,getMod
     }
   }
 
-  function startGeneration(payload) {
+  function startGeneration(payload,working = 'Generating artwork…',done = 'Artwork is ready for review.') {
     const state = current();
     if (state.busy) return;
     state.generating = true;
-    return perform(state,()=>generate(payload),'Generating artwork…','Artwork is ready for review.');
+    return perform(state,()=>generate(payload),working,done);
   }
 
   mood.onsubmit = event=>{
@@ -375,7 +377,77 @@ export function createArtworkView({root,getStory,getScenes,getCurrentTurn,getMod
     return form;
   }
 
-  function entryCard(entry,state,scenes) {
+  function revisionSource(entry,scenes) {
+    if (entry.kind === 'reference') {
+      const subject = entry.subject;
+      if (!subject?.name || !Object.hasOwn(subjectKinds,subject.kind)) return {note:'This reference has no saved subject.'};
+      if (subject.kind === 'character' && !getStory()?.cast?.some(member=>nameKey(member.name || '') === nameKey(subject.name))) {
+        return {note:'This character is no longer in the cast.'};
+      }
+      return {payload:{kind:entry.kind,subject},note:`Uses the current story details for ${subject.name}.`};
+    }
+    const scene = scenes.find(item=>item.turn === entry.sceneTurn);
+    if (!scene) return {note:'The source scene is no longer available.'};
+    const exact = entry.passageRef && textRef(scene,entry.passageRef);
+    const {ref,note} = sourceFor({source:exact ? 'passage' : 'scene',selection:exact},scene);
+    if (!ref) return {note};
+    return {payload:{kind:entry.kind,ref},note:`Uses ${exact ? 'the original passage from' : 'the current full text of'} ${sceneLabel(scene)}.`};
+  }
+
+  function revisionForm(entry,state,source,model) {
+    const form = element('form','artwork-revision-form');
+    const note = element('textarea');
+    note.id = `artworkRevision-${entry.id}`;
+    note.rows = 3;
+    note.required = true;
+    note.maxLength = maxRevisionNote;
+    note.value = state.revisionNote;
+    note.disabled = state.busy;
+    note.placeholder = 'Make the dock darker and keep the logbook in view.';
+    const sourceNote = element('p','artwork-source-note',source.note);
+    sourceNote.id = `${note.id}-source`;
+    note.setAttribute('aria-describedby',sourceNote.id);
+    const submit = element('button','button primary','Generate new draft');
+    submit.type = 'submit';
+    function syncSubmit() {
+      submit.disabled = state.busy || !model?.id || !source.payload || !note.value.trim();
+    }
+    syncSubmit();
+    note.oninput = ()=>{
+      state.revisionNote = note.value;
+      syncSubmit();
+    };
+    const cancel = button('Cancel',()=>{
+      state.revising = undefined;
+      sync(state);
+      focusCard(entry.id,'[data-artwork-revise]');
+    });
+    cancel.disabled = state.busy;
+    form.append(labeled('What should change?',note),sourceNote,
+      element('p','artwork-source-note','The new draft needs its own approval.'),submit,cancel);
+    form.onsubmit = async event=>{
+      event.preventDefault();
+      if (submit.disabled || state.busy) return;
+      const latest = state.entries.find(item=>item.id === entry.id);
+      const latestSource = latest && revisionSource(latest,getScenes());
+      const latestModel = suppliedModel(getModel());
+      if (!sameValue(latestSource,source) || latestModel?.id !== model.id) {
+        state.error = 'The source or model changed. Review it before trying again.';
+        return sync(state);
+      }
+      const previous = new Set(state.entries.map(item=>item.id));
+      const success = await startGeneration({...source.payload,model:model.id,style:note.value.trim()},
+        'Generating a new draft…','New draft ready for review.');
+      if (success) state.revising = undefined;
+      if (current() !== state) return;
+      sync(state);
+      const draft = success && state.entries.findLast(item=>item.kind === entry.kind && !previous.has(item.id));
+      if (document.activeElement === document.body) focusCard(draft?.id || entry.id,success ? 'button' : 'textarea');
+    };
+    return form;
+  }
+
+  function entryCard(entry,state,scenes,revision,model) {
     const card = element('li','artwork-card');
     card.dataset.artworkId = entry.id;
     card.tabIndex = -1;
@@ -389,10 +461,13 @@ export function createArtworkView({root,getStory,getScenes,getCurrentTurn,getMod
     if (metadata.length) details.append(element('p','artwork-card-meta',metadata.join(' · ')));
     const badges = element('div','artwork-badges');
     const approved = entry.status === 'approved';
-    badges.append(element('span',approved ? 'artwork-badge artwork-approved' : 'artwork-badge',approved ? 'Approved' : 'Needs approval'));
+    const demo = state.id === starterStoryId;
+    const badge = approved ? 'Approved' : demo ? 'Sample draft' : 'Needs approval';
+    badges.append(element('span',approved ? 'artwork-badge artwork-approved' : 'artwork-badge',badge));
     if (entry.stale) badges.append(element('span','artwork-badge artwork-stale','Changed source'));
     details.append(badges);
-    if (state.id === starterStoryId) {
+    if (demo) {
+      if (!approved) details.append(element('p','artwork-source-note','This sample is read-only. In your own story you can approve a draft or request changes.'));
       card.append(details);
       return card;
     }
@@ -409,6 +484,8 @@ export function createArtworkView({root,getStory,getScenes,getCurrentTurn,getMod
       details.append(group);
     } else if (state.inserting === entry.id) {
       details.append(insertForm(entry,state,scenes));
+    } else if (state.revising === entry.id) {
+      details.append(revisionForm(entry,state,revision,model));
     } else {
       const actions = element('div','artwork-card-actions');
       if (!approved) {
@@ -418,6 +495,7 @@ export function createArtworkView({root,getStory,getScenes,getCurrentTurn,getMod
       }
       if (scenes.length) {
         const insert = button(!approved ? 'Approve and insert…' : placed ? 'Move to scene' : 'Insert in scene',()=>{
+          state.revising = undefined;
           state.inserting = entry.id;
           state.placeTurn = undefined;
           sync(state);
@@ -432,7 +510,19 @@ export function createArtworkView({root,getStory,getScenes,getCurrentTurn,getMod
           actions.append(remove);
         }
       }
+      const revise = button('Request changes',()=>{
+        state.confirm = undefined;
+        state.inserting = undefined;
+        state.revising = entry.id;
+        state.revisionNote = '';
+        sync(state);
+        focusCard(entry.id,'textarea');
+      });
+      revise.dataset.artworkRevise = '';
+      revise.disabled = state.busy;
+      actions.append(revise);
       const discard = button('Discard',()=>{
+        state.revising = undefined;
         state.confirm = entry.id;
         sync(state);
         focusCard(entry.id,'.danger');
@@ -451,7 +541,10 @@ export function createArtworkView({root,getStory,getScenes,getCurrentTurn,getMod
     const scenes = getScenes();
     syncForm(state,scenes);
     const entries = state.entries.filter(item=>(item.kind === 'reference') === (state.view === 'mood')).reverse();
-    const key = JSON.stringify([state.id,state.view,state.busy,state.confirm,state.inserting,
+    const revising = entries.find(entry=>entry.id === state.revising);
+    const revision = revising && revisionSource(revising,scenes);
+    const model = revising && suppliedModel(getModel());
+    const key = JSON.stringify([state.id,state.view,state.busy,state.confirm,state.inserting,state.revising,revision,model?.id,
       state.inserting ? activeScene(state,scenes)?.turn : undefined,entries,scenes.map(scene=>[scene.turn,scene.number,scene.chapter])]);
     if (renderedGallery === key) return;
     renderedGallery = key;
@@ -463,7 +556,7 @@ export function createArtworkView({root,getStory,getScenes,getCurrentTurn,getMod
       return;
     }
     const list = element('ul','artwork-cards');
-    for (const entry of entries) list.append(entryCard(entry,state,scenes));
+    for (const entry of entries) list.append(entryCard(entry,state,scenes,revision,model));
     gallery.replaceChildren(heading,list);
   }
 

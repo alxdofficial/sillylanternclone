@@ -4,6 +4,38 @@ import { agentReasoning, isAgentModel } from './public/models.js';
 const nativeOutput = Symbol('native provider output');
 const cacheControl = {type:'ephemeral'};
 const cachedText = text => ({type:'text',text,cache_control:cacheControl});
+const openAiBreakpoint = {mode:'explicit'};
+const batchStage = stage => stage === 'revision-background' || stage === 'setup-extract';
+
+function cacheBoundary(messages, prefixLength, stage, openAi) {
+  // A prose or brainstorming request appends a new direction to earlier turns.
+  // A batch extraction instead shares its instructions, with new passages every call.
+  const conversation = stage === 'prose' || stage === 'setup-chat';
+  const end = prefixLength ?? (conversation ? messages.length - 1 : 1);
+  for (let index = Math.min(end,messages.length) - 1; index >= 0; index--) {
+    const {role,content} = messages[index];
+    if (typeof content !== 'string' || !content.trim()) continue;
+    // Responses accepts input_text on input roles. Preserve assistant history as-is.
+    if (role === 'user' || role === 'system' || (!openAi && role === 'assistant')) return index;
+  }
+  return -1;
+}
+
+export function chatUsage(provider, usage) {
+  if (!usage || provider === 'openrouter') return usage;
+  if (provider === 'openai') return {
+    prompt_tokens:usage.input_tokens,completion_tokens:usage.output_tokens,
+    prompt_tokens_details:usage.input_tokens_details
+  };
+  return {
+    prompt_tokens:Number.isSafeInteger(usage.input_tokens)
+      ? usage.input_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0)
+      : undefined,
+    completion_tokens:usage.output_tokens,
+    prompt_tokens_details:{cached_tokens:usage.cache_read_input_tokens,cache_write_tokens:usage.cache_creation_input_tokens}
+  };
+}
+
 export function rememberProviderOutput(message, result) {
   if (result[nativeOutput]) Object.defineProperty(message,nativeOutput,{value:result[nativeOutput]});
   return message;
@@ -34,23 +66,25 @@ export const providerAdapters = new Map([
     headers:key=>({authorization:'Bearer ' + key}),
     request({model,messages,maxOutputTokens,tools,stage,prefixLength,storyRef}) {
       const reasoning = tools || (stage === 'setup-chat' && isAgentModel(model)) ? agentReasoning(model) : undefined;
-      const claudeAgent = stage !== 'prose' && model.startsWith('anthropic/');
-      const outbound = claudeAgent && prefixLength ? messages.map((message,index)=>index === prefixLength - 1
-        ? {...message,content:[{type:'text',text:message.content,cache_control:{type:'ephemeral'}}]}
-        : message) : messages;
+      const claude = model.startsWith('anthropic/');
+      const terra = model === 'openai/gpt-6.1-terra';
+      const cacheAt = claude || terra ? cacheBoundary(messages,prefixLength,stage,terra) : -1;
+      const outbound = cacheAt < 0 ? messages : messages.map((message,index)=>index === cacheAt
+        ? {...message,content:[claude ? cachedText(message.content)
+          : {type:'text',text:message.content,prompt_cache_breakpoint:openAiBreakpoint}]} : message);
       return {model,messages:outbound,max_tokens:maxOutputTokens,
         provider:{data_collection:'deny',...(tools || reasoning ? {require_parameters:true} : {})},
         ...(tools ? {tools,tool_choice:'auto'} : {}),reasoning,
-        ...(storyRef && stage !== 'prose' ? {session_id:'studio-' + storyRef + '-' + stage} : {}),
-        ...(claudeAgent && !prefixLength ? {cache_control:{type:'ephemeral'}} : {})};
+        ...(storyRef ? {session_id:'studio-' + storyRef + '-' + stage} : {}),
+        ...(terra && batchStage(stage) ? {prompt_cache_options:{mode:'explicit'}} : {})};
     },
     normalize:response=>response
   }],
   ['anthropic',{
     url:'https://api.anthropic.com/v1/messages',
     headers:key=>({'x-api-key':key,'anthropic-version':'2023-06-01'}),
-    request({model,messages,maxOutputTokens,tools,prefixLength}) {
-      const cacheAt = prefixLength ? prefixLength - 1 : -1;
+    request({model,messages,maxOutputTokens,tools,prefixLength,stage}) {
+      const cacheAt = cacheBoundary(messages,prefixLength,stage,false);
       const systemBlocks = messages.flatMap((message,index)=>message.role === 'system'
         ? [index === cacheAt ? cachedText(message.content) : {type:'text',text:message.content}] : []);
       const system = systemBlocks.some(block=>block.cache_control) ? systemBlocks : systemBlocks.map(block=>block.text).join('\n\n');
@@ -67,11 +101,7 @@ export const providerAdapters = new Map([
       }));
       return {
         error:result?.error, [nativeOutput]:blocks,
-        usage:{prompt_tokens:result?.usage && (result.usage.input_tokens ?? 0) +
-          (result.usage.cache_read_input_tokens ?? 0) + (result.usage.cache_creation_input_tokens ?? 0),
-          completion_tokens:result?.usage?.output_tokens,
-          prompt_tokens_details:{cached_tokens:result?.usage?.cache_read_input_tokens,
-            cache_write_tokens:result?.usage?.cache_creation_input_tokens}},
+        usage:chatUsage('anthropic',result?.usage),
         choices:[{
           finish_reason:({max_tokens:'length',model_context_window_exceeded:'length',tool_use:'tool_calls',
             end_turn:'stop',stop_sequence:'stop',refusal:'content_filter'})[result?.stop_reason] ?? 'error',
@@ -84,14 +114,19 @@ export const providerAdapters = new Map([
   ['openai',{
     url:'https://api.openai.com/v1/responses',
     headers:key=>({authorization:'Bearer ' + key}),
-    request({model,messages,maxOutputTokens,tools}) {
-      const input = messages.flatMap(message=>{
+    request({model,messages,maxOutputTokens,tools,prefixLength,stage}) {
+      const cacheAt = cacheBoundary(messages,prefixLength,stage,true);
+      const input = messages.flatMap((message,index)=>{
         if (message[nativeOutput]) return message[nativeOutput];
         if (message.role === 'tool') return {type:'function_call_output',call_id:message.tool_call_id,output:message.content};
-        return {role:message.role,content:message.content};
+        const role = message.role === 'system' ? 'developer' : message.role;
+        const content = index === cacheAt
+          ? [{type:'input_text',text:message.content,prompt_cache_breakpoint:openAiBreakpoint}] : message.content;
+        return {role,content};
       });
       return {model,input,max_output_tokens:maxOutputTokens,store:false,
         reasoning:{effort:tools ? 'low' : 'none'},
+        ...(batchStage(stage) ? {prompt_cache_options:{mode:'explicit'}} : {}),
         ...(tools ? {
           tools:tools.map(({function:definition})=>({type:'function',...definition,strict:false})),
           tool_choice:'auto',parallel_tool_calls:false,include:['reasoning.encrypted_content']
@@ -107,8 +142,7 @@ export const providerAdapters = new Map([
         : ({max_output_tokens:'length',content_filter:'content_filter'})[result?.incomplete_details?.reason] ?? 'error';
       return {
         error:result?.error,[nativeOutput]:output,
-        usage:{prompt_tokens:result?.usage?.input_tokens,completion_tokens:result?.usage?.output_tokens,
-          prompt_tokens_details:result?.usage?.input_tokens_details},
+        usage:chatUsage('openai',result?.usage),
         choices:[{finish_reason:finish,message:{
           content:content.filter(block=>block.type === 'output_text').map(block=>block.text).join(''),
           refusal:content.find(block=>block.type === 'refusal')?.refusal,

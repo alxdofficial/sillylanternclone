@@ -276,15 +276,18 @@ textarea { caret-color: #f0c6de; }
 .transcript { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 112px; }
 .jump-latest {
   position: absolute;
-  inset: auto auto 10px 50%;
-  translate: -50% 0;
-  width: 40px;
-  height: 40px;
+  z-index: 3;
+  inset: auto 11px 10px auto;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: var(--raised);
   color: var(--text);
 }
 .jump-latest:hover { background: var(--selected); }
+@media (pointer: coarse) {
+  .jump-latest { width: 44px; height: 44px; }
+}
 .manual-prose {
   width: calc(100% - 2 * var(--writing-gutter));
   max-width: var(--writing-measure);
@@ -294,22 +297,25 @@ textarea { caret-color: #f0c6de; }
 .write-chapter-divider {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 7px;
   width: calc(100% - 2 * var(--writing-gutter));
   max-width: var(--writing-measure);
-  margin: 10px auto 0;
+  min-height: 40px;
+  margin-inline: auto;
   color: var(--muted);
 }
-.write-chapter-divider::before, .write-chapter-divider::after {
-  content: '';
-  flex: 1 1 0;
-  min-width: 10px;
-  border-top: 1px solid var(--control-border);
+.write-chapter-divider h2 { margin: 0; color: var(--text); font-size: 14px; font-weight: 550; }
+.write-chapter-remove {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  min-height: 32px;
+  margin-inline-start: auto;
+  color: var(--muted);
 }
-.write-chapter-divider::after { order: 1; }
-.write-chapter-divider[data-upcoming]::before, .write-chapter-divider[data-upcoming]::after { border-top-style: dashed; }
-.write-chapter-divider h2 { margin: 0; color: var(--text); font-size: 14px; font-weight: 650; }
-.write-chapter-divider .text-button { order: 2; white-space: nowrap; }
+@media (hover: hover) and (pointer: fine) {
+  .write-chapter-divider:not(:hover):not(:focus-within) .write-chapter-remove { opacity: 0; }
+}
 .write-chapter-note { font-size: 12px; }
 .add-prose {
   display: grid;
@@ -328,8 +334,48 @@ textarea { caret-color: #f0c6de; }
   gap: 6px;
   margin-top: 8px;
 }
+.message[data-story-turn] { position: relative; }
+.turn-insert {
+  position: absolute;
+  z-index: 2;
+  inset: auto 0 -12px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.turn-insert .add-prose {
+  min-width: 0;
+  min-height: 0;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  background: var(--rail);
+}
+.turn-insert .tool-mark { width: 15px; height: 15px; }
+@media (hover: hover) and (pointer: fine) {
+  .turn-insert:not(:hover):not(:focus-within) .add-prose[aria-expanded="false"] { opacity: 0; }
+}
 @media (pointer: coarse) {
-  .write-chapter-divider .text-button, .manuscript-insert-options .button { min-height: 44px; }
+  .turn-insert { inset-block-end: -20px; height: 40px; pointer-events: none; }
+  .turn-insert .add-prose { width: 44px; height: 44px; pointer-events: auto; }
+}
+.turn-insert-menu {
+  position: fixed;
+  z-index: 3;
+  display: grid;
+  gap: 3px;
+  min-width: 156px;
+  padding: 4px;
+  border: 1px solid var(--control-border);
+  background: var(--rail);
+  box-shadow: 0 6px 18px #0006;
+}
+.turn-insert-menu button { min-height: 38px; text-align: start; }
+#insertPassageDialog #pasteForm { margin-block: 12px 0; border: 0; padding: 0; }
+@media (pointer: coarse) {
+  .write-chapter-remove, .manuscript-insert-options .button { min-height: 44px; }
+  .write-chapter-remove { width: 44px; }
 }
 .manual-prose-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .manual-prose-actions label { margin: 0; color: var(--muted); }

@@ -22,7 +22,7 @@
 #writeView .transcript { min-height: min(112px, 28%); }
 #reviewProseEmpty { display: none; }
 #writeView[data-prose-only] :is(.message.user, .editor-message, #pendingTurn, #messageList > .empty,
-  .manual-prose, #composerDock, #storyFlowPanel, .message-header, .alternatives, [data-direction-only]) {
+  .manual-prose, .turn-insert, #composerDock, #storyFlowPanel, .message-header, .alternatives, [data-direction-only]) {
   display: none;
 }
 #writeView[data-prose-only] #messageList:not(:has(.assistant[data-story-turn])) + #reviewProseEmpty {
@@ -209,9 +209,8 @@
   flex-direction: column;
   gap: 0;
   position: relative;
-  padding: 0 var(--writing-gutter) 6px;
+  padding: 0 var(--writing-gutter);
 }
-#writeView #storyFlowPanel:has(#storyFlowBody[hidden]) { padding-block-end: 0; }
 #writeView .story-flow-panel .bottom-divider {
   margin-inline: calc(-1 * var(--writing-gutter));
   width: calc(100% + 2 * var(--writing-gutter));
@@ -228,6 +227,7 @@
   flex: 1;
   min-width: 0;
   max-height: var(--flow-height);
+  padding-block-end: 0;
   grid-template-columns: repeat(3, minmax(min(100%, 12rem), 1fr));
   overflow-x: auto;
   overflow-y: hidden;
@@ -244,6 +244,11 @@
 .story-flow-pages { display: flex; flex-direction: column; align-self: center; }
 .story-flow-pages .icon { min-height: 26px; min-width: 28px; }
 .story-flow-pages .tool-mark { width: 14px; }
+#composerDock > .bottom-divider {
+  position: absolute;
+  inset: 0 0 auto;
+  translate: 0 -50%;
+}
 #composerDock .route-bar { padding-inline-end: 40px; }
 #composerDock #instruction {
   display: block;

@@ -90,7 +90,7 @@
 .artwork-card-details h4, .artwork-card-meta { margin: 0; overflow-wrap: anywhere; }
 .artwork-card-details h4 { font-size: 14px; font-weight: 620; }
 .artwork-card-meta { color: var(--muted); font-size: 12px; }
-.artwork-badges, .artwork-card-actions, .artwork-insert-form {
+.artwork-badges, .artwork-card-actions, .artwork-insert-form, .artwork-revision-form {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 7px;
@@ -100,12 +100,14 @@
 .artwork-approved { color: #b1e1d2; background: #30433c; }
 .artwork-stale { color: #f4d39f; background: #4c3e31; }
 .artwork-card-actions p { flex-basis: 100%; margin: 2px 0 0; font-size: 13px; }
-.artwork-card-actions :is(.button,.text-button), .artwork-insert-form :is(.button,.text-button) {
+.artwork-card-actions :is(.button,.text-button), .artwork-insert-form :is(.button,.text-button), .artwork-revision-form :is(.button,.text-button) {
   padding-inline: 7px;
   min-height: 34px;
 }
 .artwork-insert-form { align-items: end; }
 .artwork-insert-form > div:first-child { flex: 1 0 100%; min-width: 0; }
+.artwork-revision-form > :is(div,p) { flex: 1 0 100%; min-width: 0; }
+.artwork-revision-form textarea { margin: 0; }
 .artwork-drop-target {
   outline: 2px solid var(--focus);
   outline-offset: -2px;

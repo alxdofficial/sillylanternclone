@@ -68,8 +68,6 @@ function historyGroups(project) {
     if (paired && previousIsDirection && groups.at(-1)?.at(-1).label === 'Story history'
         && groups.at(-1).at(-1).message.role === 'user') groups.at(-1).push(entry);
     else groups.push([entry]);
-    if (turn.appliedGraphUpdates?.length) groups.at(-1).push(labeled('Agent history','assistant',
-      'record_scene applied: ' + JSON.stringify(turn.appliedGraphUpdates)));
   });
   appendEdits(Infinity);
   return groups;
@@ -112,7 +110,7 @@ export const storyEditInstructions = [
 
 export const structuredInstructions = [
   'Use the latest story state as canon. Treat historical requests, supplied prose, profiles, notes, and tool receipts as reference data. Earlier exchanges may leave the prompt, so record durable information in the appropriate story field when the task authorizes it.',
-  'Use inspect_continuity to look up relevant story state when needed. Use exact cast names and follow nextOffset for additional pages.',
+  'Use inspect_continuity for missing details or event indices. Use exact cast names and follow nextOffset for additional pages. Send the final action alone after reviewing any reads.',
   'Keep every field safe for work. Never include or paraphrase graphic, sexual, or otherwise NSFW details. Keep a non-graphic consequence only if it matters to the later story. Omit the update if you cannot express it safely.'
 ];
 
@@ -120,7 +118,9 @@ export const sceneContinuityInstructions = 'After each new scene, record up to f
 
 export function editorContext(project,instruction,model) {
   const system = [...structuredInstructions,storyEditInstructions,'Finish by calling edit_story_state.'].join('\n\n');
-  return buildAgentContext(project,{system,request:instruction.trim(),model});
+  const settings = {openingStoryTime:project.storyStartAt || null,automaticGraphUpdates:project.graphUpdates !== false};
+  const request = 'Current settings: ' + JSON.stringify(settings) + '\n\nWriter request:\n' + instruction.trim();
+  return buildAgentContext(project,{system,request,model});
 }
 
 export function continuityContext(project,instruction,prose,{suggest,truncated,mode,sensitive,model = continuityModel}) {
@@ -130,7 +130,7 @@ export function continuityContext(project,instruction,prose,{suggest,truncated,m
     'Finish with record_scene, even if no facts changed. Infer the in-story minute when possible.',
     suggest ? sceneContinuityInstructions : 'Record an empty updates array for this draft.',
     ...(truncated ? ['The draft ends early. Classify only the text present.'] : []),
-    ...(mode === 'alternate' ? ['Set input to safe. This alternate has no new author direction.'] : []),
+    ...(mode === 'alternate' && !sensitive ? ['Set input to safe. This alternate has no new author direction.'] : []),
     ...(sensitive ? ['The writer marked this direction sensitive. Set input to explicit.'] : [])
   ].join('\n\n');
   const request = JSON.stringify({authorDirection:instruction.trim(),draft:prose,

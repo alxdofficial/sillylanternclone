@@ -2,11 +2,14 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isModelId, modelProvider, models } from './public/models.js';
+import { chatUsage } from './provider-api.mjs';
 
 const dayMs = 86_400_000;
 const isoDay = date => date.toISOString().slice(0,10);
-const count = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
+const tokenCount = value => Number.isSafeInteger(value) && value >= 0;
+const count = value => tokenCount(value) ? value : 0;
 const finiteCost = value => Number.isFinite(value) && value >= 0;
+const tokenFields = ['input','output','cacheRead','cacheWrite'];
 
 export function providerCost(provider, model, usage) {
   if (provider === 'openrouter') return finiteCost(usage?.cost) ? usage.cost : null;
@@ -36,9 +39,13 @@ export function createSpendLedger(dataDir) {
       const returnedModel = result?.model;
       if (provider === 'openrouter' && isModelId(returnedModel)) model = returnedModel;
       const usd = providerCost(provider,model,result?.usage);
+      const usage = chatUsage(provider,result?.usage);
+      const reported = {input:usage?.prompt_tokens,output:usage?.completion_tokens,
+        cacheRead:usage?.prompt_tokens_details?.cached_tokens,cacheWrite:usage?.prompt_tokens_details?.cache_write_tokens};
+      const tokens = Object.fromEntries(Object.entries(reported).filter(([,value])=>tokenCount(value)));
       mkdirSync(directory,{recursive:true,mode:0o700});
       appendFileSync(join(directory,isoDay(time)+'.jsonl'),
-        JSON.stringify({time:time.toISOString(),provider,model,usd})+'\n',{mode:0o600});
+        JSON.stringify({time:time.toISOString(),provider,model,usd,tokens})+'\n',{mode:0o600});
       return usd;
     },
     async recent(timeZone, now = new Date()) {
@@ -67,6 +74,14 @@ export function createSpendLedger(dataDir) {
           row.calls++;
           if (finiteCost(usd)) row.usd += usd;
           else row.unpriced++;
+          for (const field of tokenFields) {
+            const value = entry.tokens?.[field];
+            if (!tokenCount(value)) continue;
+            const totals = row.tokens ||= {};
+            const metric = totals[field] ||= {total:0,calls:0};
+            metric.total += value;
+            metric.calls++;
+          }
           rows.set(key,row);
         }
       }

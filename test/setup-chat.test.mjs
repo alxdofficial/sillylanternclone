@@ -123,6 +123,11 @@ test('setup chat uses the chosen model and stages a validated draft through the 
       assert.equal(options.headers.authorization,'Bearer ' + key);
       const request = JSON.parse(options.body);
       assert.equal(request.provider.data_collection,'deny');
+      if (request.model === 'openai/gpt-6.1-terra') {
+        const [block] = request.messages[0].content;
+        assert.deepEqual(block.prompt_cache_breakpoint,{mode:'explicit'});
+        request.messages[0].content = block.text;
+      }
       const setupTool = request.tools?.[0]?.function;
       const completedTool = (name,args) => Response.json({choices:[{finish_reason:'tool_calls',message:{content:null,tool_calls:[
         {type:'function',id:'fixture-result',function:{name,arguments:JSON.stringify(args)}}

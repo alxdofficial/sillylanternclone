@@ -71,7 +71,13 @@ export function artworkStatus(project,entries) {
   return entries.map(entry=>{
     const {prompt,source,...metadata} = entry;
     const placedTurn = scenes.has(entry.placedTurn) ? entry.placedTurn : undefined;
+    const scene = scenes.get(source?.scene?.turn);
+    const passage = source?.scene;
+    const exactPassage = entry.kind !== 'reference' && scene?.eligible && passage.fingerprint === scene.fingerprint &&
+      Number.isSafeInteger(passage.start) && Number.isSafeInteger(passage.end) &&
+      passage.start >= 0 && passage.end > passage.start && passage.end <= scene.text.length;
     return {...metadata,placedTurn,sceneTurn:source?.scene?.turn,stale:stale.has(entry.id),
+      ...(exactPassage && {passageRef:{turn:scene.turn,fingerprint:scene.fingerprint,start:passage.start,end:passage.end}}),
       url:`/api/artwork/image?story=${encodeURIComponent(project.id)}&id=${encodeURIComponent(entry.id)}`};
   });
 }

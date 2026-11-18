@@ -30,14 +30,16 @@ export async function runAgentTask({messages,completions,action,reads = [],text,
         result = {error:'Send one final tool call. Combine all intended changes into that call.'};
       } else if (selected && selected === action && calls.length > 1) {
         result = {error:'Review the read results, then send the final action on its own.'};
+      } else if (selected && args === undefined) {
+        result = {error:'Send valid JSON arguments and match its argument schema.'};
       } else if (selected) {
         const parsed = selected.schema.safeParse(args);
         if (parsed.success) {
           const outcome = selected.handle(parsed.data);
           if (selected === action && Object.hasOwn(outcome,'value')) return outcome.value;
           result = selected === action ? outcome.feedback : outcome;
-        } else if (selected === action) {
-          result = {error:'Match the tool argument schema.',fields:parsed.error.issues.map(issue=>issue.path.join('.'))};
+        } else {
+          result = {error:'Match the tool argument schema.',fields:[...new Set(parsed.error.issues.map(issue=>issue.path.join('.') || 'arguments'))].slice(0,12)};
         }
       }
       results.push({role:'tool',tool_call_id:call.id,content:JSON.stringify(result)});

@@ -9,15 +9,21 @@ test('artwork revisions track the passage and referenced artwork without mutatin
     {role:'assistant',content:'Held fixture.',excludeFromContext:true}
   ]};
   const [scene,held] = sceneIndex(project);
-  const passage = artworkPassage(project,reference(scene));
+  const passage = artworkPassage(project,reference(scene,4,14));
   assert.throws(()=>artworkPassage(project,reference(held)),/available to the general AI context/);
   const mood = {id:'reference',kind:'reference',source:{canonKey:artworkCanonKey(project)},status:'approved'};
   const panel = {id:'illustration',kind:'illustration',placedTurn:1,source:{scene:passage.scene},references:[mood.id],status:'approved'};
-  assert.deepEqual(artworkStatus(project,[mood,panel]).map(asset=>asset.stale),[false,false]);
+  const original = artworkStatus(project,[mood,panel]);
+  assert.deepEqual(original.map(asset=>asset.stale),[false,false]);
+  assert.equal(original[0].passageRef,undefined);
+  assert.deepEqual(original[1].passageRef,passage.scene);
   assert.equal(artworkStatus(project,[panel])[0].stale,true);
   const updated = structuredClone(project);
   updated.messages[0].content = 'The early ferry waited.';
-  assert.deepEqual(artworkStatus(updated,[mood,panel]).map(asset=>asset.stale),[false,true]);
+  const changed = artworkStatus(updated,[mood,panel]);
+  assert.deepEqual(changed.map(asset=>asset.stale),[false,true]);
+  assert.equal(changed[1].passageRef,undefined);
+  assert.equal(changed[1].sceneTurn,scene.turn);
   assert.throws(()=>artworkPassage(updated,reference(scene)),/passage changed/);
   assert.equal(project.messages[0].content,'The late ferry waited.');
 });

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -166,4 +166,140 @@ test('background continuity reports checked pairs and links differently phrased 
   assert.equal(result.continuityPairs,1);
   assert.equal(result.continuityChecked,1);
   assert.deepEqual(result.findings.continuity[0].refs.map(ref=>ref.turn),[1,2]);
+});
+
+test('editing the end of a long scene reuses unchanged passages with current citation anchors',async t=>{
+  const dataDir = await mkdtemp(join(tmpdir(),'studio-passage-reuse-'));
+  t.after(()=>rm(dataDir,{recursive:true,force:true}));
+  const opening = 'The red flag fell.';
+  const project = {id:'fixture',messages:[scene(1,opening + '\n' + 'Rain crossed the deck.\n'.repeat(2200))]};
+  const seen = [];
+  const options = {dataDir,readLibrary:async()=>({projects:[project]}),hasKey:async()=>true,
+    complete:async({messages})=>{
+      const batch = JSON.parse(messages[1].content);
+      seen.push(...batch.map(row=>row.text));
+      return answer('record_passage_observations',{passages:batch.map(({passage,text})=>({passage,
+        observations:text.includes(opening) ? [{kind:'pacing',topic:'The flag',detail:'The signal interrupts the crossing.',quote:opening}] : []}))});
+    }};
+  let worker = createBackgroundAnalysis(options);
+  await worker.configure(project,{model});
+  for (let i=0;i<8;i++) await worker.tick();
+  assert.equal((await worker.status(project)).state,'ready');
+  const before = seen.length;
+  worker = createBackgroundAnalysis(options);
+  project.messages[0].content += 'Morning arrived.';
+  await worker.tick();
+  const result = await worker.status(project);
+  assert.equal(result.state,'ready');
+  assert.equal(seen.length - before,1);
+  assert.ok(seen.at(-1).endsWith('Morning arrived.'));
+  assert.equal(result.findings.pacing[0].refs[0].fingerprint,planAnalysis(project,model).scenes[0].fingerprint);
+});
+
+test('multibyte prose and JSON escapes fit the background batch estimate without losing characters',()=>{
+  const text = ('渡'.repeat(5) + '🚢\u0001').repeat(4000);
+  const {units} = planAnalysis({id:'many-bytes',messages:[scene(1,text)]},model);
+  assert.equal(units.map(unit=>unit.text).join(''),text);
+  for (const unit of units) {
+    assert.ok(estimateContextTokens(JSON.stringify(unit.text)) + 80 <= 9200);
+    assert.doesNotMatch(unit.text,/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/u);
+  }
+});
+
+test('idle polls reuse disk-versioned sources and deferred calls release their budget reservation',async t=>{
+  const dataDir = await mkdtemp(join(tmpdir(),'studio-review-idle-'));
+  t.after(()=>rm(dataDir,{recursive:true,force:true}));
+  let version = 1, reads = 0, attempts = 0;
+  const story = {id:'fixture',messages:[scene(1,'A signal from shore.')]};
+  const worker = createBackgroundAnalysis({dataDir,libraryVersion:async()=>version,
+    readLibrary:async()=>{ reads++; return {projects:[structuredClone(story)]}; },
+    hasKey:async()=>true,complete:async()=>{
+      if (++attempts === 1) throw Object.assign(new Error('foreground request'),{diagnosticCode:'REVIEW_DEFERRED'});
+      return answer('record_passage_observations',{passages:[{passage:1,observations:[]}]});
+    }});
+  const current = ()=>worker.projectById(story.id);
+  await worker.configure(await current(),{model});
+  await worker.tick();
+  assert.equal((await worker.status(await current())).estimatedUsd,0);
+  await worker.tick();
+  const completed = await worker.status(await current());
+  assert.equal(completed.state,'ready');
+  assert.ok(completed.estimatedUsd > 0);
+  for (let i=0;i<12;i++) {
+    await worker.tick();
+    assert.equal((await worker.status(await current())).state,'ready');
+  }
+  assert.equal(attempts,2);
+  assert.equal(reads,1);
+  story.messages[0].excludeFromContext = true;
+  version++;
+  await worker.tick();
+  assert.equal((await worker.status(await current())).held,1);
+  assert.equal(reads,2);
+});
+
+test('a model switch verifies its own links and restores previous paid work when switched back',async t=>{
+  const dataDir = await mkdtemp(join(tmpdir(),'studio-review-models-'));
+  t.after(()=>rm(dataDir,{recursive:true,force:true}));
+  const story = {id:'fixture',messages:[scene(1,'The gate was sealed.'),scene(2,'The gate was unlocked.'),scene(3,'The gate was welded shut.')]};
+  const batches = [];
+  const options = {dataDir,readLibrary:async()=>({projects:[story]}),hasKey:async()=>true,
+    complete:async({model:selected,messages,tools})=>{
+      const rows = JSON.parse(messages[1].content);
+      const name = tools[0].function.name;
+      batches.push([selected,name,rows.length]);
+      if (name === 'record_passage_observations') return answer(name,{passages:rows.map(({passage,text})=>({passage,
+        observations:[{kind:'continuity',topic:'Gate state',detail:'A described gate condition.',quote:text}]}))});
+      if (rows.length > 1) throw Object.assign(new Error('cut short'),{diagnosticCode:'AGENT_TOOL_OUTPUT_TRUNCATED'});
+      return answer(name,{links:[{pair:1,supportsFinding:true,title:selected,detail:'Check the gate.'}]});
+    }};
+  let worker = createBackgroundAnalysis(options);
+  const other = 'gpt-6.1-terra';
+  for (const selected of [model,other]) {
+    await worker.configure(story,{model:selected});
+    assert.equal((await worker.status(story)).findings.continuity.length,0);
+    for (let i=0;i<10;i++) await worker.tick();
+    const result = await worker.status(story);
+    assert.equal(result.state,'ready');
+    assert.equal(result.findings.continuity.length,3);
+    assert.ok(result.findings.continuity.every(item=>item.title === selected));
+    assert.deepEqual(batches.filter(row=>row[0]===selected && row[1]==='record_passage_links').map(row=>row[2]),[3,2,1,1,1]);
+  }
+  const count = batches.length;
+  worker = createBackgroundAnalysis(options);
+  await worker.configure(story,{model});
+  await worker.tick();
+  assert.equal((await worker.status(story)).state,'ready');
+  assert.equal(batches.length,count);
+});
+
+test('legacy cache keeps paid passage extractions and verifies links whose model was never recorded',async t=>{
+  const dataDir = await mkdtemp(join(tmpdir(),'studio-review-legacy-'));
+  t.after(()=>rm(dataDir,{recursive:true,force:true}));
+  const story = {id:'fixture',messages:[scene(1,'The gate was sealed.'),scene(2,'The gate stood open.')]};
+  const stages = [];
+  const options = {dataDir,readLibrary:async()=>({projects:[story]}),hasKey:async()=>true,complete:async({messages,tools})=>{
+    const name = tools[0].function.name;
+    stages.push(name);
+    if (name === 'record_passage_observations') return answer(name,{passages:JSON.parse(messages[1].content).map(({passage,text})=>({passage,
+      observations:[{kind:'continuity',topic:'Gate state',detail:'The gate condition was observed.',quote:text}]}))});
+    return answer(name,{links:[{pair:1,supportsFinding:false,title:'',detail:''}]});
+  }};
+  let worker = createBackgroundAnalysis(options);
+  await worker.configure(story,{model});
+  await worker.tick();
+  await worker.tick();
+  const path = join(dataDir,'writing-analysis','cache.json');
+  const cache = JSON.parse(await readFile(path,'utf8'));
+  const record = cache.records[0][1];
+  record.units = record.units.map(([key,{source,items}])=>[key,{source,items}]);
+  record.links = record.links.map(([key,{source,finding}])=>[key.slice(model.length+1),{source,finding}]);
+  await writeFile(path,JSON.stringify(cache));
+  worker = createBackgroundAnalysis(options);
+  const restored = await worker.status(story);
+  assert.equal(restored.reviewed,2);
+  assert.equal(restored.linksRemaining,1);
+  await worker.tick();
+  assert.equal((await worker.status(story)).state,'ready');
+  assert.deepEqual(stages,['record_passage_observations','record_passage_links','record_passage_links']);
 });

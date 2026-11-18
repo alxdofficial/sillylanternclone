@@ -231,3 +231,20 @@ test('turn numbering works with imports larger than the JavaScript argument limi
   const messages = Array.from({length:150_000},()=>({role:'assistant',content:'A scene.'}));
   assert.equal(nextTurnNumber({messages}),150_001);
 });
+
+test('invalid read arguments identify the field to correct before the final action', async () => {
+  let round = 0;
+  const complete = async messages=>{
+    if (!round++) return assistant(call('inspect_continuity',{section:'plot',offset:-1},'read'));
+    assert.deepEqual(JSON.parse(messages.at(-1).content).fields,['offset']);
+    return assistant(call('record_scene',scene,'finish'));
+  };
+  await runContinuity(story,'A direction.','A draft.',options,complete,()=>{});
+  assert.equal(round,2);
+});
+
+test('a marked sensitive alternate has a single classification instruction', () => {
+  const [system] = continuityMessages(story,'','A draft.',{mode:'alternate',sensitive:true});
+  assert.match(system.content,/Set input to explicit/);
+  assert.doesNotMatch(system.content,/Set input to safe/);
+});

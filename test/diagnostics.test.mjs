@@ -58,7 +58,7 @@ test('OpenRouter drafts with the selected model and extracts metadata separately
           assert.ok(request.messages.at(-1).content.endsWith('PRIVATE_DIRECTION_SUFFIX'));
         }
         if (request.messages.at(-1).content.endsWith('replacement direction')) {
-          assert.match(request.messages[0].content,/Original reply time:\\n1998-10-25T00:10/);
+          assert.match(request.messages.at(-1).content,/Original reply time:\\n1998-10-25T00:10/);
         }
         if (request.messages.at(-1).content.endsWith('late upstream error')) {
           return Response.json({error:{code:429,message:'PRIVATE_UPSTREAM_ERROR'}});

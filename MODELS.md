@@ -67,7 +67,9 @@ The selected model receives your edit request, full canonical state, and eligibl
 
 ### Spending
 
-The context panel shows daily USD totals by API vendor and model for the last seven local calendar days. OpenRouter uses the amount in its response. Direct API amounts use standard published rates, including cache reads and writes and the GPT‑6.1 Terra long-context tier. The panel reports missing costs separately. This is local usage since tracking started, before any subscription credits. [Claude rates](https://platform.claude.com/docs/en/about-claude/pricing) · [Terra rates](https://developers.openai.com/api/docs/models/gpt-6.1-terra)
+The context panel shows daily USD totals by API vendor and model for the last seven local calendar days. OpenRouter uses the amount in its response. Direct API amounts use standard published rates, including cache reads and writes and the GPT‑6.1 Terra long-context tier. Open **Token usage** for reported input, output, cache reads, and cache writes. Coverage is shown when some calls omit a metric. These figures show local usage before subscription credits. [Claude rates](https://platform.claude.com/docs/en/about-claude/pricing) · [Terra rates](https://developers.openai.com/api/docs/models/gpt-6.1-terra)
+
+The harness keeps reusable instructions and conversation history ahead of the changing request where the provider supports prefix caching. One-off extraction batches mark their shared instructions instead of the changing passage. Actual reuse depends on the length and stability of the prefix and the provider that serves the call. Background manuscript review reuses matching passage observations and verdicts for the selected model. Manual review uses at most 24,000 estimated input tokens, or less if the selected model has a smaller budget. [Claude caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) · [Terra caching](https://developers.openai.com/api/docs/guides/prompt-caching) · [OpenRouter caching](https://openrouter.ai/docs/guides/best-practices/prompt-caching)
 
 ### Transition review and artwork
 

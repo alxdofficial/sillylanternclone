@@ -139,6 +139,21 @@ test('the prompt fits relationship history around the recent prose', () => {
   assert.match(large.at(-1).content,/Ren takes the watch/);
 });
 
+test('API prose continues from manuscript order while keeping a withheld direction with its reply',()=>{
+  const project = {title:'The ferry',lore:'',notes:'',sceneBoard:{chapters:[[5,2,4]]},messages:[
+    {turnNumber:1,role:'user',content:'Write the ferry departure.',contentSensitivity:'safe'},
+    {turnNumber:2,role:'assistant',content:'The ferry reached the far shore.',contentSensitivity:'safe'},
+    {turnNumber:3,role:'user',content:'OMITTED_DIRECTION',contentSensitivity:'explicit'},
+    {turnNumber:4,role:'assistant',content:'OMITTED_PAIRED_REPLY',contentSensitivity:'safe'},
+    {turnNumber:5,role:'assistant',content:'A rope creaked across the quay.',standalone:true,contentSensitivity:'reviewed-safe'}
+  ]};
+  const prompt = buildMessages(project,'Continue.','send',{model:'claude-sonnet-5-5',openRouter:true});
+  assert.deepEqual(prompt.slice(1,-1).map(({content})=>content),[
+    'A rope creaked across the quay.','Write the ferry departure.','The ferry reached the far shore.'
+  ]);
+  assert.equal(project.messages.at(-1).turnNumber,5);
+});
+
 test('auto-flagged turns stop at the MCP boundary while OpenRouter keeps scene continuity', () => {
   const project = {...story,messages:[
     {role:'user',content:'PRIVATE_WRITER',contentSensitivity:'explicit'},
@@ -202,4 +217,14 @@ test('a saved persona becomes one ordinary cast member in prompts', () => {
 
 test('MCP compatibility parser does not save an incomplete graph block as prose', () => {
   assert.deepEqual(splitAgentReply('Prose.\n```story-graph\n{"incomplete":'),{text:'Prose.',suggestions:[]});
+});
+
+test('dated prose requests keep the shared system prefix stable across clock changes', () => {
+  const render = time=>buildWritingContext({...story,contextTime:time,replyTime:time},'Follow the ferry','replace',{openRouter:true});
+  const first = render('1998-10-25T00:10');
+  const next = render('1998-10-25T00:20');
+  assert.deepEqual(first.messages[0],next.messages[0]);
+  assert.match(next.messages.at(-1).content,/Story clock:\n1998-10-25T00:20/);
+  assert.match(next.messages.at(-1).content,/Original reply time:\n1998-10-25T00:20/);
+  assert.ok(next.messages.at(-1).content.endsWith('Author direction:\nFollow the ferry'));
 });

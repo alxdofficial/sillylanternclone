@@ -4,7 +4,8 @@ import { diagnosticError } from './diagnostics.mjs';
 import { continuityReader } from './continuity.mjs';
 import { buildAgentContext } from './public/agent-context.js';
 import { continuityModel } from './public/models.js';
-import { graphSuggestions } from './public/prompt.js';
+import { clipEnds, graphSuggestions } from './public/prompt.js';
+import { sceneIndex } from './public/revision.js';
 import { storyFlowConsequenceLimit, storyFlowDirectionLimit, storyFlowOptionCount, storyFlowTitleLimit, validStoryFlowOptions } from './public/story-flow.js';
 
 export const storyFlowOutputLimit = 2048;
@@ -33,10 +34,11 @@ const directions = agentTool('offer_story_directions','Show the writer three dis
     : {feedback:{error:'Give every option a different title and a meaningfully different direction.'}});
 
 export async function runStoryFlow(project,complete,{model = continuityModel,instruction = '',prose = '',sensitive = false,updates = []} = {}) {
+  const ending = !prose && project.sceneBoard?.chapters ? sceneIndex(project).at(-1) : undefined;
   const request = JSON.stringify({
     task:'Offer three next-scene directions for the writer.',
-    ...(sensitive ? {scene:'The latest passage is held. Use the story state and approved continuity.'}
-      : {latestDirection:instruction.trim(),latestProse:prose.trim()}),
+    ...(sensitive || ending && !ending.eligible ? {scene:'The latest passage is held. Use the story state and approved continuity.'}
+      : {latestDirection:instruction.trim(),latestProse:prose.trim() || (ending ? clipEnds(ending.text,1200) : '')}),
     approvedUpdates:graphSuggestions(updates)
   });
   const {messages,prefixLength,problem} = buildAgentContext(project,{system,request,model,outputLimit:storyFlowOutputLimit});

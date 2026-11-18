@@ -89,3 +89,20 @@ test('reviewed setup notes are eligible early history and unreviewed notes stay 
   project.setupHistory.reviewed = true;
   assert.match(JSON.stringify(prompt()),/Reference marker.*Chat marker/);
 });
+
+test('structured prompts use the current graph after an applied event has been corrected', () => {
+  const project = {messages:[{role:'assistant',standalone:true,content:'The ferry docked.',
+    appliedGraphUpdates:[{kind:'plot',note:'Superseded receipt'}]}],
+    plotEvents:[{storyTime:'1998-10-25T00:10',note:'Corrected event'}]};
+  const content = JSON.stringify(editorContext(project,'Inspect the crossing','unknown').messages);
+  assert.match(content,/Corrected event/);
+  assert.doesNotMatch(content,/Superseded receipt/);
+});
+
+test('editor sees the opening anchor and the current graph setting when asked to change them', () => {
+  const project = {storyStartAt:'1998-10-25T00:10',graphUpdates:false,
+    messages:[{role:'assistant',content:'Afternoon.',storyTime:'1998-10-25T15:00'}]};
+  const {messages} = editorContext(project,'Toggle automatic updates','unknown');
+  assert.match(messages.at(-1).content,/"openingStoryTime":"1998-10-25T00:10","automaticGraphUpdates":false/);
+  assert.ok(messages.at(-1).content.endsWith('Toggle automatic updates'));
+});

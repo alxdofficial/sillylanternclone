@@ -72,6 +72,10 @@ Exported through the browser, compared the export with the isolated saved librar
 
 ## Harness and documentation audit
 
+The 18 November follow-up checked prompt assembly, the provider adapters, and manuscript review separately. Fixtures cover compact tool handoffs, source changes during background work, deferred budget reservations, model-specific review reuse, and stable prompt prefixes. In four isolated live setup calls, direct Sonnet 5.5 reused 10,482 of 10,511 input tokens on its second call. Terra through OpenRouter reused 6,526 of 6,560. The four calls cost about US$0.04 in the spend ledger. This measures a deliberately shared prefix, and cache rates will differ for ordinary writing sessions.
+
+The Write insertion test used a saved copy of the demo. Hover or touch opened a divider’s plus menu. Saved prose appeared before the selected scene in Write and Book after reload. Its existing direction and reply stayed paired, and a pending divider at the end was still pending. Adding a divider at an older scene increased the chapter count in Book. The latest author input and prose retained their Edit actions. A separate Chromium check verified centered turn menus and the charcoal Book theme.
+
 Reviewed the writing, continuity, direct-edit, setup, and watcher paths against the published OpenRouter and MCP tool contracts. Verified that context filtering is app-owned, reads are scoped, and writes are revision-checked. Regression tests cover an abandoned browser request canceling the local upstream fetch, a repeated final tool call being retried as one batch before any edits apply, and bounded metadata previews excluding unknown stored fields. These checks used fixtures and local stdio MCP.
 
 ## Story, Agent, and setup through the shared tools

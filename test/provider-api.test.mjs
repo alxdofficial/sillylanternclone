@@ -7,6 +7,46 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { providerAdapters } from '../provider-api.mjs';
+
+test('provider cache hints preserve transcript roles and leave changing batch passages outside the marked prefix', () => {
+  const system = {role:'system',content:'Instructions'}, user = {role:'user',content:'Previous direction'};
+  const scene = {role:'assistant',content:'Previous scene'}, current = {role:'user',content:'Current request'};
+  const messages = [system,user,scene,current];
+  const request = (provider,model,stage,params = {}) => providerAdapters.get(provider).request({
+    stage,model,messages,maxOutputTokens:100,storyRef:'abc123',...params
+  });
+  for (const provider of ['anthropic','openrouter']) {
+    const model = provider === 'anthropic' ? 'claude-sonnet-5-5' : 'anthropic/claude-sonnet-5.5';
+    for (const [stage,params] of [['prose',{}],['story-edit',{prefixLength:3}]]) {
+      const body = request(provider,model,stage,params);
+      assert.deepEqual(body.messages.at(-2),{role:'assistant',content:[
+        {type:'text',text:scene.content,cache_control:{type:'ephemeral'}}
+      ]});
+      assert.deepEqual(body.messages.at(-1),current);
+      if (provider === 'openrouter') assert.equal(body.session_id,'studio-abc123-'+stage);
+    }
+    const batch = request(provider,model,'revision-background',{messages:[system,current]});
+    const blocks = provider === 'anthropic' ? batch.system : batch.messages[0].content;
+    assert.equal(blocks[0].cache_control.type,'ephemeral');
+    assert.deepEqual(batch.messages.at(-1),current);
+    assert.equal(batch.cache_control,undefined);
+  }
+  for (const [provider,model] of [['openai','gpt-6.1-terra'],['openrouter','openai/gpt-6.1-terra']]) {
+    const body = request(provider,model,'story-edit',{prefixLength:3});
+    const input = body.input ?? body.messages;
+    assert.equal(input[1].content[0].text,user.content);
+    assert.deepEqual(input[1].content[0].prompt_cache_breakpoint,{mode:'explicit'});
+    assert.deepEqual(input.slice(2),[scene,current]);
+    for (const stage of ['revision-background','setup-extract']) {
+      const batch = request(provider,model,stage,{messages:[system,current]});
+      assert.deepEqual(batch.prompt_cache_options,{mode:'explicit'});
+      assert.deepEqual((batch.input ?? batch.messages).at(-1),current);
+    }
+  }
+  assert.deepEqual(request('openrouter','custom/model','prose').messages,messages);
+  assert.deepEqual(messages,[system,user,scene,current]);
+});
 
 test('direct providers draft and exchange native tool results without crossing credentials', async () => {
   const directory = await mkdtemp(join(tmpdir(),'story-studio-providers-'));

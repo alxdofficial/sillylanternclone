@@ -1,7 +1,7 @@
 // Conversation assembly follows the block order of SillyTavern's default
 // Chat Completion preset. Implemented independently; see RESEARCH.md.
 import { modelContextWindow, proseOutputLimit } from './models.js';
-import { hasUpcomingChapter, setUpcomingChapter } from './scene-board.js';
+import { hasUpcomingChapter, manuscriptWriteHistory, setUpcomingChapter } from './scene-board.js';
 
 export const storyTextFields = ['premise', 'loreRules'];
 export const legacyCastFields = ['characterName', 'characterNickname', 'character', 'personality', 'scenario', 'examples', 'personaName', 'persona'];
@@ -603,7 +603,8 @@ export function buildWritingContext(project, instruction = '', mode = 'continue'
   const inputLimit = openRouter ? writingPromptLimit(model) : 48_000;
   const direction = instruction.trim();
   const options = {includeSensitive};
-  const initialHistory = recentTurns(project.messages,writingHistoryLimit(model),options);
+  const sourceTurns = openRouter && mode !== 'reference' ? manuscriptWriteHistory(project) : project.messages;
+  const initialHistory = recentTurns(sourceTurns,writingHistoryLimit(model),options);
   const scan = expand([...initialHistory.slice(-4).map(turn => turn.content),direction].join('\n'));
   const reference = mode === 'reference';
   const instructions = reference
@@ -612,20 +613,27 @@ export function buildWritingContext(project, instruction = '', mode = 'continue'
   if (mode === 'replace') instructions.push('Write the replacement scene from the revised direction and the earlier story. Use the original reply time if given.');
   const outputLimit = openRouter ? proseOutputLimit(model) : 0;
   if (openRouter && model) instructions.push(`The output limit for this turn is ${outputLimit.toLocaleString('en-US')} tokens.`);
-  if (isStoryTime(project.replyTime)) instructions.push(
-    `${mode === 'alternate' || mode === 'replace' ? 'Original reply time' : 'Dated writer turn'}:\n${project.replyTime}`);
+  const replyDate = isStoryTime(project.replyTime) ?
+    `${mode === 'alternate' || mode === 'replace' ? 'Original reply time' : 'Dated writer turn'}:\n${project.replyTime}` : '';
+  const dateInRequest = openRouter && !reference;
+  if (!dateInRequest && replyDate) instructions.push(replyDate);
+  const clock = openRouter && isStoryTime(project.contextTime) ? project.contextTime : lastStoryTime(project);
   const sections = [{label:'Narrator instructions',content:instructions.join('\n\n')},
-    ...storyStateParts(project,{scan,expand,clock:openRouter && isStoryTime(project.contextTime) ? project.contextTime : lastStoryTime(project)})];
-  const request = mode === 'alternate'
+    ...storyStateParts(project,{scan,expand,clock:dateInRequest ? '' : clock})];
+  const directionText = mode === 'alternate'
     ? 'Write a different take for the latest author direction in the history. Keep the original scene time and established continuity.'
     : direction ? (openRouter ? 'Author direction:\n' + direction : direction) : CONTINUE;
+  const request = dateInRequest ? [
+    clock && 'Story clock:\n' + clock + (project.storyStartSource === 'estimate' ? ' (estimate; defer to explicit story dates)' : ''),
+    replyDate, directionText
+  ].filter(Boolean).join('\n\n') : directionText;
   const asSystem = ({content})=>({role:'system',content});
   const pinned = sections.map(asSystem);
   const tail = reference ? [] : [{role:'user',content:request}];
   const pinnedTokens = sections.reduce((sum,{content})=>sum + estimateContextTokens(content),0)
     + (reference ? 0 : estimateContextTokens(request));
   const room = Math.min(writingHistoryLimit(model),Math.max(0,inputLimit - pinnedTokens));
-  const history = (room === writingHistoryLimit(model) ? initialHistory : recentTurns(project.messages,room,options)).map(turn=>({
+  const history = (room === writingHistoryLimit(model) ? initialHistory : recentTurns(sourceTurns,room,options)).map(turn=>({
     role:turn.role,content:turn.role === 'assistant' && turn.speakerId !== narrator.id && turn.speakerName
       ? turn.speakerName + ': ' + turn.content : turn.content
   }));

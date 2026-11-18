@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, stat } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
@@ -55,7 +55,7 @@ apiEndpoints.add('/api/story-versions');
 apiEndpoints.add('/api/manuscript-transition');
 foregroundEndpoints.add('/api/manuscript-transition');
 let foregroundRequests = 0;
-const background = createBackgroundAnalysis({dataDir,readLibrary:readSavedLibrary,
+const background = createBackgroundAnalysis({dataDir,readLibrary:readSavedLibrary,libraryVersion:savedLibraryVersion,
   hasKey:async model=>Boolean((await credentials.keys([[modelProvider(model)]]))[0]),
   shouldYield:()=>foregroundRequests > 0,
   async complete({storyId,model,messages,tools,signal}) {
@@ -105,6 +105,18 @@ function migrateLibrary(library) {
     }
   }
   return library;
+}
+async function savedLibraryVersion() {
+  const paths = process.env.STORY_STUDIO_DATA ? [statePath] : [statePath,join(root,'data','stories.json')];
+  for (const path of paths) {
+    try {
+      const file = await stat(path,{bigint:true});
+      return [path,file.dev,file.ino,file.size,file.mtimeNs,file.ctimeNs].join(':');
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
+  return 'empty';
 }
 async function readSavedLibrary() {
   try {
@@ -340,6 +352,9 @@ async function generateCompletion(messages, model, key, diagnostics, {
   if (finish === 'error') {
     throw diagnosticError(code('INCOMPLETE_REPLY'),providerName + ' reported an incomplete response.');
   }
+  if (tools?.length && finish === 'length') {
+    throw diagnosticError('AGENT_TOOL_OUTPUT_TRUNCATED',providerName + ' reached the output limit before completing its tool response.');
+  }
   const text = choice?.message?.content;
   const refusal = choice?.message?.refusal;
   if (tools && Array.isArray(choice?.message?.tool_calls) && finish === 'tool_calls' && !refusal) {
@@ -490,7 +505,7 @@ async function runRevisionReview(req,res,diagnostics) {
   Object.assign(diagnostics,{provider,model,reviewKind:kind,storyRef:storyReference(storyId)});
   const signal = disconnectSignal(res);
   try {
-    const result = await reviewStory(project,{kind,scope,query,comparison,model},
+    const result = await reviewStory(project,{kind,scope,query,comparison,model,signal},
       storyToolCompletion(model,key,diagnostics,'revision-review',signal,reviewOutputLimit));
     if (signal.aborted) return;
     if (revision !== liveRevision(await getState())) return json(res,409,{error:'The library changed during the review. Run it again for the latest version.'});
@@ -643,7 +658,7 @@ if (url.pathname === '/api/writing-analysis') {
       settings.model !== undefined && !isAgentModel(settings.model) ||
       settings.retry !== undefined && typeof settings.retry !== 'boolean')) return json(res,400,{error:'Check the analysis settings.'});
   const id = settings?.storyId || url.searchParams.get('story');
-  const project = (await getState()).projects.find(story=>story.id === id);
+  const project = id === starterStoryId ? starter : await background.projectById(id);
   if (!project) return json(res,404,{error:'The selected story is no longer available.'});
   if (id === starterStoryId) return json(res,200,starterReview(project));
   if (settings) await background.configure(project,settings);

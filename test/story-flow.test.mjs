@@ -59,6 +59,19 @@ test('Story Flow uses safe continuity for a held scene and retries duplicate opt
   assert.deepEqual(result,options);
 });
 
+test('manual Story Flow uses the end of reading order and withholds a held ending',async()=>{
+  const reordered = {...project,sceneBoard:{chapters:[[2,3,1]]}};
+  await runStoryFlow(reordered,async messages=>{
+    assert.equal(JSON.parse(messages.at(-1).content).latestProse,'Lina arrived at the empty dock.');
+    return offer(options);
+  });
+  await runStoryFlow({...project,sceneBoard:{chapters:[[3,1,2]]}},async messages=>{
+    assert.match(JSON.parse(messages.at(-1).content).scene,/latest passage is held/);
+    assert.doesNotMatch(JSON.stringify(messages),/WITHHELD PROSE MARKER|EXCLUDED PROSE MARKER/);
+    return offer(options);
+  });
+});
+
 test('Story Flow rejects a prose-only response instead of accepting it as options', async () => {
   await assert.rejects(runStoryFlow(project,async()=>({text:'The ferry finally arrived.'})),{diagnosticCode:'STORY_FLOW_NOT_OFFERED'});
 });

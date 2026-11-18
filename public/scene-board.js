@@ -148,6 +148,19 @@ export function readingChapters(project) {
   return manuscriptChapters(project).map(chapter=>chapter.map(scene=>scene.content));
 }
 
+export function manuscriptWriteHistory(project) {
+  if (!project.sceneBoard?.chapters) return project.messages;
+  const blocks = new Map();
+  let leading = [];
+  for (const [index,message] of project.messages.entries()) {
+    leading.push(message);
+    if (message.role !== 'assistant' || !message.content.trim()) continue;
+    blocks.set(message.turnNumber || index + 1,leading);
+    leading = [];
+  }
+  return manuscriptChapters(project).flatMap(chapter=>chapter.flatMap(scene=>blocks.get(scene.turn))).concat(leading);
+}
+
 export function readingChapterBreak(project,turn) {
   const chapters = manuscriptChapters(project);
   if (chapters[0]?.[0]?.turn === turn || !chapters.some(chapter=>chapter.some(scene=>scene.turn === turn))) return null;
