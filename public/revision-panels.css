@@ -91,42 +91,65 @@
   font-size: 12px;
 }
 .revision-dock .revision-metric-details button { padding-inline: 0; font-size: inherit; text-align: start; }
-.revision-dock #pacingStandout { justify-content: start; margin-bottom: 12px; }
-.pacing-heatmap {
-  min-inline-size: 0;
-  border: 0;
-  padding: 0;
-  margin: 0 0 16px;
+.revision-dock.pacing-view .revision-work { gap: 24px; }
+.revision-dock.pacing-view .revision-rail { justify-content: space-between; align-items: center; gap: 6px 16px; }
+.revision-dock.pacing-view .revision-rail label { flex: 0 1 auto; gap: 6px; }
+.revision-dock.pacing-view .revision-rail select {
+  margin: 0;
+  padding-block: 4px;
+  min-height: 34px;
+  max-width: 13ch;
+  background-color: transparent;
+  border-color: transparent;
 }
-.pacing-heatmap > legend {
-  padding: 0;
-  margin-bottom: 5px;
-  font-size: 15px;
-  font-weight: 550;
-}
-.heatmap-controls { display: flex; flex-wrap: wrap; gap: 2px 16px; }
+.revision-dock.pacing-view .revision-rail select:hover { background-color: var(--raised); }
+.pacing-views { display: flex; flex-wrap: wrap; gap: 4px; }
+.pacing-views button { min-height: 36px; padding: 5px 10px; }
+.pacing-views [aria-pressed='true'] { background: var(--raised); color: var(--text); }
+.pacing-chart-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 3px 12px; margin-bottom: 9px; }
+.revision-dock .pacing-chart-heading h3 { margin: 0; font-weight: 550; }
+.pacing-chart-key { color: var(--muted); font-size: 12px; }
+.pacing-chart-key::before { content: ''; display: inline-block; width: 10px; height: 5px; margin-inline-end: 6px; background: var(--focus); vertical-align: 2px; }
+#pacingOverview .revision-pacing-row { margin-bottom: 9px; }
+#pacingOverview .revision-pace-track { margin-block: 0; background: color-mix(in srgb, var(--border) 27%, transparent); }
+#pacingOverview .revision-list-section { margin-top: 24px; }
+#pacingOverview .background-review { margin-top: 13px; padding: 0; }
+.pacing-notes { margin-top: 18px; }
+.pacing-notes summary { color: var(--muted); font-size: 13px; cursor: pointer; }
+.pacing-heatmap { min-inline-size: 0; }
+.heatmap-controls { display: grid; gap: 6px; }
 .revision-dock .heatmap-controls label {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
-  min-height: 32px;
+  gap: 11px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--raised) 50%, transparent);
   color: var(--text);
+  cursor: pointer;
 }
-.heatmap-controls input { margin: 0; accent-color: var(--focus); }
+.revision-dock .heatmap-controls label:hover { background: var(--raised); }
+.heatmap-controls small { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; line-height: 1.4; }
+.pacing-heatmap input { margin: 0; accent-color: var(--focus); }
 .heatmap-swatch { display: inline-block; width: 13px; height: 11px; vertical-align: -.04em; }
 .density-swatch { background: rgb(205 149 65 / 48%); }
 .repetition-swatch { border-bottom: 2px solid #9cdbd0; }
 .revision-dock .heatmap-sensitivity {
   display: flex;
+  width: fit-content;
   align-items: center;
-  gap: 9px;
-  margin: 6px 0;
+  gap: 8px;
+  min-height: 36px;
+  margin-top: 7px;
+  font-size: 12px;
+  cursor: pointer;
 }
-.pacing-heatmap .form-note { margin: 6px 0; }
-.heatmap-summary { display: flex; gap: 0 10px; align-items: center; flex-wrap: wrap; }
-.pacing-heatmap details { font-size: 12px; color: var(--muted); }
-.pacing-heatmap details p { margin: 6px 0 0; max-width: 64ch; line-height: 1.55; }
-.pacing-heatmap summary { padding-block: 5px; cursor: pointer; }
+.heatmap-summary { display: flex; gap: 6px 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.heatmap-summary:has(:not([hidden])) { margin-top: 12px; }
+.heatmap-summary .form-note { margin: 0; }
+.heatmap-summary .button { margin-inline-start: auto; }
 .heatmap-legend {
   flex: none;
   display: flex;
@@ -141,7 +164,7 @@
 .heatmap-legend button { margin-inline-start: auto; }
 .transcript:has(.heatmap-legend:not([hidden])) .jump-latest { bottom: 55px; }
 @media (pointer: coarse) {
-  .revision-dock .heatmap-controls label { min-height: 44px; }
+  .pacing-views button, .revision-dock .heatmap-sensitivity { min-height: 44px; }
 }
 .revision-dock .revision-link-notice {
   display: flex;

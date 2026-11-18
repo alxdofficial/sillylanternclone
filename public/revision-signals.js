@@ -130,9 +130,26 @@ function paragraphDensity(text,words,cast,recent) {
   const score = (fresh(terms) + 3 * newAnchors) / Math.max(16,words.length);
   recent.push(new Set([...terms,...anchors]));
   if (recent.length > 6) recent.shift();
-  if (score >= .52 && newAnchors) return 'high';
-  if (score >= .40) return 'medium';
-  if (score >= .29) return 'low';
+  return {score,newAnchors};
+}
+
+function densityBands(paragraphs) {
+  const ranked = [...paragraphs].sort((a,b)=>b.score-a.score);
+  const middle = Math.floor(ranked.length / 2);
+  const median = ranked.length % 2 ? ranked[middle].score
+    : ((ranked[middle-1]?.score || 0) + (ranked[middle]?.score || 0)) / 2;
+  const strongLimit = Math.max(1,Math.floor(ranked.length * .10));
+  const moreLimit = Math.max(1,Math.floor(ranked.length * .25));
+  // A single paragraph has no baseline to compare against.
+  const strongScore = ranked.length === 1 ? .67 : Math.max(.52,median + .10);
+  const high = ranked.filter(({score,newAnchors})=>score >= strongScore && newAnchors >= (ranked.length === 1 ? 2 : 1))
+    .slice(0,strongLimit);
+  const strongest = new Set(high);
+  const medium = ranked.filter(paragraph=>ranked.length > 1 &&
+    paragraph.score >= Math.max(.40,median + .06) && !strongest.has(paragraph))
+    .slice(0,moreLimit-high.length);
+  const inOrder = items => items.sort((a,b)=>a.ref.turn-b.ref.turn || a.ref.start-b.ref.start).map(({ref})=>ref);
+  return {high:inOrder(high),medium:inOrder(medium)};
 }
 
 function paragraphRepeats(text,words,offset,history,scene,include) {
@@ -168,7 +185,7 @@ export function manuscriptHeatmap(project,scenes,selected) {
   const included = new Set(selected.map(scene=>scene.turn));
   const last = scenes.findLastIndex(scene=>included.has(scene.turn));
   const cast = castTerms(project), recent = [], history = new Map();
-  const density = {low:[],medium:[],high:[]}, repetition = {strong:[],subtle:[]};
+  const paragraphs = [], repetition = {strong:[],subtle:[]};
   let position = 0;
   for (let index = 0; index <= last; index++) {
     const scene = scenes[index];
@@ -177,12 +194,12 @@ export function manuscriptHeatmap(project,scenes,selected) {
       const [text] = paragraph;
       const words = [...text.matchAll(wordPattern)].map(match=>({value:keyWord(match[0]),start:match.index,end:match.index+match[0].length}));
       if (!words.length) continue;
-      const band = paragraphDensity(text,words,cast,recent);
-      if (include && band) density[band].push(reference(scene,paragraph.index,paragraph.index+text.length));
+      const density = paragraphDensity(text,words,cast,recent);
+      if (include) paragraphs.push({...density,ref:reference(scene,paragraph.index,paragraph.index+text.length)});
       const repeats = paragraphRepeats(text,words,position,history,scene,include);
       for (const {start,end,weight} of repeats) repetition[weight].push(reference(scene,paragraph.index+start,paragraph.index+end));
       position += words.length;
     }
   }
-  return {density,repetition};
+  return {density:densityBands(paragraphs),repetition};
 }

@@ -81,7 +81,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
 
   const empty = text => el('p',text,'form-note');
   const newState = () => ({scopes:new Map(),themeQuery:'',themeSearch:'',comparisonId:'',canon:'',notice:new Map(),expanded:new Set(),highlighting:false,
-    heatmap:{density:false,repetition:false,sensitivity:'more'}});
+    pacingView:'overview',heatmap:{density:false,repetition:false,more:false}});
   const sceneAt = (list,turn) => list.find(scene=>scene.turn === turn) || list.at(-1);
   const sourceKey = list => JSON.stringify(list.map(({turn,chapter,fingerprint,time,eligible})=>[turn,chapter,fingerprint,time,eligible]));
   const refKey = ({storyId,turn,fingerprint,start,end}) => `${storyId}:${turn}:${fingerprint}:${start}:${end}`;
@@ -95,7 +95,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     const signature = JSON.stringify([project.id,sourceKey(list),project.plotEvents,project.relationships,project.cast]);
     if (derivedIndex?.signature === signature) return derivedIndex;
     const rows = pacingRows(project,list);
-    derivedIndex = {signature,list,rows,max:rows.reduce((max,row)=>Math.max(max,row.length),1),recurring:new Map(),signals:new Map(),heatmaps:new Map()};
+    derivedIndex = {signature,list,rows,recurring:new Map(),signals:new Map(),heatmaps:new Map()};
     return derivedIndex;
   }
 
@@ -215,22 +215,13 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
   }
 
   function renderPacing(project, selected, findings) {
-    const {rows,max} = buildIndex(project);
+    const {rows} = buildIndex(project);
     const included = new Set(selected.map(scene=>scene.turn));
     const scoped = rows.filter(({scene})=>included.has(scene.turn));
     $('pacingSummary').textContent = scoped.length ? `${countLabel(scoped.length,'scene')} · ${countLabel(scoped.reduce((sum,row)=>sum + row.length,0),'word')}` : '';
-    const standout = $('pacingStandout');
-    standout.replaceChildren();
-    standout.hidden = scoped.length < 2;
-    if (!standout.hidden) {
-      const longest = scoped.reduce((best,row)=>row.length > best.length ? row : best);
-      const shortest = scoped.reduce((best,row)=>row.length < best.length ? row : best);
-      const jump = ({scene,length},label)=>button(`${label} · Scene ${scene.number} · ${countLabel(length,'word')}`,
-        ()=>void openScene(owner,scene.turn,'write',reference(scene)));
-      if (longest !== shortest) standout.append(jump(longest,'Longest'),jump(shortest,'Shortest'));
-      else standout.hidden = true;
-    }
-    $('pacingRows').replaceChildren(...scoped.map(({scene,length,dialogue,mentions})=>{
+    const max = scoped.reduce((longest,row)=>Math.max(longest,row.length),1);
+    $('pacingChartKey').hidden = !scoped.length;
+    $('pacingRows').replaceChildren(...scoped.map(({scene,length,dialogue})=>{
       const row = el('div','','revision-pacing-row');
       const head = el('div','','revision-metric-heading');
       const ref = reference(scene);
@@ -244,34 +235,38 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
       spoken.style.width = `${dialogue}%`;
       bar.append(spoken);
       track.append(bar);
-      const rate = length ? Math.round(scene.events * 1000 / length) / 10 : 0;
-      const events = countLabel(scene.events,'recorded change');
-      const meta = el('div','','revision-metric-details');
-      meta.append(el('span',mentions.length ? `Cast mentions: ${mentions.join(', ')}` : 'No cast mentions'));
-      if (scene.events) {
-        meta.append(button(`${events} · ${rate.toLocaleString()} per 100 words`,()=>void openScene(owner,scene.turn,'graph')));
-      } else meta.append(el('span',events));
-      row.append(head,track,meta);
+      row.append(head,track);
       return row;
     }));
     if (!scoped.length) $('pacingRows').append(empty('Write or import a scene to see its pacing.'));
     $('pacingAISection').hidden = !findings.length;
     $('pacingAIResults').replaceChildren(...findings.map(finding=>findingCard(finding)));
     const signals = signalsFor(project,selected);
-    $('pacingSignalsSection').hidden = !signals.length;
+    const comparisonGroup = $('pacingSignalsGroup');
+    comparisonGroup.hidden = !signals.length;
+    keepDetails(comparisonGroup,'pacing-signals');
     $('pacingSignals').replaceChildren(...signals.map(({label,ref,comparison})=>findingCard({title:label,refs:[ref,comparison]},
       ['Later passage','Earlier passage'])));
-    return [...findings.flatMap(finding=>finding.refs),...signals.flatMap(({ref,comparison})=>[ref,comparison])];
+  }
+
+  function renderPacingView(project,selected) {
+    const showHighlights = state.pacingView === 'highlights';
+    $('showPacingOverview').setAttribute('aria-pressed',String(!showHighlights));
+    $('showPacingHighlights').setAttribute('aria-pressed',String(showHighlights));
+    $('pacingOverview').hidden = showHighlights;
+    $('pacingHeatmap').hidden = !showHighlights;
+    applyHeatmap(project,selected);
   }
 
   function applyHeatmap(project,selected) {
     const available = canPaintHeatmap() && selected.length > 0;
-    const {density,repetition,sensitivity} = state.heatmap;
-    const enabled = available && (density || repetition);
+    const {density,repetition,more} = state.heatmap;
+    const enabled = available && state.pacingView === 'highlights' && (density || repetition);
     $('heatmapDensity').disabled = $('heatmapRepetition').disabled = $('heatmapSensitivity').disabled = !available;
     $('heatmapDensity').checked = density;
     $('heatmapRepetition').checked = repetition;
-    $('heatmapSensitivity').value = sensitivity;
+    $('heatmapSensitivity').checked = more;
+    $('heatmapSensitivityLabel').hidden = !enabled;
     const layers = {};
     if (enabled) {
       const index = derivedIndex;
@@ -282,22 +277,22 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
       }
       const results = index.heatmaps.get(key);
       if (density) {
-        if (sensitivity === 'more') layers['density-low'] = results.density.low;
-        layers['density-medium'] = results.density.medium;
+        if (more) layers['density-medium'] = results.density.medium;
         layers['density-high'] = results.density.high;
       }
       if (repetition) {
         results.repetition.all ||= [...results.repetition.strong,...results.repetition.subtle];
-        layers.repeated = sensitivity === 'more' ? results.repetition.all : results.repetition.strong;
+        layers.repeated = more ? results.repetition.all : results.repetition.strong;
       }
     }
     const shaded = Object.entries(layers).filter(([key])=>key.startsWith('density-')).reduce((sum,[,refs])=>sum+refs.length,0);
     const repeated = layers.repeated?.length || 0;
     const summary = $('heatmapSummary');
-    summary.hidden = !(enabled || !canPaintHeatmap());
-    summary.textContent = !canPaintHeatmap() ? 'This browser does not support in-text overlays.' : [
-      density ? countLabel(shaded,'shaded paragraph') : '', repetition ? countLabel(repeated,'repeated phrase') : ''
-    ].filter(Boolean).join(' · ');
+    const matches = [shaded && countLabel(shaded,'dense paragraph'),repeated && countLabel(repeated,'repeated phrase')].filter(Boolean);
+    summary.hidden = available && !enabled;
+    summary.textContent = !canPaintHeatmap() ? 'This browser does not support in-text highlights.'
+      : !selected.length ? 'Write or import a scene to see highlights.'
+        : matches.join(' · ') || 'No matches in this scope.';
     $('heatmapLegend').hidden = !(shaded || repeated);
     $('densityLegend').hidden = !shaded;
     $('repetitionLegend').hidden = !repeated;
@@ -692,8 +687,8 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     updateReview(key,cache);
     let refs;
     if (mode === 'pacing') {
-      refs = renderPacing(project,selected,findings);
-      applyHeatmap(project,selected);
+      renderPacing(project,selected,findings);
+      renderPacingView(project,selected);
     }
     if (mode === 'themes') refs = renderThemes(project,selected,findings);
     if (mode === 'threads') refs = renderThreads(findings);
@@ -733,10 +728,15 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
       if (state) state.highlighting = false;
       if (mode === 'pacing') clearHeatmap();
       highlight([]);
+      const background = $('backgroundReview');
+      if (tool === 'pacing') $('pacingOverview').append(background);
+      else $('workspaceToolContent').prepend(background);
     }
     mode = tool;
     view.hidden = !(tool in toolSections);
     continuityView.hidden = tool !== 'continuity';
+    $('pacingViews').hidden = tool !== 'pacing';
+    view.classList.toggle('pacing-view',tool === 'pacing');
     for (const [kind,id] of Object.entries(toolSections)) $(id).hidden = kind !== tool;
     render();
   }
@@ -795,7 +795,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
   function installVisualization(parent,kind,before = null) {
     const root = el('div','','revision-visualization');
     const controls = {root,refs:[],index:-1};
-    const toggle = button(kind === 'pacing' ? 'Highlight findings' : 'Highlight in text',()=>{
+    const toggle = button('Highlight in text',()=>{
       state.highlighting = !state.highlighting;
       controls.index = -1;
       setVisualization(controls.refs);
@@ -834,9 +834,13 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     pins.after($('themeAISection'));
     tools.prepend($('themesIntro'));
     $('themeQuery').required = false;
-    const pacing = $('revisionPacing');
-    const signals = addSection(pacing,'Repeated wording','pacingSignalsSection');
-    signals.id = 'pacingSignals';
+    const signals = el('details','','pacing-notes');
+    signals.id = 'pacingSignalsGroup';
+    signals.append(el('summary','Similar wording across scenes'));
+    const signalList = el('div');
+    signalList.id = 'pacingSignals';
+    signals.append(signalList);
+    $('pacingOverview').append(signals);
     const threadForm = el('details','','revision-thread-form');
     threadForm.id = 'threadFormGroup';
     threadForm.append(el('summary','Add or edit a thread by scene'));
@@ -852,9 +856,9 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     linkNotice.setAttribute('role','status');
     $('trackedThreadsSection').before(linkNotice);
     threadForm.after($(reviewButtons.threads));
-    for (const kind of ['pacing','themes','threads','continuity']) {
+    for (const kind of ['themes','threads','continuity']) {
       const parent = kind === 'continuity' ? $('continuityFindings').parentElement : $(toolSections[kind]);
-      const before = kind === 'continuity' ? $('continuityFindings') : kind === 'pacing' ? $('pacingSummary') : parent.firstElementChild;
+      const before = kind === 'continuity' ? $('continuityFindings') : parent.firstElementChild;
       installVisualization(parent,kind,before);
       if (kind in reviewButtons) {
         const meta = el('span','','revision-review-model');
@@ -866,15 +870,24 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
   }
 
   installMarkup();
+  $('showPacingOverview').onclick = ()=>{
+    state.pacingView = 'overview';
+    renderPacingView(activeStory(),selectScenes(scenes,scope));
+  };
+  $('showPacingHighlights').onclick = ()=>{
+    state.pacingView = 'highlights';
+    renderPacingView(activeStory(),selectScenes(scenes,scope));
+  };
   for (const id of ['heatmapDensity','heatmapRepetition','heatmapSensitivity']) $(id).onchange = ()=>{
-    state.heatmap = {density:$('heatmapDensity').checked,repetition:$('heatmapRepetition').checked,sensitivity:$('heatmapSensitivity').value};
+    state.heatmap = {density:$('heatmapDensity').checked,repetition:$('heatmapRepetition').checked,more:$('heatmapSensitivity').checked};
     applyHeatmap(activeStory(),selectScenes(scenes,scope));
   };
   $('clearHeatmap').onclick = ()=>{
     clearHeatmap();
     applyHeatmap(activeStory(),selectScenes(scenes,scope));
     const returnButton = $('returnToTool');
-    (returnButton.hidden ? $('heatmapDensity') : returnButton).focus({preventScroll:true});
+    if (!returnButton.hidden) returnButton.focus({preventScroll:true});
+    else if (!$('pacingHeatmap').hidden) $('heatmapDensity').focus({preventScroll:true});
   };
   $('revisionScope').onchange = ()=>{
     state.scopes.set(mode,$('revisionScope').value);

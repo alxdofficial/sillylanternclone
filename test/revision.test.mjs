@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createStarterStory } from '../examples/the-late-ferry.mjs';
 import { buildReview, createRevisionReviewer } from '../revision-review.mjs';
 import { branchRevisionNotes, continuityChecks, motifOccurrences, normalizeRevisionNotes, pacingRows, reference, resolveReference, resolveReferenceRange, sceneIndex } from '../public/revision.js';
 import { findRecurringDetails, manuscriptHeatmap, passageSignals } from '../public/revision-signals.js';
@@ -125,4 +126,14 @@ test('manuscript heatmap marks exact later phrases and distinguishes stronger an
   assert.ok(result.density.high.some(ref=>resolveReference(ref,scenes[1]).includes('37 passengers')));
   assert.ok(result.density.high.every(ref=>!resolveReference(ref,scenes[1]).includes('sparrows')));
   assert.deepEqual(manuscriptHeatmap(project,scenes,[scenes[0]]).repetition.strong,[]);
+});
+
+test('ordinary prose stays mostly unshaded even when subtler detail density is enabled',()=>{
+  const project = createStarterStory();
+  const scenes = sceneIndex(project);
+  const paragraphs = scenes.flatMap(scene=>scene.text.trim().split(/\n\s*\n/u)).length;
+  const {density} = manuscriptHeatmap(project,scenes,scenes);
+  assert.ok(density.high.length > 0);
+  assert.ok(density.high.length <= Math.floor(paragraphs * .10));
+  assert.ok(density.high.length + density.medium.length <= Math.floor(paragraphs * .25));
 });

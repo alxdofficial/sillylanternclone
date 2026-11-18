@@ -226,31 +226,44 @@
           </details>
           <div class="revision-work">
             <aside class="revision-rail">
+              <div class="pacing-views" id="pacingViews" role="group" aria-label="Pacing view" hidden>
+                <button type="button" class="text-button" id="showPacingOverview" aria-controls="pacingOverview" aria-pressed="true">Scene overview</button>
+                <button type="button" class="text-button" id="showPacingHighlights" aria-controls="pacingHeatmap" aria-pressed="false">Text highlights</button>
+              </div>
               <label title="Choose the scene, chapter, or book to review."><span id="revisionScopeLabel">Scope</span><select id="revisionScope"></select></label>
               <div id="revisionScenes" aria-label="Scenes in scope"></div>
             </aside>
             <div class="revision-content">
               <section id="revisionPacing">
-                <fieldset class="pacing-heatmap" id="pacingHeatmap">
-                  <legend>Text heatmap</legend>
-                  <div class="heatmap-controls">
-                    <label><input type="checkbox" id="heatmapDensity"><span class="heatmap-swatch density-swatch" aria-hidden="true"></span> Detail density</label>
-                    <label><input type="checkbox" id="heatmapRepetition"><span class="heatmap-swatch repetition-swatch" aria-hidden="true"></span> Repeated phrases</label>
+                <section id="pacingOverview" aria-labelledby="showPacingOverview">
+                  <div class="pacing-chart-heading">
+                    <h3 id="pacingSummary"></h3>
+                    <span class="pacing-chart-key" id="pacingChartKey">Tinted area shows estimated dialogue</span>
                   </div>
-                  <label class="heatmap-sensitivity">Highlight <select id="heatmapSensitivity"><option value="strong">Strong signals</option><option value="more">More signals</option></select></label>
-                  <div class="heatmap-summary"><p class="form-note" id="heatmapSummary" role="status" hidden></p><button class="text-button" type="button" id="viewHeatmap" hidden>View highlights</button></div>
-                  <details>
-                    <summary>How highlights are picked</summary>
-                    <p>Shading estimates how many names, numbers, and distinctive words are new to the last six paragraphs. Darker shading marks more signals per word. Underlines mark a phrase repeated within about 900 words. More signals adds lighter shading and three-word repeats.</p>
-                  </details>
-                </fieldset>
-                <h3 id="pacingSummary"></h3>
-                <p class="form-note">Bar length shows words. The shaded part estimates dialogue. Select a scene to read it.</p>
-                <div id="pacingStandout" class="revision-metric-details" hidden></div>
-                <section id="pacingAISection" class="revision-list-section" hidden>
-                  <h3>Pacing observations</h3><div id="pacingAIResults"></div>
+                  <div class="revision-charts" id="pacingRows"></div>
+                  <section id="pacingAISection" class="revision-list-section" hidden>
+                    <h3>Review notes</h3><div id="pacingAIResults"></div>
+                  </section>
                 </section>
-                <div class="revision-charts" id="pacingRows"></div>
+                <section class="pacing-heatmap" id="pacingHeatmap" aria-labelledby="showPacingHighlights" hidden>
+                  <div class="heatmap-controls">
+                    <label for="heatmapDensity">
+                      <span class="heatmap-swatch density-swatch" aria-hidden="true"></span>
+                      <span><span id="densityLabel">Detail density</span><small id="densityDescription">Shades passages where several new details arrive together.</small></span>
+                      <input type="checkbox" id="heatmapDensity" aria-labelledby="densityLabel" aria-describedby="densityDescription">
+                    </label>
+                    <label for="heatmapRepetition">
+                      <span class="heatmap-swatch repetition-swatch" aria-hidden="true"></span>
+                      <span><span id="repetitionLabel">Repeated phrases</span><small id="repetitionDescription">Underlines wording that appeared nearby.</small></span>
+                      <input type="checkbox" id="heatmapRepetition" aria-labelledby="repetitionLabel" aria-describedby="repetitionDescription">
+                    </label>
+                  </div>
+                  <label class="heatmap-sensitivity" id="heatmapSensitivityLabel" hidden><input type="checkbox" id="heatmapSensitivity"> Include subtler matches</label>
+                  <div class="heatmap-summary">
+                    <p class="form-note" id="heatmapSummary" role="status" hidden></p>
+                    <button class="button primary" type="button" id="viewHeatmap" hidden>View in manuscript</button>
+                  </div>
+                </section>
               </section>
               <section id="revisionThemes" hidden>
                 <p class="form-note" id="themesIntro">Open a recurring phrase to compare where it appears. Pin the passages you want to revisit.</p>

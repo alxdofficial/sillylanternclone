@@ -107,7 +107,7 @@ Background observations and pairing decisions have independent recipe versions i
 
 ### Which in-text signals are useful
 
-Repetition and detail density answer different questions. Repetition marks a specific later occurrence that the writer can read aloud and decide to keep. The local scan uses exact nearby phrases with distinctive content words and a 900-word lookback. Density gives the writer a place to check whether several details arrive together. It combines recently unseen words with concrete anchors such as names from the cast or numbers. The strongest shade needs a new anchor. Treat both overlays as prompts to reread.
+Repetition marks a specific later occurrence that the writer can read aloud and decide to keep. The local scan uses exact nearby phrases with distinctive content words and a 900-word lookback. Density combines recently unseen words with concrete anchors such as cast names or numbers. It compares each paragraph against the selected scope so ordinary vocabulary does not shade every paragraph. In scopes with several paragraphs, the default selects about the top tenth at most and the optional subtler layer expands coverage up to about a quarter. Treat both overlays as prompts to reread.
 
 A sentence-rhythm overlay could point to clusters of similarly long sentences using local sentence segmentation. A quoted-dialogue overlay could show where a run of dialogue starts and ends. Semantic echoes would need a separate signal. Embed passages once per text fingerprint, then use cosine similarity to retrieve earlier passages and show them together. Evaluate it on exact repeats, paraphrases, and unrelated passages that share a setting or mood before applying it across a manuscript.
 
