@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { captureGraphVersion, storyAtTurn } from './public/graph-history.js';
 import { maxLibraryStories, starterStoryId } from './public/library.js';
 import { branchRevisionNotes } from './public/revision.js';
+import { normalizeSceneBoard } from './public/scene-board.js';
 import {
   castFields, getCast, isAvailableToMcp, localStoryTime, nextTurnNumber,
   mcpOmissionReason, precedingDirection
@@ -129,8 +130,18 @@ export function applyNativeStoryChange(library,project,change) {
       const deleted = new Set([change.turnNumber,...(paired ? [next.turnNumber || index + 2] : [])]);
       project.messages.splice(index,paired ? 2 : 1);
       if (project.plotEvents) project.plotEvents = project.plotEvents.filter(event=>!deleted.has(event.turn));
-      delete project.agentRequest;
-      delete project.agentNotice;
+      if (project.agentRequest && (deleted.has(project.agentRequest.turnNumber) ||
+          deleted.has(project.agentRequest.replyTurnNumber))) delete project.agentRequest;
+      if (project.agentNotice && deleted.has(project.agentNotice.turnNumber)) delete project.agentNotice;
+      if (project.sceneBoard) {
+        const board = normalizeSceneBoard(project);
+        if (board) project.sceneBoard = board;
+        else delete project.sceneBoard;
+      }
+      if (project.draftCheckpoints) {
+        project.draftCheckpoints = project.draftCheckpoints.filter(checkpoint=>!deleted.has(checkpoint.turn));
+        if (!project.draftCheckpoints.length) delete project.draftCheckpoints;
+      }
       return {deletedTurns:paired ? 2 : 1};
     } else {
       const updated = storyAtTurn(project,index);

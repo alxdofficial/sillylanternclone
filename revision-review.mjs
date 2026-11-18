@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { agentTool, runAgentTask } from './agent-tools.mjs';
 import { diagnosticError } from './diagnostics.mjs';
 import { agentBudget } from './public/agent-context.js';
-import { estimateContextTokens, getCast } from './public/prompt.js';
+import { estimateContextTokens, getCast, plotEventContext, simpleCharacter } from './public/prompt.js';
 import { reference, reviewFindingId, sceneIndex, selectScenes } from './public/revision.js';
 
 export const reviewOutputLimit = 4096;
@@ -30,7 +30,9 @@ const instructions = {
 };
 const canonical = project => ({
   title:project.title, premise:project.premise, world:project.lore, writing:project.notes,
-  cast:getCast(project), plot:project.plotEvents, relationships:project.relationships
+  cast:getCast(project).map(simpleCharacter).map(({id,name,nickname,description})=>({id,name,nickname,description})),
+  plot:project.plotEvents?.map(plotEventContext),
+  relationships:project.relationships?.map(({from,to,turn,label,storyTime})=>({from,to,turn,label,storyTime}))
 });
 
 export function buildReview(project,{kind,scope,query = '',comparison,model}) {

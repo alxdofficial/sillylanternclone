@@ -56,9 +56,16 @@ export function artworkStatus(project,entries) {
   const scenes = new Map(sceneIndex(project).map(scene=>[scene.turn,scene]));
   const stale = new Set();
   const byId = new Set(entries.map(entry=>entry.id));
+  const dependents = new Map();
   const canonKeys = new Map();
   for (const entry of entries) {
     const {source,subject} = entry;
+    for (const id of entry.references || []) {
+      if (!byId.has(id)) stale.add(entry.id);
+      const downstream = dependents.get(id) || [];
+      downstream.push(entry.id);
+      dependents.set(id,downstream);
+    }
     const subjectKey = subject?.kind === 'character' ? subject.name : '';
     if (!canonKeys.has(subjectKey)) canonKeys.set(subjectKey,artworkCanonKey(project,subject));
     if (source?.canonKey && source.canonKey !== canonKeys.get(subjectKey) ||
@@ -67,7 +74,9 @@ export function artworkStatus(project,entries) {
     }
   }
   // A deleted or outdated reference can invalidate an illustration that used it.
-  for (const entry of entries) if (entry.references?.some(id=>stale.has(id) || !byId.has(id))) stale.add(entry.id);
+  for (const id of stale) {
+    for (const dependent of dependents.get(id) || []) stale.add(dependent);
+  }
   return entries.map(entry=>{
     const {prompt,source,...metadata} = entry;
     const placedTurn = scenes.has(entry.placedTurn) ? entry.placedTurn : undefined;

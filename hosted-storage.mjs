@@ -38,23 +38,24 @@ export function createHostedStorage({url,key,fetchImpl = fetch}) {
     throw new Error('Configure the Supabase URL and publishable key for hosted storage.');
   }
 
-  function forAccount({userId,accessToken}) {
-    if (!uuid.test(userId) || !accessToken) throw storageError(401,'Sign in to access your library.');
+  function forAccount({userId,accessToken,getAccessToken}) {
+    if (!uuid.test(userId) || (!getAccessToken && !accessToken)) throw storageError(401,'Sign in to access your library.');
 
     async function request(path,options = {}) {
+      const token = getAccessToken ? await getAccessToken() : accessToken;
       let response;
       try {
         response = await fetchImpl(new URL(path,base),{
           ...options,
           redirect:'error',
           signal:AbortSignal.timeout(60_000),
-          headers:{apikey:key,authorization:'Bearer '+accessToken,...options.headers}
+          headers:{apikey:key,authorization:'Bearer '+token,...options.headers}
         });
       } catch {
         throw storageError();
       }
       if (response.ok) return response;
-      await response.body?.cancel();
+      await response.body?.cancel().catch(()=>{});
       if (response.status === 401 || response.status === 403) throw storageError(401,'Sign in again to access your library.');
       if (response.status === 413) throw storageError(413,'The saved data exceeds the hosted storage limit.');
       throw storageError();

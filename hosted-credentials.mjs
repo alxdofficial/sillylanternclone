@@ -5,7 +5,7 @@ import { diagnosticError } from './diagnostics.mjs';
 const providers = Object.keys(providerNames);
 const problem = (status,code,message) => Object.assign(diagnosticError(code,message),{status});
 
-export function createHostedCredentials(auth,{account,accessToken}) {
+export function createHostedCredentials(auth,{account,getAccessToken}) {
   const purpose = provider => `studio-provider-key-v1:${account.id}:${provider}`;
   const denied = () => problem(403,'BYOK_DISABLED','This account is not approved to use its own provider keys.');
   const unavailable = () => problem(503,'CREDENTIAL_STORE_UNAVAILABLE','Studio could not access your provider keys.');
@@ -13,7 +13,7 @@ export function createHostedCredentials(auth,{account,accessToken}) {
   async function saved(onlyNames = false) {
     if (!account.canBringKey) return [];
     const projection = onlyNames ? 'provider' : 'provider,ciphertext';
-    const {status,data} = await auth.request('/rest/v1/story_studio_provider_keys?select=' + projection,{token:accessToken});
+    const {status,data} = await auth.request('/rest/v1/story_studio_provider_keys?select=' + projection,{token:await getAccessToken()});
     if (status !== 200 || !Array.isArray(data)) throw unavailable();
     return data;
   }
@@ -42,11 +42,11 @@ export function createHostedCredentials(auth,{account,accessToken}) {
       if (Object.keys(changes).length) {
         const p_changes = Object.fromEntries(Object.entries(changes).map(([provider,key])=>
           [provider,key === null ? null : auth.encrypt(key,purpose(provider))]));
-        const {status} = await auth.request('/rest/v1/rpc/story_studio_update_provider_keys',{
-          token:accessToken,method:'POST',payload:{p_changes}
+        const {status,data} = await auth.request('/rest/v1/rpc/story_studio_update_provider_keys',{
+          token:await getAccessToken(),method:'POST',payload:{p_changes}
         });
         if (status === 401 || status === 403) throw denied();
-        if (status !== 200 && status !== 204) throw unavailable();
+        if (status !== 200 || data !== true) throw unavailable();
       }
       return this.status();
     }

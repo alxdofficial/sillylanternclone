@@ -27,3 +27,11 @@ test('artwork revisions track the passage and referenced artwork without mutatin
   assert.throws(()=>artworkPassage(updated,reference(scene)),/passage changed/);
   assert.equal(project.messages[0].content,'The late ferry waited.');
 });
+
+test('artwork staleness follows references regardless of gallery order',()=>{
+  const project = {id:'fixture',messages:[]};
+  const reference = {id:'original',kind:'reference',source:{canonKey:'older-key'}};
+  const draft = {id:'draft',kind:'illustration',references:[reference.id]};
+  const comic = {id:'comic',kind:'comic',references:[draft.id]};
+  assert.deepEqual(artworkStatus(project,[comic,draft,reference]).map(asset=>asset.stale),[true,true,true]);
+});

@@ -143,13 +143,42 @@ test('Agent retries a prose edit after a plain reply and accepts a read anchor a
   let round=0;
   const result=await runStoryEdit(story,'Replace the words “anchor ends” with “signal starts”.',async messages=>{
     round++;
-    if (round === 1) return {role:'assistant',content:'I know what to change.'};
+    if (round === 1) return {text:'I know what to change.',truncated:false};
     if (round === 2) {
       assert.match(messages.at(-1).content,/required edit_story_state/);
+      assert.deepEqual(messages.at(-2),{role:'assistant',content:'I know what to change.'});
       return call('inspect_manuscript',{turn:1},round);
     }
     if (round === 3) return call('inspect_manuscript',{turn:1,offset:JSON.parse(messages.at(-1).content).nextOffset},round);
     return call('edit_story_state',final([{kind:'revise_scene',turn:1,anchor:'anchor ends',text:'signal starts'}]),round);
   },'claude-sonnet-5-5');
   assert.ok(result.proposalId);
+});
+
+test('a reviewed passage keeps replacement whitespace and binds every metadata value',async()=>{
+  const story = book();
+  let round = 0;
+  await runStoryEdit(story,'Change the opening and rename the book.',async()=>{
+    round++;
+    if (round === 1) return call('inspect_manuscript',{turn:1},round);
+    return call('edit_story_state',final([{kind:'revise_scene',turn:1,anchor:' waited ',text:' drifted '}],
+      [{kind:'settings',title:'Day Shift'}]),round);
+  },'claude-sonnet-5-5');
+  const proposal = story.agentHistory[0].proposal;
+  assert.match(proposal.previews.at(-1).detail,/Day Shift/);
+  assert.equal(applyManuscriptProposal(story,proposal.id).project.messages[0].content,'The ferry drifted in fog.');
+  proposal.metadata[0].title = 'Different title';
+  assert.throws(()=>applyManuscriptProposal(story,proposal.id),/reviewed preview/);
+});
+
+test('previously saved mixed proposals show full metadata in review and still apply',()=>{
+  const story = book();
+  const proposal = proposeManuscriptEdit(story,[{kind:'revise_scene',turn:1,text:'A new opening.'}],
+    [{kind:'settings',title:'Day Shift'}]);
+  proposal.previews.at(-1).detail = 'settings';
+  story.agentHistory = [{afterTurn:3,request:'Update the book.',message:'Review these changes.',count:0,proposal}];
+  const [reviewed] = normalizeAgentHistory(story.agentHistory);
+  assert.match(reviewed.proposal.previews.at(-1).detail,/Day Shift/);
+  assert.equal(proposal.previews.at(-1).detail,'settings');
+  assert.equal(applyManuscriptProposal(story,proposal.id).project.title,'Day Shift');
 });

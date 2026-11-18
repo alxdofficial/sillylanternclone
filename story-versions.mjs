@@ -120,21 +120,25 @@ export function createStoryVersions(dataDir, fileAccess) {
     return access(storyId,async files=>(await readManifest(files,storyId)).reverse().map(metadata));
   }
 
+  async function readSnapshot(files,digest,storyId) {
+    try {
+      const compressed = await files.readAsset(digest + '.json.gz',compressedByteLimit);
+      const contents = await gunzipAsync(compressed,{maxOutputLength:libraryByteLimit});
+      if (hash(contents) !== digest) throw corrupt();
+      const story = JSON.parse(contents.toString('utf8'));
+      if (!recordObject(story) || story.id !== storyId || !Array.isArray(story.messages)) throw corrupt();
+      return {story,compressed};
+    } catch {
+      throw corrupt();
+    }
+  }
+
   async function get(storyId,versionId) {
     if (!validVersionId(versionId)) return null;
     return access(storyId,async files=>{
       const entry = (await readManifest(files,storyId)).find(item=>item.id === versionId);
       if (!entry) return null;
-      try {
-        const compressed = await files.readAsset(entry.digest + '.json.gz',compressedByteLimit);
-        const contents = await gunzipAsync(compressed,{maxOutputLength:libraryByteLimit});
-        if (hash(contents) !== entry.digest) throw corrupt();
-        const story = JSON.parse(contents.toString('utf8'));
-        if (!recordObject(story) || story.id !== storyId || !Array.isArray(story.messages)) throw corrupt();
-        return story;
-      } catch {
-        throw corrupt();
-      }
+      return (await readSnapshot(files,entry.digest,storyId)).story;
     });
   }
 
@@ -183,7 +187,7 @@ export function createStoryVersions(dataDir, fileAccess) {
         include(`${folder}/manifest.json`,Buffer.from(JSON.stringify({version:1,storyId,entries})));
         for (const digest of new Set(entries.map(entry=>entry.digest))) {
           const filename = `${digest}.json.gz`;
-          include(`${folder}/snapshots/${filename}`,await storage.readAsset(filename,compressedByteLimit));
+          include(`${folder}/snapshots/${filename}`,(await readSnapshot(storage,digest,storyId)).compressed);
         }
       });
     }

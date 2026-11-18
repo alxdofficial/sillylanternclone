@@ -1,21 +1,22 @@
+import { normalizeLibrary } from './library-normalize.js';
 import { createWorkspace } from './workspace.js';
-import { activeStoryFlow, normalizeStoryFlow, storyFlowTurn, validStoryFlowOptions } from './story-flow.js';
-import { applyGraphUpdate, applyTurnGraphUpdates, captureGraphVersion, ensureGraphBaseline, graphChangesByTurn, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
+import { activeStoryFlow, storyFlowTurn, validStoryFlowOptions } from './story-flow.js';
+import { applyGraphUpdate, applyTurnGraphUpdates, captureGraphVersion, ensureGraphBaseline, graphChangesByTurn, storyAtTurn } from './graph-history.js';
 import { bookMarkdown, libraryByteLimit, maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
 import { createSceneBoard, hasUpcomingChapter, lastProseTurn, manuscriptChapters, moveManuscriptScene, normalizeSceneBoard, readingChapterBreak, setUpcomingChapter, toggleReadingChapter } from './scene-board.js';
-import { createDraftComparison, normalizeDraftCheckpoints, restoreDraftText } from './draft-comparison.js';
+import { createDraftComparison, restoreDraftText } from './draft-comparison.js';
 import { bookAo3File, bookDocx, copyBookForAo3, docxMimeType } from './book-exports.js';
 import { ARTWORK_DRAG_TYPE, artworkPassageSize, createArtworkView } from './artwork-view.js';
 import { appendProseDiff, createTimeMachine } from './time-machine.js';
 import { defaultChapterStarts, manuscriptByteLimit, manuscriptPassages, manuscriptReference, manuscriptTurns, parseManuscript } from './manuscript.js';
-import { mergeLibrary } from './sync.js';
+import { mergeLibrary, sameValue } from './sync.js';
 import { createDisplayNameMatcher } from './display-names.js';
 import { enhanceSelect } from './model-picker.js';
 import { createRevisionViews } from './revision-view.js';
 import { installExpandedEditors } from './expanded-editor.js';
 import { createPassageSelection } from './passage-selection.js';
-import { branchRevisionNotes, normalizeRevisionNotes, sceneIndex } from './revision.js';
-import { buildWritingContext, formatMessages, storyTextFields, narrator, resolveCastName, migrateLegacyCast, migrateStoryFields, simpleCharacter, castFields, validCast, validRelationships, validPlotEvents, graphSuggestions, nextTurnNumber, appendTurn, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
+import { branchRevisionNotes, sceneIndex } from './revision.js';
+import { buildWritingContext, formatMessages, storyTextFields, narrator, resolveCastName, simpleCharacter, castFields, validCast, validPlotEvents, graphSuggestions, nextTurnNumber, appendTurn, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
 import { models, chapterCost, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isModelId, isWriterModel, modelLabel, modelTag, modelContextWindow, modelProvider, providerNames, setupDraftModel, setupChatOutputLimit, setupDraftOutputLimit, usesSensitiveContinuity } from './models.js';
 import { dateWriterTurn, mcpOmissionReason, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
@@ -220,6 +221,7 @@ const sensitiveContinuity = project => usesSensitiveContinuity(writingModel(proj
 const pendingComposerEdits = new Map();
 let composerEdit;
 const id = () => globalThis.crypto?.randomUUID?.() || `story-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const normalize = data => normalizeLibrary(data,id);
 const current = () => state.projects.find(p => p.id === state.activeId);
 function status(text) {
   $('#saveStatus').textContent = text === 'Saved locally' && current().id === starterStoryId
@@ -293,18 +295,21 @@ function adoptLibrary(library) {
   const projects = library.projects.map(project => {
     const local = known.get(project.id);
     if (!local || local === project) return project;
-    for (const key of Object.keys(local)) if (!(key in project)) delete local[key];
+    for (const key of Object.keys(local)) if (!Object.hasOwn(project,key)) delete local[key];
     for (const [key, value] of Object.entries(project)) {
       if (key === 'messages') {
         if (local.messages === value) continue;
         local.messages.length = value.length;
         value.forEach((turn,index)=>{ local.messages[index] = turn; });
-      } else local[key] = value;
+      } else Object.defineProperty(local,key,{value,writable:true,enumerable:true,configurable:true});
     }
     return local;
   });
   state.projects.splice(0, state.projects.length, ...projects);
-  state.activeId = library.activeId;
+  for (const key of Object.keys(state)) if (!Object.hasOwn(library,key)) delete state[key];
+  for (const [key,value] of Object.entries(library)) {
+    if (key !== 'projects') Object.defineProperty(state,key,{value,writable:true,enumerable:true,configurable:true});
+  }
 }
 // After a 409, combine the page's edits with what the agent or another tab saved.
 async function mergeServerLibrary({ifChanged = false} = {}) {
@@ -323,7 +328,10 @@ async function mergeServerLibrary({ifChanged = false} = {}) {
   render();
 }
 window.addEventListener('beforeunload', event => {
-  if (libraryDirty || pendingLibraryWrites || (state && settingsDraftChanged())) event.preventDefault();
+  const hasDraft = ([storyId,draft])=>storyId !== starterStoryId && draft.text.trim();
+  const hasTurnEdit = ([storyId,edit])=>storyId !== starterStoryId && (edit.draft !== edit.original || edit.verified);
+  if (libraryDirty || pendingLibraryWrites || (state && settingsDraftChanged()) ||
+    [...manualProseDrafts].some(hasDraft) || [...pendingComposerEdits].some(hasTurnEdit)) event.preventDefault();
 });
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
 const transientDisplayNames = new Map();
@@ -909,13 +917,11 @@ const timeMachine = createTimeMachine({
     if (dirty || current().id !== storyId) throw Error('Save the current story before restoring.');
     await api('/api/story-versions',{method:'PUT',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({storyId,versionId:entry.id,revision})});
-    const response = await studioFetch('/api/state');
-    if (!response.ok) throw Error('The version was restored. Reload Studio to see it.');
-    revision = response.headers.get('etag');
-    demoGeneration = response.headers.get('x-story-studio-demo-generation');
-    state = normalize(await response.json());
-    baseLibrary = structuredClone(state);
-    render();
+    try {
+      await mergeServerLibrary();
+    } catch (failure) {
+      throw Error(`The version was saved. ${failure.message}`);
+    }
     return true;
   }
 });
@@ -1027,6 +1033,16 @@ function reviewAgentRevision(project,proposal) {
       if (dirty || current()?.id !== project.id) throw Error('Save the current story before deciding on this proposal.');
       await mergeServerLibrary({ifChanged:true});
       if (current()?.id !== project.id) throw Error('Open the original story to decide on this proposal.');
+      const history = normalizeAgentHistory(current().agentHistory);
+      const latest = history.find(entry=>entry.proposal?.id === proposal.id)?.proposal;
+      if (!sameValue(latest,proposal)) {
+        const resolved = history.find(entry=>entry.proposalId === proposal.id)?.resolution;
+        if (!latest && resolved === (decision === 'apply' ? 'applied' : 'dismissed')) {
+          dialog.close();
+          return;
+        }
+        throw Error('This proposal changed or was resolved. Close this preview and review the latest changes.');
+      }
       await api('/api/story-edits',{method:'PUT',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({storyId:project.id,revision,decision,proposalId:proposal.id})});
       await mergeServerLibrary();
@@ -1060,6 +1076,7 @@ const artworkView = createArtworkView({
     await save();
     if (dirty || current().id !== storyId) throw Error('Save the current story before generating artwork.');
     const entries = await api('/api/artwork',{method:'POST',headers:artHeaders,body:JSON.stringify({...input,storyId,revision})});
+    if (artworkRequest?.storyId === storyId) artworkRequest = undefined;
     acceptArtwork(storyId,entries);
     return entries;
   },
@@ -1094,8 +1111,8 @@ async function refreshArtwork() {
 
 async function updateArtwork(id,action,turn) {
   const storyId = current().id;
-  artworkRequest = undefined;
   const entries = await api('/api/artwork',{method:'PUT',headers:artHeaders,body:JSON.stringify({storyId,id,action,turn})});
+  if (artworkRequest?.storyId === storyId) artworkRequest = undefined;
   acceptArtwork(storyId,entries);
   return entries;
 }
@@ -1526,7 +1543,7 @@ bookExport.onsubmit = async event => {
   const filename = `${fileTitle} - Chapter ${first}${first === last ? '' : `-${last}`}`;
   const format = bookExportFormat.value, sources = bookSources;
   if (format === 'markdown') {
-    download(new Blob([bookMarkdown(title,chapters,first,last)],{type:'text/markdown;charset=utf-8'}),filename + '.md');
+    download(new Blob([bookMarkdown(title,sources,first,last)],{type:'text/markdown;charset=utf-8'}),filename + '.md');
     return;
   }
   bookExportAction.disabled = true;
@@ -3153,9 +3170,6 @@ function openTurnDetails(index) {
   showEditSensitivity(sensitivity,heldForReview);
   $('#editDialog').showModal();
 }
-function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');p = migrateStoryFields(migrateLegacyCast(structuredClone(p)));if(p.plotEvents!==undefined&&!validPlotEvents(p.plotEvents))throw Error('A story has invalid plot events.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');const sceneBoard=normalizeSceneBoard(p),draftCheckpoints=normalizeDraftCheckpoints(p.draftCheckpoints);return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),lore:String(p.lore||''),notes:String(p.notes||''),...(p.plotEvents ? {plotEvents:p.plotEvents} : {}),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(p.revisionNotes ? {revisionNotes:normalizeRevisionNotes(p.revisionNotes)} : {}),...sceneBoard && {sceneBoard},...draftCheckpoints?.length && {draftCheckpoints},...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentHistory?{agentHistory:normalizeAgentHistory(p.agentHistory)}:{}),...(normalizeSetupHistory(p.setupHistory)?{setupHistory:normalizeSetupHistory(p.setupHistory)}:{}),...(normalizeStoryFlow(p.storyFlow)?{storyFlow:normalizeStoryFlow(p.storyFlow)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(storyTextFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.continuityPending===true)result.continuityPending=true;if(m.role==='assistant'&&m.continuityNeedsReview===true)result.continuityNeedsReview=true;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
-if(m.role==='assistant'&&m.standalone===true)result.standalone=true;if(m.role==='assistant'&&m.startsChapter===true)result.startsChapter=true;if(m.role==='assistant'&&typeof m.sourcePrefix==='string')result.sourcePrefix=m.sourcePrefix;if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})};});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
-
 const sceneModelChoice = $('#sceneModel');
 const continuityModelChoice = $('#continuityModel');
 const modePicker = enhanceSelect($('#authorMode'));
@@ -4291,6 +4305,7 @@ $('#deleteProject').onclick = async () => {
     'This permanently removes the story, its turns, and its character and relationship history from the library.', 'Delete story')) return;
   state.projects = state.projects.filter(item => item.id !== project.id);
   pendingComposerEdits.delete(project.id);
+  manualProseDrafts.delete(project.id);
   state.activeId = state.projects[0].id;
   markDirty(project);
   render();
@@ -4645,6 +4660,7 @@ $('#importFile').onchange = async event => {
     const replacement = incoming.projects.find(project => project.id === incoming.activeId);
     for (const project of [...state.projects,...incoming.projects]) {
       pendingComposerEdits.delete(project.id);
+      manualProseDrafts.delete(project.id);
       setSession(draftKey(project.id),'');
       setSession(modelKey(project.id),'');
     }

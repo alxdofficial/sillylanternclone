@@ -85,12 +85,14 @@ function inlineRuns(text) {
   return runs;
 }
 
+export function sourceSceneBreaks(prefix = '') {
+  return prefix.split(/\r\n?|\n/u).filter(line=>ruler.test(line.trim()) || importedSceneHeading.test(line.trim()));
+}
+
 function* chapterBlocks(chapter) {
   for (const excerpt of chapter) {
     const {content,sourcePrefix} = typeof excerpt === 'string' ? {content:excerpt} : excerpt;
-    for (const line of (sourcePrefix || '').split(/\r\n?|\n/u)) {
-      if (ruler.test(line.trim()) || importedSceneHeading.test(line.trim())) yield {kind:'break'};
-    }
+    for (const _ of sourceSceneBreaks(sourcePrefix)) yield {kind:'break'};
     let lines = [];
     for (const line of content.split(/\r\n?|\n/u)) {
       const trimmed = line.trim();

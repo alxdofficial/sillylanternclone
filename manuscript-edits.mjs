@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { agentTool } from './agent-tools.mjs';
 import { diagnosticError } from './diagnostics.mjs';
+import { metadataPreviewDetail, reviewedProposalPreviews } from './public/agent-context.js';
 import { restoreDraftText } from './public/draft-comparison.js';
 import { ensureGraphBaseline, captureGraphVersion } from './public/graph-history.js';
 import { nextTurnNumber } from './public/prompt.js';
@@ -10,13 +11,13 @@ import { lastProseTurn, manuscriptChapters, normalizeSceneBoard, readingChapterB
 import { applyStoryEdits, storyEditChangesSchema } from './story-edits.mjs';
 
 const turn = z.int().positive().describe('Stable prose turn from inspect_manuscript.');
-const prose = z.string().trim().max(12_000);
+const prose = z.string().max(12_000);
 const make = (kind,fields) => z.strictObject({kind:z.literal(kind),...fields});
 const limit = 10;
 
 export const manuscriptChangesSchema = z.array(z.discriminatedUnion('kind',[
   make('revise_scene',{turn,text:prose,anchor:z.string().min(1).max(6000).optional().describe('Exact unique passage to replace. Omit only for an explicitly requested full-scene rewrite.')}),
-  make('insert_scene',{text:prose.min(1),beforeTurn:turn.optional(),newChapter:z.boolean().optional().describe('Insert a chapter break immediately before the new scene.')}),
+  make('insert_scene',{text:prose.min(1).refine(value=>Boolean(value.trim()),'Supply scene prose.'),beforeTurn:turn.optional(),newChapter:z.boolean().optional().describe('Insert a chapter break immediately before the new scene.')}),
   make('delete_scene',{turn}),
   make('move_scene',{turn,beforeTurn:turn.optional().describe('Target scene. Omit only to move to the end of the book.')}),
   make('chapter_break',{turn,enabled:z.boolean()}),
@@ -276,8 +277,7 @@ function plan(project,operations,metadata) {
 
 function describeMetadata(previews,count,metadata) {
   if (count) previews.push({title:`${count} story-state ${count === 1 ? 'change' : 'changes'}`,
-    detail:metadata.map(change=>[change.kind,change.field,change.name || change.label || change.note || change.text]
-      .filter(Boolean).map(value=>projected(value,240)).join(' · ')).join('\n')});
+    detail:metadataPreviewDetail(metadata)});
 }
 
 export function proposeManuscriptEdit(project,operations,metadata) {
@@ -299,7 +299,7 @@ export function applyManuscriptProposal(project,id) {
   if (!previews.length && !count) throw failure('There are no remaining changes to apply.');
   const applied = previews.length+count;
   describeMetadata(previews,count,state.data);
-  if (JSON.stringify(previews,stableKeys) !== JSON.stringify(entry.proposal.previews,stableKeys)) {
+  if (JSON.stringify(previews,stableKeys) !== JSON.stringify(reviewedProposalPreviews(entry.proposal),stableKeys)) {
     throw failure('The reviewed preview no longer matches the proposed edits. Ask for a fresh proposal.');
   }
   const accepted = draft.agentHistory.find(item=>item.proposal?.id === id);

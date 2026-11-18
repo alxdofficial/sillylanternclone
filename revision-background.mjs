@@ -267,12 +267,15 @@ export function createBackgroundAnalysis({dataDir,readLibrary,libraryVersion,has
     if (ticking || !records.size || shouldYield()) return;
     ticking = true;
     try {
+      const candidates = [...records];
       const {projects} = await library();
       const byId = new Map(projects.map(project=>[project.id,project]));
       let removed = false;
-      for (const [id] of records) if (!byId.has(id)) { records.delete(id); removed = true; }
+      for (const [id,record] of candidates) {
+        if (!byId.has(id) && records.get(id) === record) { records.delete(id); removed = true; }
+      }
       if (removed) await persist();
-      for (const [id,record] of [...records].sort((a,b)=>(a[1].lastRun || 0) - (b[1].lastRun || 0))) {
+      for (const [id,record] of candidates.sort((a,b)=>(a[1].lastRun || 0) - (b[1].lastRun || 0))) {
         if (!record.enabled || !isAgentModel(record.model) || record.retryAt === null || record.retryAt > clock() ||
             record.error === 'budget' && record.day === dayOf(clock())) continue;
         if (records.get(id) !== record || shouldYield()) continue;

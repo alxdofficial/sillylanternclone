@@ -303,3 +303,23 @@ test('legacy cache keeps paid passage extractions and verifies links whose model
   assert.equal((await worker.status(story)).state,'ready');
   assert.deepEqual(stages,['record_passage_observations','record_passage_links','record_passage_links']);
 });
+
+test('an in-flight library read preserves background settings for a newly enrolled story',async t=>{
+  const dataDir = await mkdtemp(join(tmpdir(),'studio-background-'));
+  t.after(()=>rm(dataDir,{recursive:true,force:true}));
+  const existing = {id:'existing',messages:[scene(1,'The ferry approached.')]};
+  const added = {id:'added',messages:[scene(1,'The station lights flickered.')]};
+  let startRead, finishRead;
+  const readStarted = new Promise(resolve=>{startRead = resolve;});
+  const readFinished = new Promise(resolve=>{finishRead = resolve;});
+  const worker = createBackgroundAnalysis({
+    dataDir,readLibrary:()=>{startRead(); return readFinished;},hasKey:async()=>false
+  });
+  await worker.configure(existing,{model});
+  const tick = worker.tick();
+  await readStarted;
+  await worker.configure(added,{model,enabled:false});
+  finishRead({projects:[existing]});
+  await tick;
+  assert.equal((await worker.status(added)).state,'paused');
+});

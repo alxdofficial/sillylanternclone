@@ -10,6 +10,24 @@ export function agentBudget(model, outputLimit = agentOutputLimit) {
   };
 }
 
+export function metadataPreviewDetail(metadata) {
+  return metadata.map(({kind,...fields})=>[kind,...Object.keys(fields).sort()
+    .map(key=>key + ' = ' + JSON.stringify(fields[key]))].join(' · ')).join('\n');
+}
+
+export function reviewedProposalPreviews({metadata,previews}) {
+  if (!Array.isArray(previews)) return previews;
+  const summary = previews.at(-1);
+  if (!metadata.length || !/^\d+ story-state changes?$/u.test(summary?.title) ||
+      !metadata.every(change=>change && typeof change.kind === 'string')) return previews;
+  // Earlier proposals abbreviated metadata. Expand only a matching historical summary.
+  const oldDetail = metadata.map(change=>[change.kind,change.field,change.name || change.label || change.note || change.text]
+    .filter(Boolean).map(value=>typeof value === 'string' ? value.slice(0,240).replace(/[\uD800-\uDBFF]$/u,'') : '')
+    .join(' · ')).join('\n');
+  if (summary.detail !== oldDetail) return previews;
+  return [...previews.slice(0,-1),{...summary,detail:metadataPreviewDetail(metadata)}];
+}
+
 function normalizeProposal(proposal) {
   if (!proposal || typeof proposal.id !== 'string' || !/^[a-f0-9-]{36}$/u.test(proposal.id) || typeof proposal.base !== 'string' || !/^[a-f0-9]{64}$/u.test(proposal.base) ||
       !Array.isArray(proposal.operations) || !proposal.operations.length || proposal.operations.length > 10 ||
@@ -19,7 +37,7 @@ function normalizeProposal(proposal) {
   const previews = proposal.previews.filter(preview=>preview && typeof preview.title === 'string' && preview.title.length <= 160 &&
     ['detail','before','after'].every(key=>preview[key] === undefined || typeof preview[key] === 'string'));
   return previews.length === proposal.previews.length ? {id:proposal.id,base:proposal.base,operations:proposal.operations,
-    metadata:proposal.metadata,previews} : undefined;
+    metadata:proposal.metadata,previews:reviewedProposalPreviews(proposal)} : undefined;
 }
 
 export function normalizeAgentHistory(value) {

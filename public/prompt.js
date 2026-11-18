@@ -444,6 +444,8 @@ export function writingHistoryLimit(model) {
   return Math.min(recentTokenCap, writingPromptLimit(model));
 }
 
+export const plotEventContext = ({turn,note,storyTime}) => ({turn,note,storyTime});
+
 export function storyEditContext(project) {
   let shortened = false;
   const include = (value = '', limit) => {
@@ -457,7 +459,7 @@ export function storyEditContext(project) {
     ...(project.premise ? {premise:include(project.premise,4000)} : {}),
     world:include(project.lore,12000),
     notes:include(project.notes,4000),
-    plotEvents:(project.plotEvents || []).slice(-24),
+    plotEvents:(project.plotEvents || []).slice(-24).map(plotEventContext),
     cast:getCast(project).map(simpleCharacter).map(member => ({
       name:member.name,
       nickname:include(member.nickname,300),
