@@ -9,6 +9,7 @@ import { analysisBatch, analysisOutputLimit, analysisPairs, analysisVersions, ex
 
 export const analysisDailyBudget = 1;
 const cacheVersion = 1;
+const comparisonBatchSize = 6;
 const dayOf = time => new Date(time).toISOString().slice(0,10);
 const stop = code => Object.assign(new Error(code),{diagnosticCode:code});
 
@@ -55,7 +56,8 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
     if (active?.id === project.id) active.controller.abort();
     const previous = record || {units:new Map(),links:new Map()};
     records.set(project.id,{...previous,enabled:next,model:selected,failures:0,retryAt:0,error:undefined,
-      batchLimit:previous.model === selected ? previous.batchLimit : undefined});
+      batchLimit:previous.model === selected ? previous.batchLimit : undefined,
+      timings:previous.model === selected ? previous.timings : undefined});
     await persist();
   }
 
@@ -109,9 +111,17 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
     else if (record?.error === 'budget' && record.day === day) state = 'budget';
     else if (record?.error === 'failed' && record.retryAt === null) state = 'failed';
     else if (record?.model && await hasKey(record.model)) state = record.error === 'failed' && record.retryAt > clock() ? 'retrying' : 'queued';
+    const phase = missing.length ? 'reading' : 'comparing';
+    const workTotal = phase === 'reading' ? plan.units.length : pairs.length;
+    const remaining = phase === 'reading' ? missing.length : due;
+    const samples = record?.timings?.[phase] || [];
+    const etaSeconds = (state === 'running' || state === 'queued') && samples.length >= 2
+      ? Math.ceil(remaining * samples.reduce((sum,sample)=>sum + sample.ms,0) / samples.reduce((sum,sample)=>sum + sample.count,0) / 1000)
+      : undefined;
     return {state,enabled:record?.enabled !== false,model:record?.model,reviewed:total - outstanding.size,total,
       held:plan.scenes.length - total,linksRemaining:due,continuityPairs:continuityPairs.length,
       continuityChecked:continuityPairs.filter(pair=>record?.links.has(pair.id)).length,
+      progress:{phase,completed:workTotal - remaining,total:workTotal,etaSeconds},
       estimatedUsd,dailyBudget:analysisDailyBudget,findings:findings(work,record)};
   }
 
@@ -128,10 +138,11 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
 
   async function run(project,record,work) {
     const {missing,pairs} = work;
-    const links = pairs.filter(pair=>!record.links.has(pair.id)).slice(0,6);
+    const links = pairs.filter(pair=>!record.links.has(pair.id)).slice(0,comparisonBatchSize);
     const batch = missing.length ? analysisBatch(missing,record.model).slice(0,record.batchLimit) : [];
     if (!batch.length && !links.length) return;
     const id = project.id, controller = new AbortController();
+    const started = clock();
     active = {id,controller};
     const current = () => records.get(id) === record && record.enabled && !controller.signal.aborted;
     const verifySources = async (requireAll = true) => {
@@ -161,6 +172,13 @@ export function createBackgroundAnalysis({dataDir,readLibrary,hasKey,complete,sh
       record.error = undefined;
       record.failures = 0;
       record.retryAt = 0;
+      const phase = batch.length ? 'reading' : 'comparing';
+      const count = (batch.length ? batch : links).filter(item=>surviving.has(item.key || item.id)).length;
+      if (count) {
+        record.timings ||= {};
+        const history = record.timings[phase] || [];
+        record.timings[phase] = [...history.slice(-5),{count,ms:Math.max(intervalMs,clock()-started)}];
+      }
     } catch (error) {
       if (!current() || error.diagnosticCode === 'REVIEW_DEFERRED') return;
       if (error.diagnosticCode === 'REVIEW_DAILY_BUDGET') record.error = 'budget';

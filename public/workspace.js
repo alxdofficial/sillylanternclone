@@ -38,7 +38,7 @@ export function createWorkspace({ onToolChange, onComposerChange, onResize }) {
     button.dataset.workspaceTool, button.querySelector('small').textContent
   ]));
 
-  let preferences = { ...defaults, showOutline: true, showTools: true, showFlow: true, showComposer: true };
+  let preferences = { ...defaults, showOutline: true, showTools: false, showFlow: true, showComposer: true };
   try {
     const saved = JSON.parse(localStorage.getItem(preferenceKey));
     if (saved) {
@@ -65,6 +65,8 @@ export function createWorkspace({ onToolChange, onComposerChange, onResize }) {
   let composerEditing = false;
   let modelsOpen = false;
   let drag;
+  let writingScroll;
+  const transcript = get('messages');
   const split = () => Boolean(active) && width >= 940;
   const compactOutline = () => width < 760;
   const compactCatalogue = () => width < 1130;
@@ -114,6 +116,13 @@ export function createWorkspace({ onToolChange, onComposerChange, onResize }) {
     const outlineOverlay = overlay === 'outline';
     const outlineVisible = outlineOverlay || !active && !compactOutline() && preferences.showOutline;
     const toolsVisible = Boolean(active) || (compactCatalogue() ? overlay === 'tools' : preferences.showTools);
+    const proseOnly = toolsVisible || Boolean(returnTool);
+    const wasProseOnly = workspace.hasAttribute('data-prose-only');
+    if (proseOnly && !wasProseOnly) {
+      writingScroll = {top:transcript.scrollTop, atEnd:transcript.scrollHeight-transcript.scrollTop-transcript.clientHeight < 32};
+    }
+    workspace.toggleAttribute('data-prose-only',proseOnly);
+    panel.setAttribute('aria-label',proseOnly ? 'Manuscript prose' : 'Story conversation');
     const flowOpen = short() ? Boolean(flowOverride) : preferences.showFlow;
     const showComposer = preferences.showComposer || composerEditing;
     const shortMode = short();
@@ -131,6 +140,10 @@ export function createWorkspace({ onToolChange, onComposerChange, onResize }) {
     workspace.toggleAttribute('data-very-short', shortMode && height < 335);
     panel.hidden = !mainVisible;
     panel.inert = Boolean(overlay);
+    if (!proseOnly && wasProseOnly && writingScroll) {
+      transcript.scrollTop = writingScroll.atEnd ? transcript.scrollHeight : writingScroll.top;
+      writingScroll = undefined;
+    }
     outline.hidden = !outlineVisible;
     outline.inert = overlay === 'tools';
     outline.toggleAttribute('data-open', outlineVisible);
@@ -277,7 +290,7 @@ export function createWorkspace({ onToolChange, onComposerChange, onResize }) {
     }
   });
   toolsToggle.addEventListener('click', () => {
-    if (active || !tools.hidden) closeTools();
+    if (active || returnTool || !tools.hidden) closeTools();
     else if (compactCatalogue()) {
       showCatalogue({ focus: false });
       toggleOverlay('tools', toolsToggle, toolHeading);
@@ -365,7 +378,7 @@ export function createWorkspace({ onToolChange, onComposerChange, onResize }) {
     overlay = undefined;
     flowOverride = undefined;
     modelsOpen = false;
-    setPreferences({ ...defaults, showOutline: true, showTools: true, showFlow: true, showComposer: true });
+    setPreferences({ ...defaults, showOutline: true, showTools: false, showFlow: true, showComposer: true });
     controls.open = false;
     controls.querySelector('summary').focus();
     onComposerChange();
@@ -432,6 +445,7 @@ export function createWorkspace({ onToolChange, onComposerChange, onResize }) {
     backToManuscript,
     dismissOutline,
     get activeTool() { return active; },
+    get showingToolBesideProse() { return split(); },
     get composerOpen() { return preferences.showComposer || composerEditing; },
     setComposerEditing(editing) { composerEditing = editing; update(); },
     setComposerOpen(showComposer) { setPreferences({ showComposer }); },

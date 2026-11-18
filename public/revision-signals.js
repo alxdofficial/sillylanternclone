@@ -181,10 +181,11 @@ function paragraphRepeats(text,words,offset,history,scene,include) {
   return repeats;
 }
 
-export function manuscriptHeatmap(project,scenes,selected) {
+export function manuscriptHeatmap(project,scenes,selected,{density = true,repetition:repeatsEnabled = true} = {}) {
   const included = new Set(selected.map(scene=>scene.turn));
   const last = scenes.findLastIndex(scene=>included.has(scene.turn));
-  const cast = castTerms(project), recent = [], history = new Map();
+  const cast = density ? castTerms(project) : undefined;
+  const recent = [], history = new Map();
   const paragraphs = [], repetition = {strong:[],subtle:[]};
   let position = 0;
   for (let index = 0; index <= last; index++) {
@@ -194,12 +195,16 @@ export function manuscriptHeatmap(project,scenes,selected) {
       const [text] = paragraph;
       const words = [...text.matchAll(wordPattern)].map(match=>({value:keyWord(match[0]),start:match.index,end:match.index+match[0].length}));
       if (!words.length) continue;
-      const density = paragraphDensity(text,words,cast,recent);
-      if (include) paragraphs.push({...density,ref:reference(scene,paragraph.index,paragraph.index+text.length)});
-      const repeats = paragraphRepeats(text,words,position,history,scene,include);
-      for (const {start,end,weight} of repeats) repetition[weight].push(reference(scene,paragraph.index+start,paragraph.index+end));
-      position += words.length;
+      if (density) {
+        const score = paragraphDensity(text,words,cast,recent);
+        if (include) paragraphs.push({...score,ref:reference(scene,paragraph.index,paragraph.index+text.length)});
+      }
+      if (repeatsEnabled) {
+        const repeats = paragraphRepeats(text,words,position,history,scene,include);
+        for (const {start,end,weight} of repeats) repetition[weight].push(reference(scene,paragraph.index+start,paragraph.index+end));
+        position += words.length;
+      }
     }
   }
-  return {density:densityBands(paragraphs),repetition};
+  return {...(density ? {density:densityBands(paragraphs)} : {}),...(repeatsEnabled ? {repetition} : {})};
 }

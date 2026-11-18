@@ -63,7 +63,12 @@ test('background review resumes checkpoints, backfills long scenes, and refreshe
   await worker.configure(project,{model});
   await worker.tick();
   assert.equal(calls.length,1);
-  assert.equal((await worker.status(project)).reviewed,1);
+  const started = await worker.status(project);
+  assert.equal(started.reviewed,1);
+  assert.equal(started.progress.phase,'reading');
+  assert.equal(started.progress.total,planned.units.length);
+  assert.ok(started.progress.completed > 0 && started.progress.completed < started.progress.total);
+  assert.equal(started.progress.etaSeconds,undefined);
   await worker.configure(project,{enabled:false});
   worker = createBackgroundAnalysis(options);
   assert.equal((await worker.status(project)).state,'paused');
@@ -71,7 +76,13 @@ test('background review resumes checkpoints, backfills long scenes, and refreshe
   await worker.tick();
   assert.equal(calls.length,1,'background eligibility alone preserves pause after restart');
   await worker.configure(project,{enabled:true});
+  await worker.tick();
+  const progressing = await worker.status(project);
+  assert.ok(progressing.progress.completed > started.progress.completed);
+  assert.ok(progressing.progress.etaSeconds > 0);
   const done = await finish(worker);
+  assert.equal(done.progress.completed,done.progress.total);
+  assert.equal(done.progress.etaSeconds,undefined);
   assert.equal(done.reviewed,3);
   assert.equal(done.held,1);
   assert.equal(seenPassages.filter(text=>text===opening).length,1);
@@ -145,7 +156,9 @@ test('background continuity reports checked pairs and links differently phrased 
     }});
   await worker.configure(project,{model});
   await worker.tick();
-  assert.equal((await worker.status(project)).continuityChecked,0);
+  const comparing = await worker.status(project);
+  assert.equal(comparing.continuityChecked,0);
+  assert.deepEqual(comparing.progress,{phase:'comparing',completed:0,total:1,etaSeconds:undefined});
   await worker.tick();
   const result = await worker.status(project);
   assert.equal(result.state,'ready');

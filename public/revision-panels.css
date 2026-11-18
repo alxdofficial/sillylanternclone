@@ -105,7 +105,7 @@
 .revision-dock.pacing-view .revision-rail select:hover { background-color: var(--raised); }
 .pacing-views { display: flex; flex-wrap: wrap; gap: 4px; }
 .pacing-views button { min-height: 36px; padding: 5px 10px; }
-.pacing-views [aria-pressed='true'] { background: var(--raised); color: var(--text); }
+.pacing-views [aria-pressed='true'] { color: var(--text); font-weight: 600; }
 .pacing-chart-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 3px 12px; margin-bottom: 9px; }
 .revision-dock .pacing-chart-heading h3 { margin: 0; font-weight: 550; }
 .pacing-chart-key { color: var(--muted); font-size: 12px; }
@@ -113,7 +113,6 @@
 #pacingOverview .revision-pacing-row { margin-bottom: 9px; }
 #pacingOverview .revision-pace-track { margin-block: 0; background: color-mix(in srgb, var(--border) 27%, transparent); }
 #pacingOverview .revision-list-section { margin-top: 24px; }
-#pacingOverview .background-review { margin-top: 13px; padding: 0; }
 .pacing-notes { margin-top: 18px; }
 .pacing-notes summary { color: var(--muted); font-size: 13px; cursor: pointer; }
 .pacing-heatmap { min-inline-size: 0; }
@@ -198,3 +197,10 @@
 .background-review summary { color: var(--muted); padding: 7px 0; font-size: 12px; cursor: pointer; }
 .background-review p { margin: 4px 0; font-size: 12px; }
 .background-review button { padding-inline: 0; }
+.background-review-progress {
+  display: block;
+  width: calc(100% - 32px);
+  height: 4px;
+  margin: 0 16px 10px;
+  accent-color: var(--focus);
+}

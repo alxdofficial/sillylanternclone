@@ -20,6 +20,24 @@
   --writing-gutter: clamp(12px, 2vw, 26px);
 }
 #writeView .transcript { min-height: min(112px, 28%); }
+#reviewProseEmpty { display: none; }
+#writeView[data-prose-only] :is(.message.user, .editor-message, #pendingTurn, #messageList > .empty,
+  .manual-prose, #composerDock, #storyFlowPanel, .message-header, .message-footer, .alternatives, .copy-prose, [data-direction-only]) {
+  display: none;
+}
+#writeView[data-prose-only] #messageList:not(:has(.assistant[data-story-turn])) + #reviewProseEmpty {
+  display: block;
+  margin: 24px var(--writing-gutter);
+}
+#writeView[data-prose-only] .message.assistant[data-story-turn] {
+  padding: 0 clamp(14px, 4vw, 48px) 16px;
+  border: 0;
+  box-shadow: none;
+}
+#writeView[data-prose-only] #messageList { padding-top: 20px; }
+#writeView[data-prose-only] .message.assistant[data-story-turn]:focus { outline: none; }
+#writeView[data-prose-only] .message.assistant[data-story-turn]:focus-visible { outline: 1px solid var(--control-border); outline-offset: -3px; }
+#writeView[data-prose-only] .prose-with-copy { display: block; }
 #writeView .story-turn-sidebar {
   grid-area: chapters;
   min-width: 0;
@@ -182,9 +200,10 @@
 #writeView[data-outline-overlay] .story-turn-sidebar { inset-inline-start: 0; width: min(88%, var(--outline-width)); }
 #writeView[data-tools-overlay] .workspace-tools { inset-inline-end: 0; width: min(88%, var(--tools-width)); }
 .workspace-return {
-  position: absolute;
-  inset: 8px 10px auto auto;
-  z-index: 3;
+  align-self: flex-start;
+  min-height: 44px;
+  margin-inline: var(--writing-gutter);
+  padding-inline: 0;
 }
 #writeView #storyFlowPanel {
   display: flex;

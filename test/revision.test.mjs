@@ -133,6 +133,7 @@ test('ordinary prose stays mostly unshaded even when subtler detail density is e
   const scenes = sceneIndex(project);
   const paragraphs = scenes.flatMap(scene=>scene.text.trim().split(/\n\s*\n/u)).length;
   const {density} = manuscriptHeatmap(project,scenes,scenes);
+  assert.deepEqual(manuscriptHeatmap(project,scenes,scenes,{repetition:false}),{density});
   assert.ok(density.high.length > 0);
   assert.ok(density.high.length <= Math.floor(paragraphs * .10));
   assert.ok(density.high.length + density.medium.length <= Math.floor(paragraphs * .25));

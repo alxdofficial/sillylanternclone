@@ -89,13 +89,16 @@ export function createPassageSelection({transcript,getStory,getActions}) {
     render();
   }
 
-  function focus(ref,element,mark = true) {
+  function focus(ref,element,mark = true,{onlyIfHidden = false,focus = true} = {}) {
     marks.finding = ref && mark ? [ref] : [];
     render();
     const match = ref && sceneRange(ref,sceneIndex(getStory()).find(scene=>scene.turn === ref.turn),element.querySelector('.message-text'));
     const anchor = match?.range.getClientRects()[0] || element.getBoundingClientRect();
-    transcript.scrollTop += anchor.top - transcript.getBoundingClientRect().top - 18;
-    element.focus({preventScroll:true});
+    const area = transcript.getBoundingClientRect();
+    if (!onlyIfHidden || anchor.top < area.top + 8 || anchor.top > area.bottom - 48) {
+      transcript.scrollTop += anchor.top - area.top - 18;
+    }
+    if (focus) element.focus({preventScroll:true});
   }
 
   function readSelection() {

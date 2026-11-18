@@ -91,9 +91,11 @@
         <div class="workspace-divider side-divider" data-workspace-divider="outline" role="separator" tabindex="0" aria-label="Resize Chapters" aria-orientation="vertical" aria-controls="storyTurnSidebar" hidden></div>
         <button type="button" id="workspaceBackdrop" class="workspace-backdrop" tabindex="-1" aria-hidden="true" hidden></button>
       <section class="story-panel" aria-label="Story conversation">
+        <button type="button" class="text-button workspace-return" id="returnToTool" hidden></button>
         <div class="transcript">
         <div id="messages" class="messages">
           <div id="messageList"></div>
+          <p id="reviewProseEmpty" class="form-note">Write or import a scene to review your prose.</p>
           <div class="manual-prose">
             <button type="button" id="pasteReply" class="icon add-prose" aria-label="Add prose" aria-expanded="false" aria-controls="pasteForm" title="Write or paste the next passage yourself.">
               <svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
@@ -205,6 +207,7 @@
             <p class="form-note" id="backgroundReviewDetails"></p>
             <button type="button" class="text-button" id="toggleBackgroundReview" hidden></button>
           </details>
+          <progress id="backgroundReviewProgress" class="background-review-progress" aria-label="Background review progress" hidden></progress>
           <nav class="workspace-tool-list" id="workspaceToolList" aria-label="Writing tools">
             <button type="button" data-workspace-tool="scene"><svg class="tool-mark workspace-tool-icon" aria-hidden="true"><use href="#icon-scene"/></svg><span><strong>In this scene</strong><small>Cast, story time, and notes</small></span><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
             <button type="button" data-workspace-tool="pacing"><svg class="tool-mark workspace-tool-icon" aria-hidden="true"><use href="#icon-pacing"/></svg><span><strong>Pacing</strong><small>Compare scene length and rhythm</small></span><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
@@ -249,7 +252,7 @@
                   <div class="heatmap-controls">
                     <label for="heatmapDensity">
                       <span class="heatmap-swatch density-swatch" aria-hidden="true"></span>
-                      <span><span id="densityLabel">Detail density</span><small id="densityDescription">Shades passages where several new details arrive together.</small></span>
+                      <span><span id="densityLabel">Detail density</span><small id="densityDescription">Shades paragraphs with an unusual concentration of new names, numbers, and words.</small></span>
                       <input type="checkbox" id="heatmapDensity" aria-labelledby="densityLabel" aria-describedby="densityDescription">
                     </label>
                     <label for="heatmapRepetition">
@@ -335,7 +338,6 @@
         </section>
         </div>
       </aside>
-      <button type="button" class="button subtle workspace-return" id="returnToTool" hidden></button>
       </div>
       <section class="book-view" id="bookView" role="tabpanel" aria-labelledby="bookTab" hidden>
         <aside class="book-outline" aria-label="Manuscript chapters">
@@ -347,6 +349,11 @@
           <label for="bookChapter" class="sr-only">Go to chapter</label>
           <select id="bookChapter"></select>
           <button type="button" id="bookSpreadToggle" class="button" aria-pressed="false" hidden>Two pages</button>
+          <div class="book-theme-picker" role="group" aria-label="Reading theme">
+            <button type="button" data-book-theme="dark" aria-pressed="false" aria-label="Dark" title="Dark — black with white text">Aa</button>
+            <button type="button" data-book-theme="paper" aria-pressed="false" aria-label="Paper" title="Paper — off-white with black text">Aa</button>
+            <button type="button" data-book-theme="sepia" aria-pressed="true" aria-label="Sepia" title="Sepia — light brown with dark brown text">Aa</button>
+          </div>
           <button type="button" id="bookExportToggle" class="button" aria-controls="bookExport" aria-expanded="false">Export Markdown</button>
         </div>
         <form class="book-export" id="bookExport" hidden>

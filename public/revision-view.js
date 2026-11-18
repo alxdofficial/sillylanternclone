@@ -67,8 +67,9 @@ function addSection(parent,title,id) {
 }
 
 export function createRevisionViews({activeStory,stories,writeNotes,openScene,requestReview,
-  currentTurn = ()=>undefined, openTool = ()=>{}, readManuscript = ()=>{}, highlight = ()=>{}, reviewModel = ()=>'',
-  backgroundReview = ()=>undefined, setBackgroundReview = ()=>{}, paintHeatmap = ()=>{}, canPaintHeatmap = ()=>true}) {
+  openTool = ()=>{}, readManuscript = ()=>{}, highlight = ()=>{}, reviewModel = ()=>'',
+  backgroundReview = ()=>undefined, setBackgroundReview = ()=>{}, paintHeatmap = ()=>{}, canPaintHeatmap = ()=>true,
+  revealHeatmap = ()=>{}}) {
   const view = $('revisionView');
   const continuityView = $('continuityReview');
   const states = new Map();
@@ -81,7 +82,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
 
   const empty = text => el('p',text,'form-note');
   const newState = () => ({scopes:new Map(),themeQuery:'',themeSearch:'',comparisonId:'',canon:'',notice:new Map(),expanded:new Set(),highlighting:false,
-    pacingView:'overview',heatmap:{density:false,repetition:false,more:false}});
+    pacingView:'overview',heatmap:{density:true,repetition:false,more:false}});
   const sceneAt = (list,turn) => list.find(scene=>scene.turn === turn) || list.at(-1);
   const sourceKey = list => JSON.stringify(list.map(({turn,chapter,fingerprint,time,eligible})=>[turn,chapter,fingerprint,time,eligible]));
   const refKey = ({storyId,turn,fingerprint,start,end}) => `${storyId}:${turn}:${fingerprint}:${start}:${end}`;
@@ -255,7 +256,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     $('showPacingHighlights').setAttribute('aria-pressed',String(showHighlights));
     $('pacingOverview').hidden = showHighlights;
     $('pacingHeatmap').hidden = !showHighlights;
-    applyHeatmap(project,selected);
+    return applyHeatmap(project,selected);
   }
 
   function applyHeatmap(project,selected) {
@@ -273,9 +274,14 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
       const key = sourceKey(selected);
       if (!index.heatmaps.has(key)) {
         if (index.heatmaps.size >= 4) index.heatmaps.delete(index.heatmaps.keys().next().value);
-        index.heatmaps.set(key,manuscriptHeatmap(project,index.list,selected));
+        index.heatmaps.set(key,{});
       }
       const results = index.heatmaps.get(key);
+      const needDensity = density && !results.density;
+      const needRepetition = repetition && !results.repetition;
+      if (needDensity || needRepetition) {
+        Object.assign(results,manuscriptHeatmap(project,index.list,selected,{density:needDensity,repetition:needRepetition}));
+      }
       if (density) {
         if (more) layers['density-medium'] = results.density.medium;
         layers['density-high'] = results.density.high;
@@ -288,11 +294,11 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     const shaded = Object.entries(layers).filter(([key])=>key.startsWith('density-')).reduce((sum,[,refs])=>sum+refs.length,0);
     const repeated = layers.repeated?.length || 0;
     const summary = $('heatmapSummary');
-    const matches = [shaded && countLabel(shaded,'dense paragraph'),repeated && countLabel(repeated,'repeated phrase')].filter(Boolean);
+    const matches = [density && countLabel(shaded,'dense paragraph'),repetition && countLabel(repeated,'repeated phrase')].filter(Boolean);
     summary.hidden = available && !enabled;
     summary.textContent = !canPaintHeatmap() ? 'This browser does not support in-text highlights.'
       : !selected.length ? 'Write or import a scene to see highlights.'
-        : matches.join(' · ') || 'No matches in this scope.';
+        : shaded || repeated ? matches.join(' · ') : more ? 'No matches in this scope.' : 'No strong matches here. Try subtler matches or a wider scope.';
     $('heatmapLegend').hidden = !(shaded || repeated);
     $('densityLegend').hidden = !shaded;
     $('repetitionLegend').hidden = !repeated;
@@ -303,10 +309,10 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     view.hidden = !first;
     view.onclick = first ? ()=>void openScene(first.storyId,first.turn,'write',first,{mark:false}) : null;
     paintHeatmap(layers);
+    return first;
   }
 
-  function clearHeatmap() {
-    if (state) Object.assign(state.heatmap,{density:false,repetition:false});
+  function hideHeatmap() {
     $('heatmapLegend').hidden = true;
     paintHeatmap({});
   }
@@ -632,19 +638,33 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
 
   function renderBackground(result) {
     const panel = $('backgroundReview');
+    const bar = $('backgroundReviewProgress');
     panel.hidden = !result;
+    bar.hidden = true;
     if (!result) return;
-    const {state,reviewed,total,held,linksRemaining,enabled,model,estimatedUsd,dailyBudget} = result;
+    const {state,reviewed,total,held,enabled,model,estimatedUsd,dailyBudget,progress} = result;
+    const updating = state === 'running' || state === 'queued';
+    const updateLabel = progress?.phase === 'reading' ? 'Reading prose' : 'Checking links';
+    const waiting = progress?.etaSeconds === undefined ? 'Estimating time…' : progress.etaSeconds < 60
+      ? 'About a minute or less for this stage' : `About ${Math.ceil(progress.etaSeconds / 60)} min for this stage`;
+    if (updating && progress?.total) {
+      bar.max = progress.total;
+      bar.value = progress.completed;
+      bar.setAttribute('aria-valuetext',`${updateLabel}. ${progress.completed} of ${progress.total} done.`);
+      bar.hidden = false;
+    }
     const summary = state === 'demo' ? 'Example review' : state === 'waiting-model' ? 'Background review · Choose a model' :
       state === 'paused' ? 'Background review · Paused' : state === 'failed' ? 'Background review · Needs attention' :
       state === 'budget' ? 'Background review · Daily budget reached' : state === 'retrying' ? 'Background review · Retrying shortly' :
       state === 'empty' ? 'Background review · No eligible scenes' :
-      `Background review · ${reviewed}/${total} scenes${state === 'ready' ? '' : linksRemaining && reviewed === total ? ' · Checking links' : ' · In progress'}`;
+      state === 'ready' ? `Review up to date · ${countLabel(total,'scene')}` :
+      `${updateLabel} · ${progress?.completed || 0}/${progress?.total || 0} · ${waiting}`;
     const heading = $('backgroundReviewSummary');
     if (heading.textContent !== summary) heading.textContent = summary;
     const label = models.find(item=>item.id === model)?.name;
     const details = state === 'demo' ? 'Sample findings from this demo manuscript.' : [label,
       'Reviews eligible prose using your API key. Results are saved locally for each story.',
+      total ? `${reviewed} of ${total} eligible scenes read.` : '',
       held ? `${countLabel(held,'scene')} held out of AI context.` : '',
       dailyBudget ? `$${estimatedUsd.toFixed(2)} estimated toward the $${dailyBudget} daily review budget.` : '',
       state === 'failed' ? 'Check your provider settings before retrying.' : ''
@@ -656,7 +676,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     toggle.onclick = ()=>void setBackgroundReview(state === 'failed' ? {retry:true} : {enabled:!enabled});
   }
 
-  function render() {
+  function render({reveal = false} = {}) {
     const project = refresh();
     const analysis = backgroundReview(project);
     renderBackground(analysis);
@@ -664,9 +684,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     const selector = $(mode === 'continuity' ? 'continuityScope' : 'revisionScope');
     const choices = scopeOptions(scenes);
     const chosen = state.scopes.get(mode);
-    const scene = sceneAt(scenes,currentTurn());
-    const defaultScope = scene && mode !== 'continuity' ? `chapter:${scene.chapter}` : 'book';
-    if (!chosen || !choices.some(([value])=>value === chosen)) state.scopes.set(mode,defaultScope);
+    if (!chosen || !choices.some(([value])=>value === chosen)) state.scopes.set(mode,'book');
     scope = state.scopes.get(mode);
     const {key,other} = mode in reviewButtons ? reviewKey(project,mode) : {key:''};
     const cache = findingsCache.get(key);
@@ -688,7 +706,8 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     let refs;
     if (mode === 'pacing') {
       renderPacing(project,selected,findings);
-      renderPacingView(project,selected);
+      const first = renderPacingView(project,selected);
+      if (reveal && first) revealHeatmap(first);
     }
     if (mode === 'themes') refs = renderThemes(project,selected,findings);
     if (mode === 'threads') refs = renderThreads(findings);
@@ -726,11 +745,8 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     if (mode !== tool) {
       rendered = undefined;
       if (state) state.highlighting = false;
-      if (mode === 'pacing') clearHeatmap();
+      if (mode === 'pacing') hideHeatmap();
       highlight([]);
-      const background = $('backgroundReview');
-      if (tool === 'pacing') $('pacingOverview').append(background);
-      else $('workspaceToolContent').prepend(background);
     }
     mode = tool;
     view.hidden = !(tool in toolSections);
@@ -745,19 +761,16 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     const {list,rows} = buildIndex(project);
     const scene = sceneAt(list,activeTurn);
     if (!scene) return {};
-    const chapter = list.filter(item=>item.chapter === scene.chapter);
-    const chapterScope = `chapter:${scene.chapter}`;
     const row = rows.find(item=>item.scene.turn === scene.turn);
     const chosenNotes = normalizeRevisionNotes(project.revisionNotes);
     const pinned = new Set(chosenNotes.filter(note=>note.kind === 'theme').map(note=>nameKey(note.title))).size;
-    const recurring = detailsFor(project,chapter).length;
     const activeThreads = chosenNotes.filter(note=>note.kind === 'thread' && note.status !== 'shelved');
     const paid = activeThreads.filter(note=>note.refs.length === 2).length;
-    const local = continuityChecks(project,list,chapterScope,chosenNotes).filter(finding=>!chosenNotes.some(note=>note.id === finding.id));
+    const local = continuityChecks(project,list,'book',chosenNotes).filter(finding=>!chosenNotes.some(note=>note.id === finding.id));
     return {
       scene:[scene.time && scene.time.slice(11),row.mentions.length && countLabel(row.mentions.length,'cast mention')].filter(Boolean).join(' · ') || sceneLabel(scene),
-      pacing:`${countLabel(row.length,'word')} · ~${row.dialogue}% quoted dialogue`,
-      themes:[pinned && countLabel(pinned,'pinned theme'),recurring && countLabel(recurring,'recurring detail')].filter(Boolean).join(' · ') || 'Find and pin recurring details',
+      pacing:`${countLabel(list.length,'scene')} · ${countLabel(rows.reduce((sum,entry)=>sum + entry.length,0),'word')}`,
+      themes:pinned ? countLabel(pinned,'pinned theme') : 'Find and pin recurring details',
       threads:`${activeThreads.length - paid} open · ${paid} paid off`,
       continuity:local.length ? countLabel(local.length,'local finding') : 'Check for conflicting story facts'
     };
@@ -876,14 +889,16 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
   };
   $('showPacingHighlights').onclick = ()=>{
     state.pacingView = 'highlights';
-    renderPacingView(activeStory(),selectScenes(scenes,scope));
+    const first = renderPacingView(activeStory(),selectScenes(scenes,scope));
+    if (first) revealHeatmap(first);
   };
   for (const id of ['heatmapDensity','heatmapRepetition','heatmapSensitivity']) $(id).onchange = ()=>{
     state.heatmap = {density:$('heatmapDensity').checked,repetition:$('heatmapRepetition').checked,more:$('heatmapSensitivity').checked};
-    applyHeatmap(activeStory(),selectScenes(scenes,scope));
+    const first = applyHeatmap(activeStory(),selectScenes(scenes,scope));
+    if ($(id).checked && first) revealHeatmap(first);
   };
   $('clearHeatmap').onclick = ()=>{
-    clearHeatmap();
+    Object.assign(state.heatmap,{density:false,repetition:false});
     applyHeatmap(activeStory(),selectScenes(scenes,scope));
     const returnButton = $('returnToTool');
     if (!returnButton.hidden) returnButton.focus({preventScroll:true});
@@ -892,7 +907,7 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
   $('revisionScope').onchange = ()=>{
     state.scopes.set(mode,$('revisionScope').value);
     state.notice.delete(mode);
-    render();
+    render({reveal:true});
   };
   $('continuityScope').onchange = ()=>{
     state.scopes.set('continuity',$('continuityScope').value);

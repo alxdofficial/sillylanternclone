@@ -599,7 +599,9 @@ function selectStoryTurn(turn) {
   const nav = $('#storyTurns');
   nav.querySelector('[aria-current]')?.removeAttribute('aria-current');
   $('#messages .story-turn-target')?.classList.remove('story-turn-target');
-  const target = turn && $('#messages').querySelector(`[data-story-turn="${turn}"]`);
+  const proseOnly = $('#writeView').hasAttribute('data-prose-only');
+  const targetTurn = proseOnly ? outlineScenes.get(turn)?.selection.replyTurn || turn : turn;
+  const target = targetTurn && $('#messages').querySelector(`${proseOnly ? '.assistant' : ''}[data-story-turn="${targetTurn}"]`);
   activeStoryTurn = target ? turn : undefined;
   if (target) {
     nav.querySelector(`[data-turn-link="${turn}"]`)?.setAttribute('aria-current','location');
@@ -636,13 +638,14 @@ function renderStoryTurns(project, followLatest, match) {
   outlineScenes = new Map();
   let chapter = 0;
   for (const scene of storyTurns(project)) {
-    const {selection,startsChapter,detail,reason,preview} = scene;
+    const {selection,startsChapter,detail,reason,preview,authorOnly} = scene;
     const turn = selection.turn;
     if (!chapter || startsChapter) fragment.append(el('h3','outline-chapter',`Chapter ${++chapter}`));
     outlineScenes.set(turn,{...scene,chapter,preview:scene.replyPreview || preview});
     const button = el('button','graph-turn');
     button.type = 'button';
     button.dataset.turnLink = turn;
+    button.toggleAttribute('data-direction-only',authorOnly);
     button.append(el('span','sr-only',eventTime(turn)));
     if (detail) button.append(readerText('span','timeline-detail',detail,match));
     appendTurnContextBadge(button,button,reason);
@@ -665,6 +668,18 @@ function renderStoryTurns(project, followLatest, match) {
 const bookReader = $('#bookReader');
 const bookPages = $('#bookPages');
 const bookPaper = $('#bookPaper');
+const bookThemeButtons = [...$('#bookToolbar').querySelectorAll('[data-book-theme]')];
+const bookThemeKey = 'studio-book-theme';
+function setBookTheme(theme) {
+  const selected = bookThemeButtons.some(button=>button.dataset.bookTheme === theme) ? theme : 'sepia';
+  $('#bookView').dataset.bookTheme = selected;
+  for (const button of bookThemeButtons) button.setAttribute('aria-pressed',String(button.dataset.bookTheme === selected));
+}
+try { setBookTheme(localStorage.getItem(bookThemeKey)); } catch { setBookTheme('sepia'); }
+for (const button of bookThemeButtons) button.onclick = ()=>{
+  setBookTheme(button.dataset.bookTheme);
+  try { localStorage.setItem(bookThemeKey,button.dataset.bookTheme); } catch {}
+};
 const bookSpreadToggle = $('#bookSpreadToggle');
 const bookSpreadExtent = $('#bookSpreadExtent');
 const bookPagination = $('#bookPagination');
@@ -684,12 +699,17 @@ let backgroundRequest;
 const revisionViews = createRevisionViews({
   activeStory:current,
   stories:()=>state.projects,
-  currentTurn:()=>outlineScenes.get(activeStoryTurn)?.selection.replyTurn || activeStoryTurn,
   openTool:tool=>workspaceTools.open(tool),
   readManuscript:()=>workspaceTools.backToManuscript({focus:true}),
   highlight:refs=>passageSelection.highlight(refs),
   paintHeatmap:layers=>passageSelection.heatmap(layers),
   canPaintHeatmap:()=>passageSelection.supportsHeatmap,
+  revealHeatmap(ref) {
+    if (workspaceTools.showingToolBesideProse) {
+      const target = $('#messages').querySelector(`.assistant[data-story-turn="${ref.turn}"]`);
+      if (target) passageSelection.focus(ref,target,false,{onlyIfHidden:true,focus:false});
+    }
+  },
   backgroundReview:project=>backgroundReviews.get(project.id),
   setBackgroundReview:settings=>syncBackgroundReview(settings),
   reviewModel() {
