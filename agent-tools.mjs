@@ -6,14 +6,22 @@ export function agentTool(name,description,schema,handle) {
   return {schema,handle,definition:{type:'function',function:{name,description,parameters}}};
 }
 
-export async function runAgentTask({messages,completions,action,reads = [],text,code,failure,prefixLength,onActionFeedback,roundLimit = ()=>4}) {
+export async function runAgentTask({messages,completions,action,reads = [],text,code,failure,prefixLength,onActionFeedback,roundLimit = ()=>4,retryMissingAction = false}) {
   const tools = [...reads,...(action ? [action] : [])].map(entry=>entry.definition);
   const finalName = action?.definition.function.name;
+  let nudged = false;
   for (let round=0; round<roundLimit(); round++) {
     const response = await completions(messages,tools,prefixLength);
     if (text && typeof response?.text === 'string') return text(response);
     const calls = response?.tool_calls;
-    if (!Array.isArray(calls) || !calls.length || calls.length > 4) break;
+    if (calls === undefined || Array.isArray(calls) && !calls.length) {
+      if (!retryMissingAction || !finalName || nudged || round+1 >= roundLimit()) break;
+      nudged = true;
+      if (typeof response?.content === 'string' && response.content.trim()) messages.push(response);
+      messages.push({role:'user',content:`Finish with the required ${finalName} tool. Include your reply in message. If you are only discussing the story, submit changes: [] with your reply.`});
+      continue;
+    }
+    if (!Array.isArray(calls) || calls.length > 4) break;
     if (calls.some(call=>typeof call?.id !== 'string' || !call.id || call.type !== 'function'
       || typeof call.function?.name !== 'string' || !call.function.name
       || typeof call.function.arguments !== 'string') ||

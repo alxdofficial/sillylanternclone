@@ -212,7 +212,7 @@ function updateState(operation) {
 function versionSnapshot(project) {
   const snapshot = structuredClone(project);
   for (const field of ['agentRequest','agentEditRequest','agentNotice']) delete snapshot[field];
-  for (const entry of snapshot.agentHistory || []) {
+  for (const entry of Array.isArray(snapshot.agentHistory) ? snapshot.agentHistory : []) {
     if (entry?.proposal) delete entry.proposal;
   }
   for (const turn of snapshot.messages) if (turn.continuityPending) {
@@ -510,6 +510,9 @@ async function generateStoryEdits(req,res,diagnostics) {
   const index = library.projects.findIndex(item => item.id === storyId);
   if (index < 0) return json(res,404,{error:'Story not found.'});
   const project = structuredClone(library.projects[index]);
+  if (project.agentHistory != null && !Array.isArray(project.agentHistory)) {
+    return json(res,409,{error:'This story has invalid Agent history. Import a valid backup before editing.'});
+  }
   Object.assign(diagnostics,{provider,mode:'story-edit',storyRef:storyReference(storyId),model});
   const signal = disconnectSignal(res);
   try {
@@ -819,11 +822,19 @@ if (url.pathname === '/api/story-edits' && req.method === 'PUT') {
   if (typeof storyId !== 'string' || typeof proposalId !== 'string' || typeof revision !== 'string' ||
       !['apply','dismiss'].includes(decision)) return json(res,400,{error:'Choose a pending manuscript proposal.'});
   const library = await getState();
-  if (liveRevision(library) !== revision) return json(res,409,{error:'The library changed. Reopen the proposal and try again.'});
   const index = library.projects.findIndex(item=>item.id === storyId);
   if (index < 0) return json(res,404,{error:'Story not found.'});
-  let project = structuredClone(library.projects[index]);
-  const entry = project.agentHistory?.find(item=>item.proposal?.id === proposalId && !item.resolution);
+  const story = library.projects[index];
+  if (!Array.isArray(story.agentHistory)) return json(res,404,{error:'This proposal is no longer pending.'});
+  const receipt = story.agentHistory.find(item=>item?.proposalId === proposalId && item.resolution);
+  if (receipt) {
+    const expected = decision === 'apply' ? 'applied' : 'dismissed';
+    if (receipt.resolution !== expected) return json(res,409,{error:'This proposal has already been resolved.'});
+    return json(res,200,{count:receipt.count});
+  }
+  if (liveRevision(library) !== revision) return json(res,409,{error:'The library changed. Reopen the proposal and try again.'});
+  let project = structuredClone(story);
+  const entry = project.agentHistory?.find(item=>item?.proposal?.id === proposalId && !item.resolution);
   if (!entry) return json(res,404,{error:'This proposal is no longer pending.'});
   let count = 0;
   try {
@@ -831,6 +842,7 @@ if (url.pathname === '/api/story-edits' && req.method === 'PUT') {
     else {
       delete entry.proposal;
       entry.resolution = 'dismissed';
+      entry.proposalId = proposalId;
     }
   } catch (failure) {
     if (!failure.diagnosticCode) throw failure;

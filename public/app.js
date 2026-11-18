@@ -1025,6 +1025,8 @@ function reviewAgentRevision(project,proposal) {
     try {
       await save();
       if (dirty || current()?.id !== project.id) throw Error('Save the current story before deciding on this proposal.');
+      await mergeServerLibrary({ifChanged:true});
+      if (current()?.id !== project.id) throw Error('Open the original story to decide on this proposal.');
       await api('/api/story-edits',{method:'PUT',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({storyId:project.id,revision,decision,proposalId:proposal.id})});
       await mergeServerLibrary();
