@@ -6,10 +6,10 @@ export function agentTool(name,description,schema,handle) {
   return {schema,handle,definition:{type:'function',function:{name,description,parameters}}};
 }
 
-export async function runAgentTask({messages,completions,action,reads = [],text,code,failure,prefixLength,onActionFeedback}) {
+export async function runAgentTask({messages,completions,action,reads = [],text,code,failure,prefixLength,onActionFeedback,roundLimit = ()=>4}) {
   const tools = [...reads,...(action ? [action] : [])].map(entry=>entry.definition);
   const finalName = action?.definition.function.name;
-  for (let round=0; round<4; round++) {
+  for (let round=0; round<roundLimit(); round++) {
     const response = await completions(messages,tools,prefixLength);
     if (text && typeof response?.text === 'string') return text(response);
     const calls = response?.tool_calls;

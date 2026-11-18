@@ -12,6 +12,7 @@ import { listStarterArtwork, listStarterVersions, readStarterArtwork, readStarte
 import { isWritingRefusal, stripWritingPreamble } from './openrouter-format.mjs';
 import { runContinuity, runStoryEdit } from './continuity.mjs';
 import { validStoryEditInstruction } from './story-edits.mjs';
+import { applyManuscriptProposal } from './manuscript-edits.mjs';
 import { agentBudget } from './public/agent-context.js';
 import { runStoryFlow, storyFlowOutputLimit } from './story-flow.mjs';
 import { runChunkedSetup, runSetup, setupMessages, setupPromptFits } from './setup-chat.mjs';
@@ -156,6 +157,9 @@ function updateState(operation) {
 function versionSnapshot(project) {
   const snapshot = structuredClone(project);
   for (const field of ['agentRequest','agentEditRequest','agentNotice']) delete snapshot[field];
+  for (const entry of snapshot.agentHistory || []) {
+    if (entry?.proposal) delete entry.proposal;
+  }
   for (const turn of snapshot.messages) if (turn.continuityPending) {
     delete turn.continuityPending;
     turn.continuityNeedsReview = true;
@@ -735,6 +739,33 @@ if (url.pathname === '/api/export' && req.method === 'POST') {
 }
 if (url.pathname === '/api/setup' && req.method === 'POST') return generateSetup(req,res,diagnostics);
 if (url.pathname === '/api/story-edits' && req.method === 'POST') return generateStoryEdits(req,res,diagnostics);
+if (url.pathname === '/api/story-edits' && req.method === 'PUT') {
+  const {storyId,revision,proposalId,decision} = await body(req,4096) || {};
+  if (typeof storyId !== 'string' || typeof proposalId !== 'string' || typeof revision !== 'string' ||
+      !['apply','dismiss'].includes(decision)) return json(res,400,{error:'Choose a pending manuscript proposal.'});
+  const library = await getState();
+  if (liveRevision(library) !== revision) return json(res,409,{error:'The library changed. Reopen the proposal and try again.'});
+  const index = library.projects.findIndex(item=>item.id === storyId);
+  if (index < 0) return json(res,404,{error:'Story not found.'});
+  let project = structuredClone(library.projects[index]);
+  const entry = project.agentHistory?.find(item=>item.proposal?.id === proposalId && !item.resolution);
+  if (!entry) return json(res,404,{error:'This proposal is no longer pending.'});
+  let count = 0;
+  try {
+    if (decision === 'apply') ({project,count} = applyManuscriptProposal(project,proposalId));
+    else {
+      delete entry.proposal;
+      entry.resolution = 'dismissed';
+    }
+  } catch (failure) {
+    if (!failure.diagnosticCode) throw failure;
+    return json(res,409,{error:failure.message});
+  }
+  library.projects[index] = project;
+  if (!await saveState(library,revision,false)) return json(res,409,{error:'The library changed before the proposal was saved.'});
+  return json(res,200,{count});
+}
+
 if (url.pathname === '/api/story-flow' && req.method === 'POST') return suggestStoryFlow(req,res,diagnostics);
 if (url.pathname === '/api/revision' && req.method === 'POST') return runRevisionReview(req,res,diagnostics);
 if (url.pathname === '/api/generate' && req.method === 'POST') {

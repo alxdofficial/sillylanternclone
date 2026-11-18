@@ -64,7 +64,7 @@ Manual AI reviews remain available for an ad hoc query, comparison story, or can
 
 ## Agent
 
-In **Write**, choose **Agent** to brainstorm, discuss the draft, or ask questions. Your message and the Agent’s reply appear as separate turns in Write and stay out of the manuscript. The Agent is instructed to leave story details alone during discussion. An explicit request such as “Add a lighthouse to the setting” can update world details, cast profiles, writing notes, or dated plot and relationship events. Exchanges flagged as unsafe stay out of future AI history.
+In **Write**, choose **Agent** to brainstorm, discuss the draft, or ask questions. Your message and the Agent’s reply appear as separate turns in Write and stay out of the manuscript. The Agent is instructed to leave story details alone during discussion. An explicit request such as “Add a lighthouse to the setting” can update world details, cast profiles, writing notes, or dated plot and relationship events. Ask the Agent to revise, insert, move, or remove prose, edit scene details, or change chapter breaks and order. These requests open **Review Agent changes**, where you can inspect the proposal and apply or discard it. Revisions become alternate takes, and Time Machine records the saved changes. Mixed manuscript and story-state changes apply together. If a scene changes before approval, ask the Agent for a fresh proposal. Prose withheld from AI context stays unavailable to the Agent. Exchanges flagged as unsafe stay out of future AI history.
 
 ## Brainstorm a new story
 
