@@ -76,9 +76,10 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
   const findingsCache = new Map();
   const storedReviews = readReviewCache();
   const visualizations = new Map();
+  const heatmapControls = [];
   let owner, state, scenes, notes, scope, mode, pending;
   let comparisonScenes = new Map(), byTurn = new Map();
-  let derivedIndex, rendered, storageLookup;
+  let derivedIndex, rendered, storageLookup, heatmapNavigation;
 
   const empty = text => el('p',text,'form-note');
   const newState = () => ({scopes:new Map(),themeQuery:'',themeSearch:'',comparisonId:'',canon:'',notice:new Map(),expanded:new Set(),highlighting:false,
@@ -302,18 +303,43 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
     $('heatmapLegend').hidden = !(shaded || repeated);
     $('densityLegend').hidden = !shaded;
     $('repetitionLegend').hidden = !repeated;
-    const availableRefs = Object.values(layers).flat();
-    const first = availableRefs.reduce((earliest,ref)=>!earliest || ref.turn < earliest.turn ||
-      ref.turn === earliest.turn && ref.start < earliest.start ? ref : earliest,undefined);
-    const view = $('viewHeatmap');
-    view.hidden = !first;
-    view.onclick = first ? ()=>void openScene(first.storyId,first.turn,'write',first,{mark:false}) : null;
-    paintHeatmap(layers);
-    return first;
+    const ordered = new Map(selected.map((scene,index)=>[scene.turn,index]));
+    const entries = Object.entries(layers).flatMap(([layer,refs])=>refs.map(ref=>({
+      ref, key:layer + ':' + refKey(ref), activeLayer:layer === 'repeated' ? 'active-repeat' : 'active-density'
+    })));
+    entries.sort((a,b)=>ordered.get(a.ref.turn)-ordered.get(b.ref.turn) || a.ref.start-b.ref.start);
+    heatmapNavigation = {entries,layers,index:0};
+    return selectHeatmapMatch(Math.max(0,entries.findIndex(entry=>entry.key === state.heatmapMatch)));
+  }
+
+  function selectHeatmapMatch(index) {
+    const {entries,layers} = heatmapNavigation;
+    const match = entries[index];
+    heatmapNavigation.index = index;
+    if (match) state.heatmapMatch = match.key;
+    $('viewHeatmap').hidden = !match;
+    for (const {root,previous,next,position} of heatmapControls) {
+      root.hidden = !match;
+      previous.disabled = next.disabled = entries.length < 2;
+      const label = match ? `${index + 1} of ${entries.length}` : '';
+      if (position.textContent !== label) position.textContent = label;
+    }
+    paintHeatmap(match ? {...layers,[match.activeLayer]:[match.ref]} : layers);
+    return match?.ref;
+  }
+
+  function jumpToHeatmapMatch(step,{focus = false} = {}) {
+    if (!heatmapNavigation?.entries.length) return;
+    const {entries,index} = heatmapNavigation;
+    const ref = selectHeatmapMatch((index + step + entries.length) % entries.length);
+    void openScene(ref.storyId,ref.turn,'write',ref,{mark:false,focus});
   }
 
   function hideHeatmap() {
+    heatmapNavigation = undefined;
     $('heatmapLegend').hidden = true;
+    $('viewHeatmap').hidden = true;
+    for (const {root} of heatmapControls) root.hidden = true;
     paintHeatmap({});
   }
 
@@ -883,6 +909,23 @@ export function createRevisionViews({activeStory,stories,writeNotes,openScene,re
   }
 
   installMarkup();
+  for (const id of ['toolHeatmapNavigation','proseHeatmapNavigation']) {
+    const root = $(id);
+    root.append($('heatmapNavigationTemplate').content.cloneNode(true));
+    const previous = root.querySelector('.heatmap-previous');
+    const next = root.querySelector('.heatmap-next');
+    const jump = root.querySelector('.heatmap-position');
+    previous.onclick = ()=>jumpToHeatmapMatch(-1);
+    next.onclick = ()=>jumpToHeatmapMatch(1);
+    jump.onclick = ()=>jumpToHeatmapMatch(0);
+    root.onkeydown = event=>{
+      if (!['ArrowLeft','ArrowRight'].includes(event.key) || previous.disabled) return;
+      event.preventDefault();
+      jumpToHeatmapMatch(event.key === 'ArrowLeft' ? -1 : 1);
+    };
+    heatmapControls.push({root,previous,next,position:jump.firstElementChild});
+  }
+  $('viewHeatmap').onclick = ()=>jumpToHeatmapMatch(0,{focus:true});
   $('showPacingOverview').onclick = ()=>{
     state.pacingView = 'overview';
     renderPacingView(activeStory(),selectScenes(scenes,scope));

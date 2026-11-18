@@ -1,4 +1,5 @@
 import { getCast, isAvailableToMcp, isStoryTime } from './prompt.js';
+import { manuscriptChapters } from './scene-board.js';
 
 const words = text => text.match(/[\p{L}\p{N}]+(?:[’'-][\p{L}\p{N}]+)*/gu)?.length || 0;
 const escapeRegex = text => text.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -36,7 +37,10 @@ export function sceneIndex(project) {
       eligible:isAvailableToMcp(turn,direction),events:graphCounts.get(turnNumber) || 0
     });
   }
-  return scenes;
+  if (!project.sceneBoard?.chapters) return scenes;
+  const byTurn = new Map(scenes.map(scene=>[scene.turn,scene]));
+  return manuscriptChapters(project).flatMap(chapter=>chapter.map(({turn,number,chapter})=>
+    ({...byTurn.get(turn),number,chapter})));
 }
 
 export function selectScenes(scenes, scope) {

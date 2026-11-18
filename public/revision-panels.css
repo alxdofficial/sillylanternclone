@@ -149,6 +149,15 @@
 .heatmap-summary:has(:not([hidden])) { margin-top: 12px; }
 .heatmap-summary .form-note { margin: 0; }
 .heatmap-summary .button { margin-inline-start: auto; }
+.heatmap-navigation { display: inline-flex; align-items: center; gap: 2px; }
+.heatmap-summary .heatmap-navigation { margin-inline-start: auto; }
+.heatmap-navigation .icon, .heatmap-navigation .text-button { min-height: 34px; }
+.heatmap-navigation .icon { min-width: 34px; display: inline-grid; place-items: center; }
+.heatmap-navigation .tool-mark { width: 15px; height: 15px; }
+.heatmap-previous .tool-mark { transform: rotate(180deg); }
+.heatmap-navigation .heatmap-position { padding-inline: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#writeView[data-layout="split"] :is(#proseHeatmapNavigation,#viewHeatmap),
+#writeView:not([data-layout="split"]) #toolHeatmapNavigation { display: none; }
 .heatmap-legend {
   flex: none;
   display: flex;
@@ -160,10 +169,12 @@
   color: var(--muted);
   font-size: 12px;
 }
-.heatmap-legend button { margin-inline-start: auto; }
-.transcript:has(.heatmap-legend:not([hidden])) .jump-latest { bottom: 55px; }
+.heatmap-legend #clearHeatmap { margin-inline-start: auto; }
+.transcript:has(.heatmap-legend:not([hidden])) .jump-latest { bottom: 70px; }
 @media (pointer: coarse) {
-  .pacing-views button, .revision-dock .heatmap-sensitivity { min-height: 44px; }
+  .pacing-views button, .revision-dock .heatmap-sensitivity, .heatmap-navigation .icon,
+  .heatmap-navigation .heatmap-position { min-height: 44px; }
+  .heatmap-navigation .icon { min-width: 44px; }
 }
 .revision-dock .revision-link-notice {
   display: flex;

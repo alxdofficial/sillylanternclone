@@ -1,0 +1,195 @@
+.draft-comparison {
+  width: min(76rem, calc(100vw - 24px));
+  padding: clamp(14px, 2.6vw, 26px);
+  background: var(--rail);
+}
+
+.draft-comparison .dialog-top {
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.draft-compare-controls {
+  display: grid;
+  gap: 12px;
+}
+
+.draft-compare-controls > label {
+  max-width: 32rem;
+}
+
+.draft-compare-sources {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.draft-compare-sources > div {
+  min-width: 0;
+}
+
+.draft-compare-sources label + label {
+  margin-top: 8px;
+}
+
+.draft-compare-controls label,
+.draft-checkpoint label {
+  min-width: 0;
+  margin: 0;
+}
+
+.draft-compare-controls label > span,
+.draft-checkpoint label > span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.draft-compare-controls select {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  min-height: 38px;
+  padding: 6px 10px;
+  border: 1px solid var(--control-border);
+  border-radius: 0;
+  background: var(--page);
+  color: var(--text);
+}
+
+.draft-compare-toolbar,
+.draft-checkpoint-remove {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 14px 0 10px;
+}
+
+.draft-compare-count {
+  flex: 1 1 12em;
+  margin: 0;
+}
+
+.draft-checkpoint-panel {
+  margin-top: 16px;
+}
+
+.draft-checkpoint-panel summary {
+  width: fit-content;
+  min-height: 28px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.draft-checkpoint {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block: 4px 14px;
+}
+
+.draft-checkpoint label {
+  flex: 1 1 16em;
+  max-width: 26em;
+}
+
+.draft-compare-status {
+  margin: 0 0 10px;
+}
+
+.draft-compare-status:empty {
+  display: none;
+}
+
+.draft-compare-panes {
+  max-height: min(64dvh, 52rem);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  background: var(--page);
+}
+
+.draft-compare-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.draft-compare-row + .draft-compare-row,
+.draft-compare-titles {
+  border-bottom: 0;
+  border-top: 1px solid var(--border);
+}
+
+.draft-compare-titles {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.draft-compare-titles h3 {
+  margin: 0;
+  padding: 11px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.draft-compare-cell {
+  min-width: 0;
+  padding: 11px 14px;
+}
+
+.draft-compare-cell + .draft-compare-cell,
+.draft-compare-titles h3 + h3 {
+  border-inline-start: 1px solid var(--border);
+}
+
+.draft-compare-text {
+  margin: 0;
+  line-height: 1.58;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.draft-compare-text:empty::before {
+  content: '—';
+  color: var(--muted);
+}
+
+.draft-compare-row[data-changed] > .draft-compare-cell:first-child {
+  background: rgb(169 93 112 / 17%);
+}
+
+.draft-compare-row[data-changed] > .draft-compare-cell:nth-child(2) {
+  background: rgb(79 144 129 / 16%);
+}
+
+.draft-restore-paragraph {
+  margin-top: 6px;
+  padding-inline: 0;
+}
+
+@media (max-width: 580px) {
+  .draft-compare-sources {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .draft-compare-panes {
+    max-height: none;
+  }
+
+  .draft-compare-cell,
+  .draft-compare-titles h3 {
+    padding: 8px 9px;
+  }
+}
+
+@media (pointer: coarse) {
+  .draft-comparison :is(button, select) {
+    min-height: 44px;
+  }
+}

@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="/style.css">
 <link rel="stylesheet" href="/workspace.css">
 <link rel="stylesheet" href="/revision-panels.css">
+<link rel="stylesheet" href="/scene-board.css">
+<link rel="stylesheet" href="/draft-comparison.css">
 <link rel="stylesheet" href="/expanded-editor.css">
 </head>
 <body>
@@ -53,6 +55,7 @@
         <div class="story-tabs" role="tablist" aria-label="Story views">
           <button type="button" id="writeTab" role="tab" aria-selected="true" aria-controls="writeView" aria-label="Write" title="Write and continue the manuscript"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5 5 5M4 20l5-1 11-11a2 2 0 0 0 0-3l-1-1a2 2 0 0 0-3 0L5 15Z"/></svg></button>
           <button type="button" id="bookTab" role="tab" aria-selected="false" aria-controls="bookView" aria-label="Book view" title="Read the story as a book" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V4c-3-1-6-1-9 1zm0 0v14"/></svg></button>
+          <button type="button" id="sceneBoardTab" role="tab" aria-selected="false" aria-controls="sceneBoardView" aria-label="Scene board" title="Organize scenes and chapters" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h7v7H3zM14 4h7v7h-7zM3 15h7v5H3zM14 15h7v5h-7z"/></svg></button>
           <button type="button" id="graphTab" role="tab" aria-selected="false" aria-controls="graphView" aria-label="Graph" title="Explore the cast and relationships" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="m10.8 7.2-4.6 8.6m7-8.6 4.6 8.6M7.5 18h9"/></svg></button>
           <button type="button" id="displayNamesTab" role="tab" aria-selected="false" aria-controls="displayNamesView" aria-label="Display names" title="Set alternate names for this story" tabindex="-1"><svg class="tool-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v14H3z"/><circle cx="8" cy="10" r="1.5"/><path d="M5.5 15c0-2.5 5-2.5 5 0m3.5-5h4m-4 4h4"/></svg></button>
         </div>
@@ -74,7 +77,10 @@
           </details>
           <details class="story-actions" id="storyActions" hidden>
             <summary class="icon" aria-label="Story options" title="Story options"><svg class="tool-mark" aria-hidden="true"><use href="#icon-more"/></svg></summary>
-            <div class="story-action-menu"><button type="button" class="button danger" id="deleteProject">Delete story</button></div>
+            <div class="story-action-menu">
+              <button type="button" class="button subtle" id="compareStoryDrafts">Compare drafts</button>
+              <button type="button" class="button danger" id="deleteProject">Delete story</button>
+            </div>
           </details>
         </div>
       </div>
@@ -119,6 +125,7 @@
         <aside class="heatmap-legend" id="heatmapLegend" aria-label="Active text highlights" hidden>
           <span id="densityLegend" hidden><span class="heatmap-swatch density-swatch" aria-hidden="true"></span> Detail density</span>
           <span id="repetitionLegend" hidden><span class="heatmap-swatch repetition-swatch" aria-hidden="true"></span> Repeated phrases</span>
+          <div id="proseHeatmapNavigation" class="heatmap-navigation" role="group" aria-label="Highlight matches" hidden></div>
           <button type="button" class="text-button" id="clearHeatmap">Clear highlights</button>
         </aside>
         <button type="button" class="icon jump-latest" id="latestStoryTurn" aria-controls="messages" aria-label="Jump to bottom" title="Jump to bottom" hidden>
@@ -264,6 +271,7 @@
                   <label class="heatmap-sensitivity" id="heatmapSensitivityLabel" hidden><input type="checkbox" id="heatmapSensitivity"> Include subtler matches</label>
                   <div class="heatmap-summary">
                     <p class="form-note" id="heatmapSummary" role="status" hidden></p>
+                    <div id="toolHeatmapNavigation" class="heatmap-navigation" role="group" aria-label="Highlight matches" hidden></div>
                     <button class="button primary" type="button" id="viewHeatmap" hidden>View in manuscript</button>
                   </div>
                 </section>
@@ -339,6 +347,11 @@
         </div>
       </aside>
       </div>
+      <template id="heatmapNavigationTemplate">
+        <button type="button" class="icon heatmap-previous" aria-label="Previous match" title="Previous match"><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
+        <button type="button" class="text-button heatmap-position" title="Jump to current match"><span role="status" aria-atomic="true"></span></button>
+        <button type="button" class="icon heatmap-next" aria-label="Next match" title="Next match"><svg class="tool-mark" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
+      </template>
       <section class="book-view" id="bookView" role="tabpanel" aria-labelledby="bookTab" hidden>
         <aside class="book-outline" aria-label="Manuscript chapters">
           <h2>Manuscript</h2>
@@ -354,12 +367,14 @@
             <button type="button" data-book-theme="paper" aria-pressed="false" aria-label="Paper" title="Paper — off-white with black text">Aa</button>
             <button type="button" data-book-theme="sepia" aria-pressed="true" aria-label="Sepia" title="Sepia — light brown with dark brown text">Aa</button>
           </div>
-          <button type="button" id="bookExportToggle" class="button" aria-controls="bookExport" aria-expanded="false">Export Markdown</button>
+          <button type="button" id="bookExportToggle" class="button" aria-controls="bookExport" aria-expanded="false">Export</button>
         </div>
         <form class="book-export" id="bookExport" hidden>
           <label for="bookFirst">From chapter <select id="bookFirst"></select></label>
           <label for="bookLast">Through chapter <select id="bookLast"></select></label>
-          <button type="submit" class="button primary">Download .md</button>
+          <label for="bookExportFormat">Format <select id="bookExportFormat"><option value="markdown">Markdown</option><option value="docx">Word (.docx)</option><option value="ao3">AO3 HTML</option></select></label>
+          <button type="submit" class="button primary" id="bookExportAction">Download .md</button>
+          <p class="form-note" role="status" id="bookExportStatus" hidden></p>
         </form>
         <div class="book-pages" id="bookPages">
           <div class="book-reader" id="bookReader">
@@ -374,6 +389,7 @@
         </div>
         </div>
       </section>
+      <section class="scene-board" id="sceneBoardView" role="tabpanel" aria-labelledby="sceneBoardTab" hidden></section>
       <section class="display-names-view" id="displayNamesView" role="tabpanel" aria-labelledby="displayNamesTab" hidden>
         <div class="display-names-layout">
         <header class="display-names-heading"><h2>Display names</h2><p>Use alternate names when reading in Write and Book view.</p></header>
@@ -492,9 +508,12 @@
 <div id="turnMenu" class="turn-menu" role="group" aria-label="Turn actions" hidden>
   <button type="button" id="turnDetails">Time and context</button>
   <button type="button" id="chapterBreak" hidden>Start new chapter here</button>
+  <button type="button" id="compareTurnDrafts" hidden>Compare drafts</button>
+  <button type="button" id="confirmTurnContinuity" hidden>Mark continuity reviewed</button>
   <button type="button" id="branchTurn">Branch from here</button>
   <button type="button" class="danger" id="rewindTurn">Rewind to here</button>
 </div>
+<dialog id="draftComparison" class="draft-comparison" aria-labelledby="draftComparisonTitle"></dialog>
 <dialog id="confirmDanger" class="form-dialog" aria-labelledby="dangerTitle" aria-describedby="dangerDetail">
   <form method="dialog">
     <header class="dialog-top"><h2 id="dangerTitle"></h2></header>

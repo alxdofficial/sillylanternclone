@@ -23,6 +23,8 @@ import { createRevisionReviewer, reviewOutputLimit } from './revision-review.mjs
 import { createBackgroundAnalysis } from './revision-background.mjs';
 import { analysisOutputLimit } from './revision-background-review.mjs';
 import { normalizeRevisionNotes } from './public/revision.js';
+import { normalizeSceneBoard, validSceneBoard } from './public/scene-board.js';
+import { normalizeDraftCheckpoints, validDraftCheckpoints } from './public/draft-comparison.js';
 
 const root=dirname(fileURLToPath(import.meta.url));
 const dataDir=process.env.STORY_STUDIO_DATA || join(homedir(),'Library','Application Support','Story Studio');
@@ -79,6 +81,16 @@ function migrateLibrary(library) {
   for (const project of library.projects) {
     migrateStoryFields(migrateLegacyCast(project));
     if (project.revisionNotes !== undefined) project.revisionNotes = normalizeRevisionNotes(project.revisionNotes);
+    if (project.sceneBoard !== undefined) {
+      const board = normalizeSceneBoard(project);
+      if (board) project.sceneBoard = board;
+      else delete project.sceneBoard;
+    }
+    if (project.draftCheckpoints !== undefined) {
+      const checkpoints = normalizeDraftCheckpoints(project.draftCheckpoints);
+      if (checkpoints?.length) project.draftCheckpoints = checkpoints;
+      else delete project.draftCheckpoints;
+    }
   }
   return library;
 }
@@ -162,7 +174,7 @@ async function body(req, limit = 2_000_000) {
 }
 
 const libraryLimit = libraryByteLimit;
-function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.plotEvents===undefined || validPlotEvents(p.plotEvents)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && [...storyTextFields,...legacyCastFields].every(k=>p[k]===undefined || typeof p[k]==='string') && ['lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.standalone===undefined || m.role==='assistant' && m.standalone===true) && (m.sourcePrefix===undefined || typeof m.sourcePrefix==='string') && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
+function validateState(s){return s && Array.isArray(s.projects) && s.projects.length<=maxLibraryStories+1 && s.projects.filter(p=>p?.id!==starterStoryId).length<=maxLibraryStories && new Set(s.projects.map(p=>p?.id)).size===s.projects.length && typeof s.activeId==='string' && s.projects.every(p=>p && typeof p.id==='string' && typeof p.title==='string' && (p.cast===undefined || validCast(p.cast)) && (p.relationships===undefined || validRelationships(p.relationships)) && (p.plotEvents===undefined || validPlotEvents(p.plotEvents)) && (p.sceneBoard===undefined || validSceneBoard(p.sceneBoard)) && (p.draftCheckpoints===undefined || validDraftCheckpoints(p.draftCheckpoints)) && (p.storyStartAt===undefined || isStoryTime(p.storyStartAt)) && (p.graphUpdates===undefined || typeof p.graphUpdates==='boolean') && (p.speakerId===undefined || typeof p.speakerId==='string') && [...storyTextFields,...legacyCastFields].every(k=>p[k]===undefined || typeof p[k]==='string') && ['lore','notes'].every(k=>typeof p[k]==='string') && Array.isArray(p.messages) && p.messages.every(m=>m && ['user','assistant'].includes(m.role) && typeof m.content==='string' && (m.standalone===undefined || m.role==='assistant' && m.standalone===true) && (m.sourcePrefix===undefined || typeof m.sourcePrefix==='string') && (m.speakerId===undefined || typeof m.speakerId==='string') && (m.speakerName===undefined || typeof m.speakerName==='string') && (m.excludeFromContext===undefined || typeof m.excludeFromContext==='boolean') && (m.contentSensitivity===undefined || validSensitivity(m.contentSensitivity)) && (m.storyTime===undefined || isStoryTime(m.storyTime)) && (m.continuityNeedsReview===undefined || m.role==='assistant' && m.continuityNeedsReview===true) && (m.alternativeSensitivities===undefined || Array.isArray(m.alternativeSensitivities) && m.alternativeSensitivities.length<=5000 && m.alternativeSensitivities.every(value=>value===null||validSensitivity(value)))));}
 const apiStatusHints = {
   401:'Check your API key.',
   402:'Check your balance and key spending limit.',
@@ -341,7 +353,8 @@ const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8'
 const staticAssets = new Set([
   '/index.html','/app.js','/prompt.js','/models.js','/graph-history.js','/library.js',
   '/manuscript.js','/agent-context.js','/model-picker.js','/story-flow.js','/display-names.js','/sync.js','/revision.js','/revision-view.js','/style.css',
-  '/workspace.js','/workspace.css','/expanded-editor.js','/expanded-editor.css','/revision-signals.js','/revision-panels.css','/passage-selection.js'
+  '/workspace.js','/workspace.css','/expanded-editor.js','/expanded-editor.css','/revision-signals.js','/revision-panels.css','/passage-selection.js',
+  '/scene-board.js','/scene-board.css','/draft-comparison.js','/draft-comparison.css','/book-exports.js','/fflate.js'
 ]);
 function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens = agentOutputLimit,{taskTimeout = true} = {}) {
   const budget = taskTimeout ? AbortSignal.timeout(300_000) : undefined;
@@ -623,7 +636,7 @@ if (req.method !== 'GET') return json(res,404,{error:'Not found.'});
 if (url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
 const path = url.pathname === '/' ? '/index.html' : url.pathname;
 if (!staticAssets.has(path)) return json(res,404,{error:'Not found.'});
-const contents = await readFile(join(root,'public',path));
+const contents = await readFile(path === '/fflate.js' ? join(root,'node_modules','fflate','esm','browser.js') : join(root,'public',path));
 res.writeHead(200,{
   'content-type':types[extname(path)],
   'cache-control':'no-store',

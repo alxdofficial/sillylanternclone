@@ -10,7 +10,7 @@ const labels = {
 const revisionTools = new Set(['pacing', 'themes', 'threads']);
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
 
-export function createWorkspace({ onToolChange, onComposerChange, onResize }) {
+export function createWorkspace({ onToolChange, onComposerChange, onProseModeChange, onResize }) {
   const get = id => document.getElementById(id);
   const workspace = get('writeView');
   const panel = workspace.querySelector('.story-panel');
@@ -140,6 +140,7 @@ export function createWorkspace({ onToolChange, onComposerChange, onResize }) {
     workspace.toggleAttribute('data-very-short', shortMode && height < 335);
     panel.hidden = !mainVisible;
     panel.inert = Boolean(overlay);
+    if (proseOnly !== wasProseOnly) onProseModeChange?.();
     if (!proseOnly && wasProseOnly && writingScroll) {
       transcript.scrollTop = writingScroll.atEnd ? transcript.scrollHeight : writingScroll.top;
       writingScroll = undefined;

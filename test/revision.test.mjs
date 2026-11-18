@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createStarterStory } from '../examples/the-late-ferry.mjs';
 import { buildReview, createRevisionReviewer } from '../revision-review.mjs';
-import { branchRevisionNotes, continuityChecks, motifOccurrences, normalizeRevisionNotes, pacingRows, reference, resolveReference, resolveReferenceRange, sceneIndex } from '../public/revision.js';
+import { branchRevisionNotes, continuityChecks, motifOccurrences, normalizeRevisionNotes, pacingRows, reference, resolveReference, resolveReferenceRange, sceneIndex, selectScenes } from '../public/revision.js';
 import { findRecurringDetails, manuscriptHeatmap, passageSignals } from '../public/revision-signals.js';
 
 const story = {
@@ -18,6 +18,14 @@ const story = {
     {role:'assistant',turnNumber:6,excludeFromContext:true,content:'Do not send this text.'}
   ]
 };
+
+test('review scope follows the manuscript order while context eligibility follows the original direction',()=>{
+  const project = {...story,sceneBoard:{chapters:[[4,2],[1,6,5]]}};
+  const scenes = sceneIndex(project);
+  assert.deepEqual(scenes.map(scene=>scene.turn),[4,2,1,6,5]);
+  assert.deepEqual(selectScenes(scenes,'chapter:1').map(scene=>scene.eligible),[false,true]);
+  assert.deepEqual(story.messages.map(turn=>turn.turnNumber),[1,2,3,4,5,6]);
+});
 
 test('scene index follows the book and revision references detect prose edits', () => {
   const scenes = sceneIndex(story);

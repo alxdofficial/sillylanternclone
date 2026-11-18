@@ -1,7 +1,10 @@
 import { createWorkspace } from './workspace.js';
 import { activeStoryFlow, normalizeStoryFlow, storyFlowTurn, validStoryFlowOptions } from './story-flow.js';
 import { applyGraphUpdate, applyTurnGraphUpdates, captureGraphVersion, ensureGraphBaseline, graphChangesByTurn, normalizeGraphHistory, storyAtTurn } from './graph-history.js';
-import { bookChapters, bookMarkdown, libraryByteLimit, maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
+import { bookMarkdown, libraryByteLimit, maxLibraryStories, starterStoryId, withoutStarter } from './library.js';
+import { createSceneBoard, manuscriptChapters, normalizeSceneBoard, readingChapterBreak, toggleReadingChapter } from './scene-board.js';
+import { createDraftComparison, normalizeDraftCheckpoints } from './draft-comparison.js';
+import { bookAo3File, bookDocx, copyBookForAo3, docxMimeType } from './book-exports.js';
 import { defaultChapterStarts, manuscriptByteLimit, manuscriptPassages, manuscriptReference, manuscriptTurns, parseManuscript } from './manuscript.js';
 import { mergeLibrary } from './sync.js';
 import { createDisplayNameMatcher } from './display-names.js';
@@ -354,7 +357,7 @@ function render() {
   for (const story of state.projects.filter(story=>story.id !== starterStoryId)) {
     const button = el('button','project-item' + (story.id === project.id ? ' active' : ''));
     button.title = story.title;
-    const chapters = bookChapters(story.messages).length;
+    const chapters = manuscriptChapters(story).length;
     button.append(el('span','project-title',story.title),
       el('span','library-counts',`${chapters} ${chapters === 1 ? 'chapter' : 'chapters'} · ${story.messages.length} ${story.messages.length === 1 ? 'turn' : 'turns'}`));
     if (story.id === project.id) button.setAttribute('aria-current', 'true');
@@ -413,12 +416,15 @@ function openTurnMenu(trigger, index) {
   turnMenuTrigger = trigger;
   turnMenuIndex = index;
   trigger.setAttribute('aria-expanded','true');
-  const messages = current().messages;
+  const project = current();
+  const {messages} = project;
   const message = messages[index];
   const chapterBreak = $('#chapterBreak');
-  chapterBreak.hidden = message.role !== 'assistant' || (!message.startsChapter &&
-    (!message.content.trim() || !messages.slice(0,index).some(turn => turn.role === 'assistant' && turn.content.trim())));
-  chapterBreak.textContent = message.startsChapter ? 'Remove chapter break' : 'Start new chapter here';
+  const chapterStart = message.role === 'assistant' ? readingChapterBreak(project,message.turnNumber || index + 1) : null;
+  chapterBreak.hidden = chapterStart === null;
+  chapterBreak.textContent = chapterStart ? 'Remove chapter break' : 'Start new chapter here';
+  $('#compareTurnDrafts').hidden = message.role !== 'assistant' || !message.content.trim();
+  $('#confirmTurnContinuity').hidden = !message.continuityNeedsReview;
   $('#rewindTurn').disabled = index === messages.length - 1;
   turnMenu.hidden = false;
   positionTurnMenu();
@@ -426,20 +432,60 @@ function openTurnMenu(trigger, index) {
 }
 
 $('#chapterBreak').onclick = () => {
-  const message = current().messages[turnMenuIndex];
+  const project = current(), index = turnMenuIndex;
+  const message = project.messages[index];
   closeTurnMenu(true);
   if (message?.role !== 'assistant' || busy) return;
-  if (message.startsChapter) delete message.startsChapter;
-  else message.startsChapter = true;
+  let added;
+  if (project.sceneBoard?.chapters) {
+    const turn = message.turnNumber || index + 1;
+    const chapter = readingChapterBreak(project,turn);
+    if (chapter === null) return;
+    added = !chapter;
+    project.sceneBoard = toggleReadingChapter(project,turn);
+  } else {
+    if (message.startsChapter) delete message.startsChapter;
+    else message.startsChapter = true;
+    added = message.startsChapter;
+  }
   const notice = $('#interactionStatus');
-  notice.textContent = message.startsChapter ? 'Chapter break added.' : 'Chapter break removed.';
+  notice.textContent = added ? 'Chapter break added.' : 'Chapter break removed.';
   markDirty();
+  renderMessages();
 };
 
 $('#turnDetails').onclick = () => {
   const index = turnMenuIndex;
   closeTurnMenu();
   if (Number.isInteger(index)) openTurnDetails(index);
+};
+
+const draftComparison = createDraftComparison({
+  dialog:$('#draftComparison'),getStory:current,getStories:()=>state.projects,
+  canWrite:()=>!busy && !composerEdit,
+  onChange(project,{kind}) {
+    markDirty(project);
+    if (kind === 'restore') renderMessages();
+  }
+});
+
+$('#compareStoryDrafts').onclick = ()=>{
+  storyActions.open = false;
+  draftComparison.open();
+};
+$('#compareTurnDrafts').onclick = ()=>{
+  const index = turnMenuIndex;
+  const turn = current().messages[index];
+  closeTurnMenu();
+  if (turn?.role === 'assistant') draftComparison.open(turn.turnNumber || index + 1);
+};
+$('#confirmTurnContinuity').onclick = ()=>{
+  const turn = current().messages[turnMenuIndex];
+  closeTurnMenu(true);
+  if (busy || !turn?.continuityNeedsReview) return;
+  delete turn.continuityNeedsReview;
+  markDirty();
+  renderMessages();
 };
 
 function positionTurnMenu() {
@@ -479,6 +525,7 @@ $('#branchTurn').onclick = () => {
   const project = current();
   const branch = storyAtTurn(project,index);
   const turn = branch.nextTurn - 1;
+  trimManuscriptEdits(branch,turn);
   const names = new Set(state.projects.map(story => story.title));
   const base = project.title.slice(0,128);
   const title = base + ' · Branch from turn ' + turn;
@@ -507,12 +554,24 @@ $('#rewindTurn').onclick = async () => {
   if (!await confirmDanger(`Rewind to turn ${turn}?`,
     `This permanently removes ${count} later ${count === 1 ? 'turn' : 'turns'} and their relationship events from “${project.title}”.`, 'Rewind story')) return;
   const rewound = storyAtTurn(project,index);
+  trimManuscriptEdits(rewound,turn);
   state.projects[state.projects.indexOf(project)] = rewound;
   markDirty(rewound);
   error();
   render();
   void save();
 };
+
+function trimManuscriptEdits(project,turn) {
+  const board = normalizeSceneBoard(project);
+  if (board) project.sceneBoard = board;
+  else delete project.sceneBoard;
+  if (project.draftCheckpoints) {
+    const checkpoints = project.draftCheckpoints.filter(checkpoint=>checkpoint.turn <= turn);
+    if (checkpoints.length) project.draftCheckpoints = checkpoints;
+    else delete project.draftCheckpoints;
+  }
+}
 
 function attributedSpeaker(message) {
   const name = message.speakerName?.trim();
@@ -637,7 +696,17 @@ function renderStoryTurns(project, followLatest, match) {
   const fragment = document.createDocumentFragment();
   outlineScenes = new Map();
   let chapter = 0;
-  for (const scene of storyTurns(project)) {
+  let ordered = [...storyTurns(project)];
+  if (project.sceneBoard?.chapters) {
+    const items = new Map(ordered.map(scene=>[scene.selection.replyTurn || scene.selection.turn,scene]));
+    const manuscript = manuscriptChapters(project).flatMap(chapter=>chapter.map(({turn},index)=>{
+      const scene = items.get(turn);
+      items.delete(turn);
+      return {...scene,startsChapter:index === 0};
+    }));
+    ordered = manuscript.concat(Array.from(items.values()));
+  }
+  for (const scene of ordered) {
     const {selection,startsChapter,detail,reason,preview,authorOnly} = scene;
     const turn = selection.turn;
     if (!chapter || startsChapter) fragment.append(el('h3','outline-chapter',`Chapter ${++chapter}`));
@@ -690,10 +759,31 @@ const bookChapter = $('#bookChapter');
 const bookChapterPicker = enhanceSelect(bookChapter,{minWidth:152});
 const bookFirst = $('#bookFirst');
 const bookLast = $('#bookLast');
+const bookExportFormat = $('#bookExportFormat');
+const bookExportAction = $('#bookExportAction');
+const bookExportStatus = $('#bookExportStatus');
 const bookPositions = new Map();
 const spreadPositions = new Map();
 const storyViews = [['write','writeTab','writeView'],['book','bookTab','bookView'],
-  ['graph','graphTab','graphView'],['names','displayNamesTab','displayNamesView']];
+  ['board','sceneBoardTab','sceneBoardView'],['graph','graphTab','graphView'],['names','displayNamesTab','displayNamesView']];
+const sceneBoard = createSceneBoard({
+  root:$('#sceneBoardView'),getStory:current,
+  onSave(next) {
+    const project = current();
+    if (next) project.sceneBoard = next;
+    else delete project.sceneBoard;
+    markDirty(project);
+  },
+  async onOpenScene(turn) {
+    if (storyView !== 'write' && !await navigateStoryView('write')) return;
+    workspaceTools.backToManuscript();
+    const outlineTurn = [...outlineScenes].find(([,scene])=>scene.selection.replyTurn === turn)?.[0];
+    const target = $('#messages').querySelector(`.assistant[data-story-turn="${turn}"]`);
+    if (!target) return;
+    selectStoryTurn(outlineTurn || turn);
+    passageSelection.focus(undefined,target);
+  }
+});
 const backgroundReviews = new Map();
 let backgroundRequest;
 const revisionViews = createRevisionViews({
@@ -723,7 +813,7 @@ const revisionViews = createRevisionViews({
     markDirty(project);
     updateWritingTools();
   },
-  async openScene(storyId,turn,view = 'write',ref,{mark = true} = {}) {
+  async openScene(storyId,turn,view = 'write',ref,{mark = true,focus = true} = {}) {
     if (storyView !== view && !await navigateStoryView(view)) return;
     if (current().id !== storyId) {
       if (!state.projects.some(story=>story.id === storyId)) return;
@@ -743,7 +833,7 @@ const revisionViews = createRevisionViews({
     const target = $('#messages').querySelector(`[data-story-turn="${turn}"]`);
     if (!target) return;
     selectStoryTurn(outlineTurn || turn);
-    passageSelection.focus(ref,target,mark);
+    passageSelection.focus(ref,target,mark,{focus});
   },
   async requestReview(payload,signal) {
     const project = current();
@@ -800,12 +890,15 @@ function updateWritingTools() {
   revisionViews.render();
   passageSelection.render();
 }
-let bookStoryId, chapters = [], storyView = 'write', writeNeedsRender = false;
+let bookStoryId, bookSources = [], chapters = [], storyView = 'write', writeNeedsRender = false;
 let showGraphDirections = getSession('studio-show-directions') === 'true';
 const workspaceTools = createWorkspace({
   onToolChange(tool) {
     revisionViews.open(tool);
     if (tool === 'scene') renderSceneInspector(activeStoryTurn);
+  },
+  onProseModeChange() {
+    if (state && storyView === 'write' && current().sceneBoard?.chapters) renderMessages();
   },
   onComposerChange: syncRoute,
   onResize() {
@@ -887,6 +980,7 @@ new ResizeObserver(updateBookSpread).observe(bookPages);
 function setBookExport(open) {
   bookExport.hidden = !open;
   bookExportToggle.setAttribute('aria-expanded',String(open));
+  if (!open) bookExportStatus.hidden = true;
 }
 
 function updateBookRange(first, last) {
@@ -902,7 +996,8 @@ function renderBook() {
   const oldCount = chapters.length;
   if (!sameStory) setBookExport(false);
   bookStoryId = project.id;
-  chapters = bookChapters(project.messages);
+  bookSources = manuscriptChapters(project);
+  chapters = bookSources.map(chapter=>chapter.map(scene=>scene.content));
   const count = chapters.length;
   const outline = $('#bookOutline');
   outline.replaceChildren();
@@ -977,6 +1072,7 @@ function showStoryView(view) {
   history.replaceState(null,'',url);
   if (view === 'graph' && !settingsDraftChanged()) loadSettings();
   if (view === 'book') renderBook();
+  else if (view === 'board') sceneBoard.render();
   else if (view === 'names') renderDisplayNames();
   else if (writeNeedsRender) renderMessages();
   else updateWritingTools();
@@ -1028,13 +1124,44 @@ bookChapter.onchange = () => {
 };
 bookExportToggle.onclick = () => setBookExport(bookExport.hidden);
 bookFirst.onchange = () => updateBookRange(Number(bookFirst.value),Math.max(Number(bookFirst.value),Number(bookLast.value)));
-bookExport.onsubmit = event => {
+bookExportFormat.onchange = () => {
+  bookExportStatus.hidden = true;
+  bookExportAction.textContent = {markdown:'Download .md',docx:'Download .docx',ao3:'Copy for AO3'}[bookExportFormat.value];
+};
+bookExport.onsubmit = async event => {
   event.preventDefault();
+  if (bookExportAction.disabled) return;
+  bookExportStatus.hidden = true;
   const title = current().title;
   const first = Number(bookFirst.value), last = Number(bookLast.value);
   const fileTitle = title.replace(/[^\p{L}\p{N} -]/gu,'').replace(/\s+/gu,' ').trim().slice(0,80) || 'story';
-  download(new Blob([bookMarkdown(title,chapters,first,last)],{type:'text/markdown;charset=utf-8'}),
-    `${fileTitle} - Chapter ${first}${first === last ? '' : `-${last}`}.md`);
+  const filename = `${fileTitle} - Chapter ${first}${first === last ? '' : `-${last}`}`;
+  const format = bookExportFormat.value, sources = bookSources;
+  if (format === 'markdown') {
+    download(new Blob([bookMarkdown(title,chapters,first,last)],{type:'text/markdown;charset=utf-8'}),filename + '.md');
+    return;
+  }
+  bookExportAction.disabled = true;
+  try {
+    if (format === 'ao3') {
+      try {
+        await copyBookForAo3(sources,first,last);
+        bookExportStatus.textContent = 'Copied. Paste into the AO3 Rich Text editor.';
+      } catch {
+        download(new Blob([bookAo3File(title,sources,first,last)],{type:'text/html;charset=utf-8'}),filename + '.html');
+        bookExportStatus.textContent = 'Clipboard unavailable. Downloaded the formatted HTML.';
+      }
+      bookExportStatus.hidden = false;
+    } else {
+      const {zipSync} = await import('./fflate.js');
+      download(new Blob([bookDocx(title,sources,first,last,zipSync)],{type:docxMimeType}),filename + '.docx');
+    }
+  } catch {
+    bookExportStatus.textContent = 'The export could not be created. Please try again.';
+    bookExportStatus.hidden = false;
+  } finally {
+    bookExportAction.disabled = false;
+  }
 };
 
 function copyProseButton(message, turn, text) {
@@ -1082,6 +1209,7 @@ function renderMessages() {
   if (storyView !== 'write') {
     writeNeedsRender = true;
     if (storyView === 'book') renderBook();
+    else if (storyView === 'board') sceneBoard.render();
     else if (storyView === 'names') renderDisplayNames();
     return;
   }
@@ -1141,7 +1269,8 @@ function renderMessages() {
     if (message.sourcePrefix?.trim()) body.append(readerText('div','manuscript-heading',message.sourcePrefix.trim(),match));
     if (name) head.append(readerText('strong',fromAuthor ? 'author-label' : '',name,fromAuthor ? null : match));
     appendTurnContextBadge(row,head,omittedFromMcp);
-    if (graphChanges.has(turn) || (!message.excludeFromContext && message.graphSuggestions?.length)) {
+    if (message.continuityNeedsReview) head.append(el('span','continuity-review-badge','Continuity needs review'));
+    if (message.continuityNeedsReview || graphChanges.has(turn) || (!message.excludeFromContext && message.graphSuggestions?.length)) {
       const changes = el('button','text-button','View graph changes');
       changes.title = 'See what this turn added to the story graph.';
       changes.onclick = () => {
@@ -1162,8 +1291,8 @@ function renderMessages() {
     remove.onclick = async () => {
       const reply = pairedReply(project,index);
       if (!await confirmDanger(`Delete turn ${turn}?`,
-        reply ? 'This permanently removes the author direction and its reply, including alternate takes.'
-          : 'This permanently removes the text and its alternate takes from the story.', 'Delete turn')) return;
+        reply ? 'This permanently removes the direction, its reply, and the reply’s alternate takes and checkpoints.'
+          : 'This permanently removes the text, its alternate takes, and its saved checkpoints.', 'Delete turn')) return;
       const deletedTurns = reply ? [turn,reply.turnNumber] : [turn];
       const cancelsRequest = project.agentRequest && (deletedTurns.includes(project.agentRequest.turnNumber)
         || deletedTurns.includes(project.agentRequest.replyTurnNumber));
@@ -1171,6 +1300,15 @@ function renderMessages() {
       if (project.plotEvents) project.plotEvents = project.plotEvents.filter(event=>!deletedTurns.includes(event.turn));
       if (project.agentNotice && deletedTurns.includes(project.agentNotice.turnNumber)) delete project.agentNotice;
       project.messages.splice(index,reply ? 2 : 1);
+      if (project.sceneBoard) {
+        const board = normalizeSceneBoard(project);
+        if (board) project.sceneBoard = board;
+        else delete project.sceneBoard;
+      }
+      if (project.draftCheckpoints) {
+        project.draftCheckpoints = project.draftCheckpoints.filter(checkpoint=>!deletedTurns.includes(checkpoint.turn));
+        if (!project.draftCheckpoints.length) delete project.draftCheckpoints;
+      }
       markDirty(project);
       render();
       if (cancelsRequest) void save();
@@ -1204,6 +1342,13 @@ function renderMessages() {
   });
   appendEditorTurns(Infinity);
   if (pendingEdit) messageList.append(editorMessage('user',pendingEdit),editorMessage('assistant','Working…',true));
+  if (project.sceneBoard?.chapters && $('#writeView').hasAttribute('data-prose-only')) {
+    const articles = new Map([...messageList.querySelectorAll('.assistant[data-story-turn]')].map(row=>[Number(row.dataset.storyTurn),row]));
+    for (const {turn} of manuscriptChapters(project).flat()) {
+      const row = articles.get(turn);
+      if (row) messageList.append(row);
+    }
+  }
   renderPending();
   box.scrollTop = followLatest ? box.scrollHeight : scrollTop;
   renderStoryTurns(project,followLatest,match);
@@ -1990,6 +2135,9 @@ function appendTurnGraphChanges(preview, selection, edges) {
   const notes = [...(changes.get(selection.turn)?.notes || []), ...(changes.get(selection.replyTurn)?.notes || [])];
   const pending = pendingGraphReview.filter(item => matchesTurn(item.turnNumber,selection) && !item.status);
   const showEmpty = selection.kind === 'turn-changes';
+  if (current().messages.some(turn=>turn.continuityNeedsReview && matchesTurn(turn.turnNumber,selection))) {
+    preview.append(el('p','form-note','Prose was restored here. Check that the saved graph changes still fit.'));
+  }
   if (notes.length || showEmpty) preview.append(el('h4','','Saved changes'));
   for (const note of notes) {
     const label = note.kind === 'character' ? 'Character added · ' + note.name
@@ -2506,7 +2654,7 @@ function openTurnDetails(index) {
   showEditSensitivity(sensitivity,heldForReview);
   $('#editDialog').showModal();
 }
-function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');p = migrateStoryFields(migrateLegacyCast(structuredClone(p)));if(p.plotEvents!==undefined&&!validPlotEvents(p.plotEvents))throw Error('A story has invalid plot events.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),lore:String(p.lore||''),notes:String(p.notes||''),...(p.plotEvents ? {plotEvents:p.plotEvents} : {}),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(p.revisionNotes ? {revisionNotes:normalizeRevisionNotes(p.revisionNotes)} : {}),...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentHistory?{agentHistory:normalizeAgentHistory(p.agentHistory)}:{}),...(normalizeSetupHistory(p.setupHistory)?{setupHistory:normalizeSetupHistory(p.setupHistory)}:{}),...(normalizeStoryFlow(p.storyFlow)?{storyFlow:normalizeStoryFlow(p.storyFlow)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(storyTextFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.continuityPending===true)result.continuityPending=true;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
+function normalize(data){if(!data||!Array.isArray(data.projects)||!data.projects.length||data.projects.length>maxLibraryStories+1||data.projects.filter(p=>p?.id!==starterStoryId).length>maxLibraryStories)throw Error('This file does not contain a story library.');const projects=data.projects.map(p=>{if(!p||typeof p!=='object'||!Array.isArray(p.messages))throw Error('A story in this file is missing its turns.');if(p.relationships!==undefined&&!validRelationships(p.relationships))throw Error('A story has invalid relationships.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');if(p.messages.some(m=>!m||!['user','assistant'].includes(m.role)||typeof m.content!=='string'))throw Error('The library has invalid or too many story turns.');p = migrateStoryFields(migrateLegacyCast(structuredClone(p)));if(p.plotEvents!==undefined&&!validPlotEvents(p.plotEvents))throw Error('A story has invalid plot events.');if(p.cast!==undefined&&!validCast(p.cast))throw Error('A story has an invalid cast.');const sceneBoard=normalizeSceneBoard(p),draftCheckpoints=normalizeDraftCheckpoints(p.draftCheckpoints);return {id:typeof p.id==='string'?p.id:id(),title:String(p.title||'Untitled story'),lore:String(p.lore||''),notes:String(p.notes||''),...(p.plotEvents ? {plotEvents:p.plotEvents} : {}),...(p.relationships ? {relationships:p.relationships.map(edge=>({...edge,turn:edge.turn||0}))} : {}),...(p.revisionNotes ? {revisionNotes:normalizeRevisionNotes(p.revisionNotes)} : {}),...sceneBoard && {sceneBoard},...draftCheckpoints?.length && {draftCheckpoints},...(isStoryTime(p.storyStartAt)?{storyStartAt:p.storyStartAt,storyStartSource:p.storyStartSource||'estimate'}:{}),...(p.graphHistory?{graphHistory:normalizeGraphHistory(p.graphHistory)}:{}),...(p.agentHistory?{agentHistory:normalizeAgentHistory(p.agentHistory)}:{}),...(normalizeSetupHistory(p.setupHistory)?{setupHistory:normalizeSetupHistory(p.setupHistory)}:{}),...(normalizeStoryFlow(p.storyFlow)?{storyFlow:normalizeStoryFlow(p.storyFlow)}:{}),...(p.agentEditRequest && typeof p.agentEditRequest.id==='string' && typeof p.agentEditRequest.instruction==='string' && p.agentEditRequest.instruction.trim() ? {agentEditRequest:{id:p.agentEditRequest.id,instruction:p.agentEditRequest.instruction}} : {}),...(p.agentRequest&&['send','alternate','replace'].includes(p.agentRequest.mode)&&typeof p.agentRequest.speakerId==='string'&&Number.isSafeInteger(p.agentRequest.turnNumber)&&(p.agentRequest.mode!=='replace'||Number.isSafeInteger(p.agentRequest.replyTurnNumber))?{agentRequest:p.agentRequest}:{}),...(p.agentNotice&&typeof p.agentNotice.message==='string'&&p.agentNotice.message.trim()&&Number.isSafeInteger(p.agentNotice.turnNumber)?{agentNotice:{turnNumber:p.agentNotice.turnNumber,message:p.agentNotice.message.trim().slice(0,300),...(p.agentNotice.mode==='replace'?{mode:'replace',replyTurnNumber:p.agentNotice.replyTurnNumber}:{})}}:{}),...(Number.isSafeInteger(p.nextTurn)&&p.nextTurn>0?{nextTurn:p.nextTurn}:{}),...(typeof p.graphUpdates==='boolean'?{graphUpdates:p.graphUpdates}:{}),...(p.cast ? {cast:p.cast.map(member=>({id:member.id,...Object.fromEntries(castFields.map(field=>[field,member[field]||'']))}))} : {}),...(typeof p.speakerId==='string' ? {speakerId:p.speakerId} : {}),...Object.fromEntries(storyTextFields.map(key=>[key,typeof p[key]==='string'?p[key]:''])),messages:p.messages.filter(m=>m&&['user','assistant'].includes(m.role)&&typeof m.content==='string').map((m,index)=>{const result={role:m.role,content:m.content,turnNumber:Number.isSafeInteger(m.turnNumber)&&m.turnNumber>0?m.turnNumber:index+1};if(isStoryTime(m.storyTime))result.storyTime=m.storyTime;if(m.continuityPending===true)result.continuityPending=true;if(m.role==='assistant'&&m.continuityNeedsReview===true)result.continuityNeedsReview=true;if(m.excludeFromContext===true)result.excludeFromContext=true;if(validSensitivity(m.contentSensitivity))result.contentSensitivity=m.contentSensitivity;const proposals=graphSuggestions(m.graphSuggestions);if(proposals.length)result.graphSuggestions=proposals;const applied=graphSuggestions(m.appliedGraphUpdates);if(applied.length)result.appliedGraphUpdates=applied;const firstTake=graphSuggestions(m.firstTakeSuggestions);if(firstTake.length)result.firstTakeSuggestions=firstTake;
 if(m.role==='assistant'&&m.standalone===true)result.standalone=true;if(m.role==='assistant'&&m.startsChapter===true)result.startsChapter=true;if(m.role==='assistant'&&typeof m.sourcePrefix==='string')result.sourcePrefix=m.sourcePrefix;if(m.role==='assistant'&&typeof m.speakerName==='string'&&typeof m.speakerId==='string')Object.assign(result,{speakerName:m.speakerName,speakerId:m.speakerId});if(m.role==='assistant' && Array.isArray(m.alternatives) && m.alternatives.length && m.alternatives.every(x=>typeof x==='string')){result.alternatives=m.alternatives.slice();result.selectedAlternative=Number.isInteger(m.selectedAlternative)&&m.selectedAlternative>=0&&m.selectedAlternative<result.alternatives.length?m.selectedAlternative:0;if(result.alternatives[result.selectedAlternative]!==m.content){result.alternatives.push(m.content);result.selectedAlternative=result.alternatives.length-1}if(Array.isArray(m.alternativeSensitivities)){result.alternativeSensitivities=result.alternatives.map((_,i)=>i===result.selectedAlternative ? result.contentSensitivity || null : m.alternativeSensitivities[i]===null ? null : validSensitivity(m.alternativeSensitivities[i]) ? m.alternativeSensitivities[i] : 'unclassified')}}return result})};});if(new Set(projects.map(p=>p.id)).size!==projects.length)throw Error('Two stories have the same ID.');return {projects,activeId:projects.some(p=>p.id===data.activeId)?data.activeId:projects[0].id}}
 
 const sceneModelChoice = $('#sceneModel');

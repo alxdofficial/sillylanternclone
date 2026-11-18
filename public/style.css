@@ -26,6 +26,8 @@ html, body { height: 100%; margin: 0; }
 ::highlight(studio-finding) { color: #fff1f5; background: #775769; }
 ::highlight(studio-density-medium) { background-color: rgb(205 149 65 / 20%); }
 ::highlight(studio-density-high) { background-color: rgb(205 149 65 / 34%); }
+::highlight(studio-active-density) { background-color: rgb(205 149 65 / 58%); color: #fffaf0; }
+::highlight(studio-active-repeat) { text-decoration: underline 2px #c3fff2; color: #edfff9; }
 ::highlight(studio-repeated) { text-decoration: underline 2px #9cdbd0; }
 .message-text[data-passage-mark] { outline: 1px solid var(--focus); outline-offset: 4px; }
 .passage-actions {
@@ -174,6 +176,7 @@ textarea { caret-color: #f0c6de; }
 .story-actions summary::-webkit-details-marker { display: none; }
 .story-action-menu {
   position: absolute;
+  display: grid;
   z-index: 4;
   inset: calc(100% + 4px) 0 auto auto;
   width: max-content;
@@ -200,6 +203,7 @@ textarea { caret-color: #f0c6de; }
 .message-footer { margin-top: 3px; }
 .message-header strong { min-width: 0; overflow-wrap: anywhere; font-size: 15px; }
 .message-header .author-label { color: var(--muted); font-size: 13px; }
+.continuity-review-badge { color: #ecd4a8; font-size: 12px; }
 .message-actions { display: flex; flex-wrap: wrap; gap: 4px 7px; margin-inline-start: auto; }
 .turn-menu {
   position: fixed;
@@ -652,6 +656,7 @@ textarea { caret-color: #f0c6de; }
 }
 .book-export { justify-content: flex-end; gap: 8px 16px; background: var(--panel); }
 .book-export label { display: flex; align-items: center; gap: 6px; margin: 0; }
+#bookExportStatus { flex-basis: 100%; margin: 0; text-align: end; }
 .book-pages {
   position: relative;
   display: flex;
