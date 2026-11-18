@@ -193,3 +193,9 @@
     min-height: 44px;
   }
 }
+
+
+.agent-revision-change + .agent-revision-change { margin-block-start: 20px; }
+.agent-revision-change h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.agent-revision-change .form-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+#agentRevisionReview .dialog-actions { margin-block-start: 16px; }

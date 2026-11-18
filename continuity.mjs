@@ -5,6 +5,7 @@ import { continuityContext, editorContext } from './public/agent-context.js';
 import { diagnosticError } from './diagnostics.mjs';
 import { agentTool, runAgentTask } from './agent-tools.mjs';
 import { applyStoryEdits, storyEditChangesSchema } from './story-edits.mjs';
+import { manuscriptChangesSchema, manuscriptReader, proposeManuscriptEdit, requireManuscriptReads } from './manuscript-edits.mjs';
 
 const classification = z.enum(['safe','explicit','unclassified']);
 export { sceneTimeSchema };
@@ -29,6 +30,7 @@ const recordSchema = z.strictObject({
 export const inspectDescription = 'Inspect the cast, world, opening premise, writing notes, dated plot events, or dated relationship events. Select a character and field to page through long profile text.';
 export const recordDescription = 'Finish the continuity pass by recording the scene time and any new safe-for-work facts. Leave out speculative, graphic, or already recorded information.';
 const editSchema = z.strictObject({changes:storyEditChangesSchema,
+  manuscript:manuscriptChangesSchema.optional().describe('Requested manuscript operations to preview for the author.'),
   message:z.string().trim().min(1).max(300).describe('A short non-explicit result for the writer. Use no changes if clarification is needed.'),
   historySafe:z.boolean().optional().describe('True only when both the current request and your reply are non-explicit and can be reused in later AI context.')});
 
@@ -116,9 +118,20 @@ export async function runStoryEdit(project,instruction,complete,model) {
   if (context.problem) throw diagnosticError('AGENT_CONTEXT_FULL',context.problem);
   const {messages} = context;
   let rejectedEdit;
-  const action = agentTool('edit_story_state','Reply to the writer and finish. Send changes: [] for discussion. Apply only explicitly requested story-state changes. Use the current eventIndex for an existing relationship. Leave prose, turns, and chapters intact.',
-    editSchema,({changes,message,historySafe}) => {
+  const manuscriptReads = {used:false,scenes:new Map()};
+  const action = agentTool('edit_story_state','Reply to the writer and finish. Send changes: [] for discussion. Apply only explicitly requested story-state changes. Use the current eventIndex for an existing relationship. Submit manuscript operations for preview and approval when explicitly requested.',
+    editSchema,({changes,manuscript,message,historySafe}) => {
       try {
+        if (manuscript?.length) {
+          requireManuscriptReads(manuscript,manuscriptReads);
+          const proposal = proposeManuscriptEdit(project,manuscript,changes);
+          const result = proposal ? 'Prepared changes for your review. The draft will update when you apply the proposal.'
+            : 'No story changes were saved. The submitted changes had no effect.';
+          (project.agentHistory ||= []).push({afterTurn:project.messages.at(-1)?.turnNumber ?? project.messages.length,
+            request:instruction.trim(),message:result,count:0,...(proposal ? {proposal} : {}),
+            ...(historySafe ? {} : {historySafe:false})});
+          return {value:{count:0,message:result,...(proposal ? {proposalId:proposal.id} : {})}};
+        }
         const count = changes.length ? applyStoryEdits(project,changes) : 0;
         if (!count && rejectedEdit) {
           message = 'No story changes were saved. ' + rejectedEdit;
@@ -138,10 +151,11 @@ export async function runStoryEdit(project,instruction,complete,model) {
         return {feedback:{error:failure.message}};
       }
     });
-  return await runAgentTask({messages,completions:complete,reads:[continuityReader(project)],action,
+  return await runAgentTask({messages,completions:complete,reads:[continuityReader(project),manuscriptReader(project,manuscriptReads)],action,
+    roundLimit:()=>manuscriptReads.used ? 8 : 4,
     prefixLength:context.prefixLength,
     onActionFeedback(feedback,args) {
-      if (!Array.isArray(args?.changes) || args.changes.length) rejectedEdit = feedback.error;
+      if (!Array.isArray(args?.changes) || args.changes.length || args.manuscript?.length) rejectedEdit = feedback.error;
     },
     code:'STORY_EDIT_NOT_RECORDED',failure:'The agent did not complete a valid reply. No story changes were saved.'});
 }

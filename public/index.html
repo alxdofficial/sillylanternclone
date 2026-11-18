@@ -187,9 +187,9 @@
           <div class="route-bar" id="routeModels">
             <div class="route-control" id="modeControl">
               <label for="authorMode">Mode</label>
-              <select id="authorMode" title="Choose between writing the next scene and editing story details.">
+              <select id="authorMode" title="Choose between writing the next scene and working with the Agent.">
                 <option value="story" data-help="Write the next scene from your direction.">Prose</option>
-                <option value="agent" data-help="Brainstorm, ask questions, or request changes to story details.">Agent</option>
+                <option value="agent" data-help="Brainstorm, ask questions, or request manuscript and story-state edits.">Agent</option>
               </select>
             </div>
             <div class="route-control" id="sceneModelControl" hidden>
@@ -560,6 +560,20 @@
     <div class="history-diff-titles" id="transitionPreviewTitles" hidden><h3>Current prose</h3><h3>Proposed change</h3></div>
     <div id="transitionPreview" class="history-diff"></div>
     <button type="button" class="button primary" id="applyTransition" hidden>Apply as new take</button>
+  </div>
+</dialog>
+<dialog id="agentRevisionReview" class="draft-comparison" aria-labelledby="agentRevisionTitle">
+  <header class="dialog-top">
+    <h2 id="agentRevisionTitle">Review Agent changes</h2>
+    <form method="dialog"><button type="submit" class="text-button">Close</button></form>
+  </header>
+  <div class="dialog-body">
+    <div id="agentRevisionChanges"></div>
+    <p id="agentRevisionStatus" class="form-note" role="status" hidden></p>
+    <div class="dialog-actions">
+      <button type="button" class="button subtle" id="discardAgentRevision">Discard proposal</button>
+      <button type="button" class="button primary" id="applyAgentRevision">Apply changes</button>
+    </div>
   </div>
 </dialog>
 <dialog id="confirmDanger" class="form-dialog" aria-labelledby="dangerTitle" aria-describedby="dangerDetail">

@@ -10,14 +10,28 @@ export function agentBudget(model, outputLimit = agentOutputLimit) {
   };
 }
 
+function normalizeProposal(proposal) {
+  if (!proposal || typeof proposal.id !== 'string' || !/^[a-f0-9-]{36}$/u.test(proposal.id) || typeof proposal.base !== 'string' || !/^[a-f0-9]{64}$/u.test(proposal.base) ||
+      !Array.isArray(proposal.operations) || !proposal.operations.length || proposal.operations.length > 10 ||
+      !Array.isArray(proposal.metadata) || proposal.metadata.length > 20 ||
+      !Array.isArray(proposal.previews) || !proposal.previews.length || proposal.previews.length > 11 ||
+      JSON.stringify(proposal).length > 450_000) return undefined;
+  const previews = proposal.previews.filter(preview=>preview && typeof preview.title === 'string' && preview.title.length <= 160 &&
+    ['detail','before','after'].every(key=>preview[key] === undefined || typeof preview[key] === 'string'));
+  return previews.length === proposal.previews.length ? {id:proposal.id,base:proposal.base,operations:proposal.operations,
+    metadata:proposal.metadata,previews} : undefined;
+}
+
 export function normalizeAgentHistory(value) {
   return (Array.isArray(value) ? value : []).filter(entry =>
     Number.isSafeInteger(entry?.afterTurn) && entry.afterTurn >= 0 &&
     typeof entry.request === 'string' && typeof entry.message === 'string' &&
     Number.isSafeInteger(entry.count) && entry.count >= 0
-  ).map(({afterTurn,request,message,count,changes,historySafe})=>({
+  ).map(({afterTurn,request,message,count,changes,historySafe,proposal,resolution})=>({
     afterTurn,request,message,count,...(typeof changes === 'string' ? {changes} : {}),
-    ...(historySafe === undefined || historySafe === true ? {} : {historySafe:false})
+    ...(historySafe === undefined || historySafe === true ? {} : {historySafe:false}),
+    ...(proposal ? {proposal:normalizeProposal(proposal)} : {}),
+    ...(['applied','dismissed'].includes(resolution) ? {resolution} : {})
   }));
 }
 
@@ -103,7 +117,8 @@ export function buildAgentContext(project,{system,request,model,outputLimit} = {
 }
 
 export const storyEditInstructions = [
-  'Answer questions and brainstorm with the writer. For discussion, feedback, hypothetical ideas, or suggestions, respond in message with changes: []. Treat agreement with an idea as discussion unless the writer explicitly asks to apply it. Apply only story-state changes explicitly requested in the current message. Leave prose, turns, and chapters intact.',
+  'Answer questions and brainstorm with the writer. For discussion, feedback, hypothetical ideas, or suggestions, respond in message with changes: []. Treat agreement with an idea as discussion unless the writer explicitly asks to apply it. Apply only edits explicitly requested in the current message. For prose, scene order, scene details, and chapter breaks use manuscript operations. They are proposals until the author approves. If the request mixes story-state and manuscript changes, include both in the same proposal.',
+  'For manuscript targets, call inspect_manuscript to find the stable prose turn, then read the target before revising. Use an exact unique passage anchor for a localized rewrite. A full-scene rewrite, insertion, or deletion requires an explicit request. Keep proposed prose non-explicit. Work in small batches for long revisions. Use the first scene turn to target an entire chapter. Tell the writer which changes are proposed.',
   'Use world for setting; notes for all author guidance, style, terminology, and writing techniques; plot for lasting plot events; and relationship for consequential changes between characters. Use character to add a cast member and profile to update description or aliases. Personality, backstory, and dialogue examples belong in the description. Append new information by default. Before replacing part of a field, read every page and preserve its other text. Use the current eventIndex for existing graph events. Keep each event to one sentence.',
   'Preserve established facts and remove characters or events only when the writer explicitly asks. If the requested change is ambiguous or unsupported, return no changes and explain briefly.',
   'Read every tool result. An edit rejected by the tool makes no changes. Use its feedback and inspect missing facts to correct and retry the edit. If you cannot complete the request, submit changes: [] and explain the limitation in message. Describe only the changes in your final batch, and always include a visible reply in message.'

@@ -991,6 +991,55 @@ async function reviewTransition(turn) {
   }
 }
 $('#transitionReview').addEventListener('close',()=>transitionRequest?.abort());
+
+function reviewAgentRevision(project,proposal) {
+  const dialog = $('#agentRevisionReview');
+  const changes = $('#agentRevisionChanges'), status = $('#agentRevisionStatus');
+  const apply = $('#applyAgentRevision'), discard = $('#discardAgentRevision');
+  changes.replaceChildren();
+  status.hidden = true;
+  apply.disabled = discard.disabled = false;
+  for (const item of proposal.previews) {
+    const section = el('section','agent-revision-change');
+    section.append(el('h3','',item.title));
+    if (item.detail) section.append(el('p','form-note',item.detail));
+    if (item.before !== undefined || item.after !== undefined) {
+      const diff = el('div','history-diff');
+      const titles = el('div','history-diff-titles');
+      titles.append(el('h3','','Current prose'),el('h3','','Proposed prose'));
+      diff.append(titles);
+      appendProseDiff(diff,item.before || '',item.after || '');
+      section.append(diff);
+    }
+    changes.append(section);
+  }
+  async function decide(decision) {
+    if (current()?.id !== project.id || busy || composerEdit) {
+      status.textContent = 'Finish the current edit before deciding on this proposal.';
+      status.hidden = false;
+      return;
+    }
+    apply.disabled = discard.disabled = true;
+    status.textContent = decision === 'apply' ? 'Saving changes…' : 'Discarding proposal…';
+    status.hidden = false;
+    try {
+      await save();
+      if (dirty || current()?.id !== project.id) throw Error('Save the current story before deciding on this proposal.');
+      await api('/api/story-edits',{method:'PUT',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({storyId:project.id,revision,decision,proposalId:proposal.id})});
+      await mergeServerLibrary();
+      dialog.close();
+    } catch (failure) {
+      status.textContent = failure.message;
+    } finally {
+      apply.disabled = discard.disabled = false;
+    }
+  }
+  apply.onclick = ()=>void decide('apply');
+  discard.onclick = ()=>void decide('dismiss');
+  if (!dialog.open) dialog.showModal();
+}
+
 const backgroundReviews = new Map();
 let backgroundRequest;
 const artworkEntries = new Map();
@@ -1662,9 +1711,22 @@ function renderMessages() {
   let editorIndex = 0;
   function appendEditorTurns(through) {
     while (editorTurns[editorIndex]?.afterTurn <= through) {
-      const {request,message} = editorTurns[editorIndex++];
+      const {request,message,proposal,resolution} = editorTurns[editorIndex++];
       if (request) messageList.append(editorMessage('user',request));
-      messageList.append(editorMessage('assistant',message));
+      const reply = editorMessage('assistant',message);
+      if (proposal || resolution) {
+        const body = reply.querySelector('.message-body');
+        if (proposal) {
+          const review = el('button','text-button','Review changes');
+          review.type = 'button';
+          review.disabled = busy || Boolean(composerEdit);
+          review.onclick = ()=>reviewAgentRevision(project,proposal);
+          body.append(review);
+        } else {
+          body.append(el('p','form-note',resolution === 'applied' ? 'Changes applied.' : 'Proposal discarded.'));
+        }
+      }
+      messageList.append(reply);
     }
   }
   let previousDirection;
@@ -1898,7 +1960,7 @@ function syncRoute() {
   $('#sceneModelControl').hidden = Boolean(composerEdit && !rewriting);
   sceneModelChoice.disabled = busy || Boolean(composerEdit);
   $('#sceneModelLabel').textContent = editingStory ? 'Agent model' : 'Prose artist';
-  sceneModelChoice.title = editingStory ? 'This model discusses the story or updates story details you ask it to change.'
+  sceneModelChoice.title = editingStory ? 'This model brainstorms and helps revise the manuscript or story details.'
     : 'This model writes the next scene.';
   syncSceneModel(model,mode);
   $('#continuityModelControl').hidden = editingStory || Boolean(composerEdit && !rewriting);
@@ -1916,8 +1978,8 @@ function syncRoute() {
   $('#composerEditStatus').textContent = composerEdit ? `Editing turn ${composerEdit.turnNumber}` : '';
   $('#verifyComposerEditLabel').hidden = !composerEdit;
   $('#verifyComposerEdit').checked = Boolean(composerEdit?.verified);
-  $('#instructionLabel').textContent = composerEdit ? 'Edit turn text' : editingStory ? 'What story information should change?' : 'What happens next?';
-  $('#instruction').placeholder = editingStory ? 'Add world information or revise a character profile…' : 'Write the next beat or tell the narrator what happens…';
+  $('#instructionLabel').textContent = composerEdit ? 'Edit turn text' : editingStory ? 'What would you like the Agent to do?' : 'What happens next?';
+  $('#instruction').placeholder = editingStory ? 'Ask about the story or request a revision…' : 'Write the next beat or tell the narrator what happens…';
   $('#cancelComposerEdit').hidden = !composerEdit;
   $('#saveComposerOnly').hidden = !rewriting;
   $('#composeShortcut').textContent = rewriting ? '⌘/Ctrl + Enter to rewrite'
@@ -2092,13 +2154,17 @@ async function generateAgentEdit(project) {
   try {
     await save();
     if (dirty || !state.projects.includes(project)) throw Error('Save the story and try again.');
-    await api('/api/story-edits',{
+    const result = await api('/api/story-edits',{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({storyId:project.id,revision,provider:modelProvider(model),model,instruction})
     });
     if (getSession(draftKey(project.id,'agent'))?.trim() === instruction) setSession(draftKey(project.id,'agent'),'');
     editingStateFor = undefined;
     await mergeServerLibrary();
+    if (result.proposalId && current()?.id === project.id) {
+      const proposal = normalizeAgentHistory(current().agentHistory).find(entry=>entry.proposal?.id === result.proposalId)?.proposal;
+      if (proposal) reviewAgentRevision(current(),proposal);
+    }
   } catch (failure) {
     error(failure.message);
   } finally {
