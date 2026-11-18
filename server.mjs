@@ -39,6 +39,7 @@ import { planManuscriptTransition, transitionPlannerOutputLimit } from './manusc
 const root=dirname(fileURLToPath(import.meta.url));
 const dataDir=process.env.STORY_STUDIO_DATA || join(homedir(),'Library','Application Support','Story Studio');
 const hosted = process.env.STORY_STUDIO_MODE === 'hosted';
+const googleLogin = hosted && process.env.STORY_STUDIO_GOOGLE_LOGIN === '1';
 const publicOrigin = hosted ? new URL(process.env.STORY_STUDIO_ORIGIN || 'https://' + (process.env.RAILWAY_PUBLIC_DOMAIN || '')) : null;
 if (publicOrigin && (publicOrigin.protocol !== 'https:' || publicOrigin.pathname !== '/' || publicOrigin.search ||
     publicOrigin.hash || publicOrigin.username || publicOrigin.password)) throw new Error('Configure a public HTTPS origin for hosted Story Studio.');
@@ -116,6 +117,10 @@ function accountRuntime(userId) {
 }
 
 const json=(res,status,body)=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(body));};
+function redirect(res,destination) {
+  res.writeHead(303,{location:destination,'cache-control':'no-store','referrer-policy':'no-referrer'});
+  return res.end();
+}
 function disconnectSignal(res) {
   const controller = new AbortController();
   if (res.destroyed) controller.abort();
@@ -948,7 +953,18 @@ const server = http.createServer(async (req,res) => {
     }
     if (url.pathname === '/api/account' && req.method === 'GET') {
       const session = hosted ? await hostedAuth.authenticate(req,res) : null;
-      return json(res,200,hosted ? {hosted,account:session?.account ?? null} : {hosted});
+      return json(res,200,hosted ? {hosted,account:session?.account ?? null,...(googleLogin ? {google:true} : {})} : {hosted});
+    }
+    if (googleLogin && req.method === 'GET' && url.pathname === '/api/account/google') {
+      if (await hostedAuth.authenticate(req,res)) return redirect(res,'/?signin=switch');
+      return redirect(res,hostedAuth.googleStart(res,new URL('/api/account/google/callback',publicOrigin).href));
+    }
+    if (googleLogin && req.method === 'GET' && url.pathname === '/api/account/google/callback') {
+      const result = await hostedAuth.googleFinish(req,res,url.searchParams.get('code')).catch(error=>{
+        log('warn','google_signin_failed',{code:errorCode(error,'GOOGLE_SIGNIN_FAILED')});
+        return 'failed';
+      });
+      return redirect(res,result ? '/?signin=' + result : '/');
     }
     if (hosted && url.pathname === '/api/account/login' && req.method === 'POST') {
       if (hostedAuth.cookieAccount(req)) {

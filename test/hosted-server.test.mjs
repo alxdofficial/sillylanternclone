@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
 import { test } from 'node:test';
 
@@ -12,9 +12,10 @@ async function listen(server) {
   return server.address().port;
 }
 
-async function startStudio(t) {
+async function startStudio(t,{google = false} = {}) {
   const rows = new Map();
   const providerKeys = new Map();
+  let challenge;
   const fixture = createServer(async (req,res)=>{
     const json = (status,data) => res.writeHead(status,{'Content-Type':'application/json'}).end(JSON.stringify(data));
     const url = new URL(req.url,'https://example.supabase.co');
@@ -23,6 +24,13 @@ async function startStudio(t) {
     const text = Buffer.concat(received).toString();
     const data = text && req.headers['content-type'] === 'application/json' ? JSON.parse(text) : undefined;
     if (url.pathname === '/auth/v1/token') {
+      if (url.searchParams.get('grant_type') === 'pkce') {
+        const index = data?.auth_code === 'uninvited-code' ? 1 : 0;
+        if (!challenge || createHash('sha256').update(data?.code_verifier || '').digest('base64url') !== challenge) return json(400,{});
+        const id = accountIds[index];
+        return json(200,{access_token:id,refresh_token:'refresh-' + id,expires_in:3600,
+          user:{id,email:`google-${index}@example.test`}});
+      }
       const index = ['writer-a@example.test','writer-b@example.test'].indexOf(data?.email);
       if (index === -1 || data.password !== 'fixture-password') return json(400,{});
       const id = accountIds[index];
@@ -34,6 +42,7 @@ async function startStudio(t) {
     const [,,method,operation] = url.pathname.slice(1).split('/');
     const table = operation || method;
     const entitled = account === accountIds[0];
+    if (table === 'story_studio_redeem_google_invite') return json(200,entitled);
     if (table === 'story_studio_accounts') return json(200,[{enabled:true,can_bring_key:entitled}]);
     if (table === 'story_studio_provider_keys') {
       return json(200,Object.entries(providerKeys.get(account) || {}).map(([provider,ciphertext])=>({provider,ciphertext})));
@@ -74,7 +83,7 @@ async function startStudio(t) {
   const child = spawn(process.execPath,['--import','data:text/javascript,' + encodeURIComponent(interception),'server.mjs'],{
     env:{...process.env,PORT:String(port),STORY_STUDIO_MODE:'hosted',STORY_STUDIO_ORIGIN:origin,
       SUPABASE_URL:'https://example.supabase.co',SUPABASE_PUBLISHABLE_KEY:'sb_publishable_integration_test',
-      STORY_STUDIO_ENCRYPTION_KEY:randomBytes(32).toString('base64url')},stdio:['ignore','pipe','pipe']
+      STORY_STUDIO_ENCRYPTION_KEY:randomBytes(32).toString('base64url'),STORY_STUDIO_GOOGLE_LOGIN:google ? '1' : '0'},stdio:['ignore','pipe','pipe']
   });
   t.after(()=>child.kill());
   await new Promise((resolve,reject)=>{
@@ -98,13 +107,17 @@ async function startStudio(t) {
       }},async response=>{
         const chunks = [];
         for await (const chunk of response) chunks.push(chunk);
-        resolve(new Response(Buffer.concat(chunks),{status:response.statusCode,headers:response.headers}));
+        const headers = new Headers();
+        for (const [name,values] of Object.entries(response.headers)) {
+          for (const value of [].concat(values)) headers.append(name,value);
+        }
+        resolve(new Response(Buffer.concat(chunks),{status:response.statusCode,headers}));
       });
       req.on('error',reject);
       req.end(data === undefined ? undefined : JSON.stringify(data));
     });
   }
-  return {request,providerKeys};
+  return {request,providerKeys,expectChallenge(value) { challenge = value; }};
 }
 
 test('hosted routes enforce session ownership, durable revisions and BYOK entitlement',async t=>{
@@ -150,4 +163,35 @@ test('hosted routes enforce session ownership, durable revisions and BYOK entitl
   assert.ok(!(await (await request('/api/state',second)).json()).projects.some(item=>item.id===project.id));
   assert.equal((await request('/api/state',{...first,method:'PUT',revision:etag,data:{activeId:'',projects:[]}})).status,409);
   assert.equal((await request('/api/account/logout',{...second,method:'POST',data:{}})).status,200);
+});
+
+test('hosted Google login uses PKCE and gates the session on the verified invite',async t=>{
+  const {request,expectChallenge} = await startStudio(t,{google:true});
+  assert.deepEqual(await (await request('/api/account')).json(),{hosted:true,account:null,google:true});
+  const missingCookie = await request('/api/account/google/callback?code=approved-code');
+  assert.equal(missingCookie.headers.get('location'),'/?signin=expired');
+
+  async function oauth(code) {
+    const start = await request('/api/account/google');
+    assert.equal(start.status,303);
+    const upstream = new URL(start.headers.get('location'));
+    assert.equal(upstream.origin,'https://example.supabase.co');
+    assert.equal(upstream.searchParams.get('redirect_to'),origin + '/api/account/google/callback');
+    assert.equal(upstream.searchParams.get('code_challenge_method'),'s256');
+    expectChallenge(upstream.searchParams.get('code_challenge'));
+    const cookie = start.headers.get('set-cookie');
+    assert.match(cookie,/HttpOnly; Secure; SameSite=Lax/);
+    return request('/api/account/google/callback?code=' + code,{cookie:cookie.split(';')[0]});
+  }
+
+  const uninvited = await oauth('uninvited-code');
+  assert.equal(uninvited.headers.get('location'),'/?signin=not-invited');
+  assert.equal(uninvited.headers.getSetCookie().some(cookie=>cookie.startsWith('__Host-story-studio=')),false);
+  const invited = await oauth('approved-code');
+  assert.equal(invited.headers.get('location'),'/');
+  assert.match(invited.headers.getSetCookie()[0],/__Host-story-studio-oauth=;.*Max-Age=0/);
+  const cookie = invited.headers.getSetCookie()[1].split(';')[0];
+  const account = await (await request('/api/account',{cookie})).json();
+  assert.equal(account.account.id,accountIds[0]);
+  assert.equal(account.account.canBringKey,true);
 });

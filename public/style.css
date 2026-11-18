@@ -1769,6 +1769,9 @@ form textarea { resize: vertical; }
 }
 .account-panel h1 { margin: 0; font-size: 24px; font-weight: 650; }
 .account-panel > p { margin: 8px 0 18px; }
+.google-sign-in { margin-bottom: 16px; }
+.google-sign-in .button { display: inline-flex; text-decoration: none; }
+.google-sign-in p { margin: 16px 0 0; }
 #signInForm { display: grid; gap: 14px; }
 #signInForm label { margin: 0; }
 #signInForm .button, .hosted-account-details .button { justify-self: start; }

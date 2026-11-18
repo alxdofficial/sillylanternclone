@@ -9,6 +9,12 @@ The invite-only beta runs one Node service on Railway and uses Supabase Auth, Po
 3. Set Railway service variables `STORY_STUDIO_ORIGIN` (the full HTTPS URL), `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `STORY_STUDIO_ENCRYPTION_KEY` (32 random bytes, base64url). The encryption key protects browser sessions and saved provider credentials, so back it up separately. Replacing it invalidates sessions and saved keys. The app uses authenticated Supabase requests with row-level security.
 4. Connect the Railway service to the `hosted` branch. `railway.toml` starts the hosted runtime and checks `/healthz`. Verify access with two test accounts before giving the URL to writers.
 
+### Google sign-in
+
+Create a Google Cloud OAuth **Web application** client with the Supabase provider callback as its authorized redirect URI. Paste the client ID and secret into Supabase **Authentication → Sign In / Providers → Google**. In Supabase **Authentication → URL Configuration**, set the Railway HTTPS site URL and allow exactly the app's `/api/account/google/callback` URL. Set `STORY_STUDIO_GOOGLE_LOGIN=1` in Railway after both sides are configured. If Google Auth Platform is in testing mode, add each Google email as a test user there as well.
+
+Add each verified Google email to `public.story_studio_google_invites`, with `can_bring_key` true only for approved users. The first sign-in redeems the invite into an account. To revoke a redeemed invite, disable its account and the invite. The password flow remains available for accounts provisioned in Supabase.
+
 The beta has no public sign-up, shared provider budget, or live collaboration. An approved user can enter a provider key in Settings and is billed by that provider. AI calls and analysis use the existing provider adapters. Hosted background review is opt-in and progresses while the writer is signed in. Writers can import their local library from a Story Studio export. The hosted demo starts fresh and the two runtimes have separate story data.
 
 The scaling and billing proposals below are planning estimates in USD, checked on 18 November 2026.

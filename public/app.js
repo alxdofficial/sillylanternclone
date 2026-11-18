@@ -28,6 +28,23 @@ const $ = s => document.querySelector(s);
 const accountGate = $('#accountGate');
 const signIn = $('#signInForm');
 const accountRetry = $('#accountRetry');
+const googleSignIn = $('#googleSignIn');
+const callbackMessages = new Map([
+  ['not-invited','This Google account is missing an invitation. Try the account associated with your beta invite.'],
+  ['failed','Google sign-in could not be completed. Try again or use your password.'],
+  ['expired','Your Google sign-in request expired. Start again to sign in.'],
+  ['switch','Story Studio is still open under your current account. Sign out in Settings to switch accounts.']
+]);
+let accountCallbackMessage = '';
+
+function consumeAccountCallback() {
+  const url = new URL(location.href);
+  const message = callbackMessages.get(url.searchParams.get('signin'));
+  if (!message) return '';
+  url.searchParams.delete('signin');
+  history.replaceState(history.state,'',url.href);
+  return message;
+}
 
 function accountNotice(message = '') {
   const notice = $('#accountGateError');
@@ -51,6 +68,7 @@ async function waitForAccount() {
     async function check() {
       try {
         const result = await loadAccount();
+        if (result.hosted) accountCallbackMessage ||= consumeAccountCallback();
         if (!result.hosted || result.account) {
           resolve(result.account || null);
           return true;
@@ -58,12 +76,19 @@ async function waitForAccount() {
         accountGate.hidden = false;
         $('#accountGateIntro').hidden = false;
         signIn.hidden = false;
+        googleSignIn.hidden = result.google !== true;
         accountRetry.hidden = true;
-        signIn.elements.email.focus();
+        if (accountCallbackMessage) {
+          accountNotice(accountCallbackMessage);
+          accountCallbackMessage = '';
+        }
+        if (googleSignIn.hidden) signIn.elements.email.focus();
+        else googleSignIn.querySelector('a').focus();
       } catch {
         accountGate.hidden = false;
         $('#accountGateIntro').hidden = true;
         signIn.hidden = true;
+        googleSignIn.hidden = true;
         accountRetry.hidden = false;
         accountNotice('Could not check access to Story Studio. Try again.');
         accountRetry.focus();
@@ -4603,7 +4628,7 @@ storyDrawer.addEventListener('click', event => {
     if (storyViews.some(([name])=>name === view)) showStoryView(view);
     else if (view === 'revision') workspaceTools.open('pacing',{focus:false});
     status('Saved locally');
-    if (keyFailure) error(keyFailure);
+    if (accountCallbackMessage || keyFailure) error(accountCallbackMessage || keyFailure);
     if (requested.has('settings')) openAppSettings();
   } catch (e) {
     status('Could not load');

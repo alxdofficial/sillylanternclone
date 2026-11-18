@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import { diagnosticError } from './diagnostics.mjs';
 
 const cookieName = '__Host-story-studio';
+const oauthCookieName = '__Host-story-studio-oauth';
 const sessionLifetime = 60 * 60 * 24 * 7;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const safeError = (status,code,message) => Object.assign(diagnosticError(code,message),{status});
@@ -60,15 +61,26 @@ export function createHostedAuth({url,key,encryptionKey,fetchImpl = fetch,clock 
       expiresAt:clock() + data.expires_in * 1000,deadline};
   }
 
+  function cookieValue(req,name) {
+    return (req.headers.cookie || '').split(';').map(part=>part.trim())
+      .find(part=>part.startsWith(name + '='))?.slice(name.length+1);
+  }
+
+  function setCookie(res,name,value,maxAge) {
+    const cookie = `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+    const previous = res.getHeader('Set-Cookie');
+    res.setHeader('Set-Cookie',previous ? [].concat(previous,cookie) : cookie);
+  }
+
   function sessionCookie(res,value) {
     const token = value ? encrypt(value,'studio-session-v1') : '';
     if (token.length > 3750) throw safeError(503,'SESSION_TOO_LARGE','The sign-in session exceeds the browser limit.');
     const maxAge = value ? Math.max(1,Math.floor((value.deadline-clock())/1000)) : 0;
-    res.setHeader('Set-Cookie',`${cookieName}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`);
+    setCookie(res,cookieName,token,maxAge);
   }
 
   function readCookie(req) {
-    const token = (req.headers.cookie || '').split(';').map(part=>part.trim()).find(part=>part.startsWith(cookieName + '='))?.slice(cookieName.length+1);
+    const token = cookieValue(req,cookieName);
     if (!token || token.length > 3750) return null;
     try {
       const session = decrypt(token,'studio-session-v1');
@@ -108,6 +120,40 @@ export function createHostedAuth({url,key,encryptionKey,fetchImpl = fetch,clock 
 
   return {
     request, encrypt, decrypt,
+    googleStart(res,callback) {
+      const verifier = randomBytes(48).toString('base64url');
+      const expires = clock()+10*60_000;
+      setCookie(res,oauthCookieName,encrypt({verifier,expires},'studio-oauth-pkce-v1'),600);
+      const authorize = new URL('/auth/v1/authorize',endpoint);
+      authorize.search = new URLSearchParams({provider:'google',redirect_to:callback,
+        code_challenge:createHash('sha256').update(verifier).digest('base64url'),code_challenge_method:'s256'});
+      return authorize.toString();
+    },
+    async googleFinish(req,res,code) {
+      const pending = cookieValue(req,oauthCookieName);
+      setCookie(res,oauthCookieName,'',0);
+      if (!pending || pending.length > 512) return 'expired';
+      let authorization;
+      try { authorization = decrypt(pending,'studio-oauth-pkce-v1'); }
+      catch { return 'expired'; }
+      if (authorization.expires <= clock()) return 'expired';
+      if (!code || !/^[a-z0-9_-]{8,256}$/i.test(code)) return 'failed';
+      const {status,data} = await request('/auth/v1/token?grant_type=pkce',{
+        method:'POST',payload:{auth_code:code,code_verifier:authorization.verifier}
+      });
+      if (status !== 200) return 'failed';
+      const session = sessionFrom(data);
+      const previous = readCookie(req);
+      if (previous && previous.userId !== session.userId && await entitlement(previous)) return 'switch';
+      const redemption = await request('/rest/v1/rpc/story_studio_redeem_google_invite',{
+        token:session.accessToken,method:'POST',payload:{}
+      });
+      if (redemption.status === 403 || redemption.status === 200 && redemption.data === false) return 'not-invited';
+      if (redemption.status !== 200 || redemption.data !== true) return 'failed';
+      if (!await entitlement(session)) return 'not-invited';
+      sessionCookie(res,session);
+      return null;
+    },
     async login(req,res,{email,password} = {}) {
       if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || email.length > 254 ||
           !password || password.length > 256) throw safeError(400,'INVALID_LOGIN','Enter your email and password.');
