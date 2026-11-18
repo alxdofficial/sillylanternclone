@@ -25,18 +25,34 @@
   <symbol id="icon-continuity" viewBox="0 0 24 24"><path d="M6 4h12v16H6zM9 12l2 2 4-4M9 7h6"/></symbol>
 </svg>
 <main id="accountGate" class="account-gate" aria-labelledby="accountGateTitle" hidden>
+  <div class="account-manuscript" data-book-theme="sepia">
+    <figure class="account-manuscript-page">
+      <figcaption>From the Story Studio demo</figcaption>
+      <p class="account-manuscript-title">The Late Ferry</p>
+      <blockquote>
+        <p>The east beacon gave two flashes where the hour called for one. Lina Park watched the window until the dark settled back over the harbor, then looked down at the log.</p>
+        <p>The 23:15 tide entry read 2.1 meters, in Mae’s upright hand. She tilted the page toward the desk lamp. Pressed hard into the sheet beneath, where a pen had once leaned all its weight, was a ghost of a figure: 3.1.</p>
+      </blockquote>
+    </figure>
+  </div>
   <div class="account-panel">
-    <h1 id="accountGateTitle" tabindex="-1">Story Studio</h1>
-    <p id="accountGateIntro" class="form-note">Sign in with your private beta account.</p>
+    <div class="account-wordmark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6C9.5 4 6.5 3.5 3 4.5v14c3.5-1 6.5-.5 9 1.5 2.5-2 5.5-2.5 9-1.5v-14C17.5 3.5 14.5 4 12 6v14"/></svg>
+      <span>Story Studio</span>
+    </div>
+    <header class="account-heading">
+      <h1 id="accountGateTitle" tabindex="-1">Sign in</h1>
+      <p id="accountGateIntro">Use the email address on your beta invitation.</p>
+    </header>
     <p id="accountGateError" class="form-note account-error" role="alert" hidden></p>
     <div id="googleSignIn" class="google-sign-in" hidden>
-      <a class="button primary" href="/api/account/google">Continue with Google</a>
-      <p class="form-note">Or sign in with a password.</p>
+      <a class="button" href="/api/account/google">Continue with Google</a>
+      <p class="account-method-divider">Or use your password</p>
     </div>
     <form id="signInForm" method="post" action="/api/account/login">
       <label>Email<input name="email" type="email" autocomplete="username" maxlength="254" required></label>
       <label>Password<input name="password" type="password" autocomplete="current-password" maxlength="256" required></label>
-      <button class="button primary" type="submit">Sign in</button>
+      <button type="submit" class="button">Sign in</button>
     </form>
     <button id="accountRetry" class="button subtle" type="button" hidden>Try again</button>
   </div>
@@ -622,7 +638,10 @@
       <section class="connection-row" id="hostedAccountSettings" hidden>
         <h3>Account</h3>
         <div class="hosted-account-details">
-          <p id="accountEmail"></p>
+          <div class="hosted-account-identity">
+            <p class="form-note">Signed in as</p>
+            <p id="accountEmail"></p>
+          </div>
           <button id="signOut" class="button subtle" type="button">Sign out</button>
           <p id="signOutError" class="form-note account-error" role="alert" hidden></p>
         </div>

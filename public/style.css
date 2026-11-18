@@ -1754,26 +1754,98 @@ form textarea { resize: vertical; }
 
 
 .account-gate {
+  --account-serif: Georgia, 'Times New Roman', serif;
   display: grid;
-  min-height: 100%;
-  align-items: start;
-  justify-items: center;
-  padding: clamp(28px, 16vh, 144px) 16px 28px;
+  grid-template-columns: minmax(0, 1.06fr) minmax(0, .94fr);
+  min-height: 100dvh;
+  padding: clamp(16px, 2vw, 32px);
+  background: var(--page);
 }
+.account-manuscript {
+  display: grid;
+  align-items: center;
+  margin: 0;
+  padding: clamp(36px, 5vw, 100px);
+  color: var(--book-ink);
+  background: var(--book-surface);
+}
+.account-manuscript-page { width: min(100%, 510px); margin: 0 auto; }
+.account-manuscript figcaption { color: var(--book-caption); font-size: 13px; }
+.account-manuscript-title {
+  margin: 20px 0 32px;
+  font: 400 clamp(52px, 6vw, 102px)/.94 var(--account-serif);
+  letter-spacing: -.045em;
+}
+.account-manuscript blockquote {
+  margin: 0;
+  max-width: 36ch;
+  font: 400 clamp(17px, 1.55vw, 24px)/1.55 var(--account-serif);
+}
+.account-manuscript blockquote p { margin: 0; }
+.account-manuscript blockquote p + p { margin-top: 1em; }
 .account-panel {
-  width: min(100%, 390px);
-  padding: clamp(18px, 5vw, 28px);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--rail);
+  align-self: center;
+  justify-self: center;
+  width: min(calc(100% - 56px), 372px);
+  padding: 28px 0;
 }
-.account-panel h1 { margin: 0; font-size: 24px; font-weight: 650; }
-.account-panel > p { margin: 8px 0 18px; }
-.google-sign-in { margin-bottom: 16px; }
-.google-sign-in .button { display: inline-flex; text-decoration: none; }
-.google-sign-in p { margin: 16px 0 0; }
-#signInForm { display: grid; gap: 14px; }
+.account-wordmark {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 38px;
+  font-size: 15px;
+  font-weight: 650;
+}
+.account-wordmark svg { width: 23px; height: 23px; color: var(--paper); }
+.account-heading { margin-bottom: 26px; }
+.account-heading h1 { margin: 0; font-size: clamp(32px, 3.7vw, 54px); font-weight: 600; line-height: 1; letter-spacing: -.04em; }
+.account-heading p { margin: 11px 0 0; color: var(--muted); line-height: 1.45; }
+.account-panel .button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 46px;
+  border-radius: 5px;
+  background: var(--rail);
+  font-size: 14px;
+  text-decoration: none;
+}
+.account-panel .button:hover:not(:disabled) { background: var(--raised); }
+.account-panel .button:disabled { opacity: .72; }
+.google-sign-in .button, .google-sign-in[hidden] + #signInForm .button {
+  border-color: transparent;
+  background: var(--paper);
+  color: var(--paper-ink);
+}
+.google-sign-in .button:hover:not(:disabled), .google-sign-in[hidden] + #signInForm .button:hover:not(:disabled) {
+  background: #fff5e5;
+}
+.account-method-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 17px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.account-method-divider::before, .account-method-divider::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
+#signInForm { display: grid; gap: 15px; }
 #signInForm label { margin: 0; }
-#signInForm .button, .hosted-account-details .button { justify-self: start; }
-.hosted-account-details { display: grid; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+#signInForm input { min-height: 46px; padding-inline: 12px; border-radius: 5px; background: var(--rail); font-size: 16px; }
+#signInForm button { margin-top: 5px; }
+.hosted-account-details { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
+.hosted-account-identity { flex: 1 1 155px; min-width: 0; }
+.hosted-account-identity p { margin: 0; }
+.hosted-account-identity #accountEmail { margin-top: 4px; }
+.hosted-account-details #signOutError { flex-basis: 100%; }
 .account-error { color: #ffc2bf; }
+.account-panel .account-error { margin: 0 0 16px; padding: 10px 12px; border-left: 2px solid currentColor; background: #34272a; line-height: 1.45; }
+
+@media (max-width: 720px) {
+  .account-gate { grid-template-columns: minmax(0, 1fr); padding: 0 24px; }
+  .account-manuscript { display: none; }
+  .account-panel { width: min(100%, 400px); }
+  .account-wordmark { margin-bottom: 30px; }
+}

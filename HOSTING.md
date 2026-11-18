@@ -9,6 +9,14 @@ The invite-only beta runs one Node service on Railway and uses Supabase Auth, Po
 3. Set Railway service variables `STORY_STUDIO_ORIGIN` (the full HTTPS URL), `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `STORY_STUDIO_ENCRYPTION_KEY` (32 random bytes, base64url). The encryption key protects browser sessions and saved provider credentials, so back it up separately. Replacing it invalidates sessions and saved keys. The app uses authenticated Supabase requests with row-level security.
 4. Connect the Railway service to the `hosted` branch. `railway.toml` starts the hosted runtime and checks `/healthz`. Verify access with two test accounts before giving the URL to writers.
 
+### Add a password tester
+
+The tester has one Story Studio login. Supabase Auth manages that login behind the scenes.
+
+1. In **Authentication → Users → Add user → Create new user**, enter the tester's email and a strong password, then select **Auto Confirm User**. Copy the new **User UID**.
+2. In **Table Editor → story_studio_accounts**, insert a row with that UID as `user_id`, set `enabled` to true, and set `can_bring_key` according to the tester's approval. If the account row exists, edit it instead.
+3. Share the Story Studio URL and the sign-in details privately. An approved tester can open **Settings** to add provider keys after signing in.
+
 ### Google sign-in
 
 Create a Google Cloud OAuth **Web application** client with the Supabase provider callback as its authorized redirect URI. Paste the client ID and secret into Supabase **Authentication → Sign In / Providers → Google**. In Supabase **Authentication → URL Configuration**, set the Railway HTTPS site URL and allow exactly the app's `/api/account/google/callback` URL. Set `STORY_STUDIO_GOOGLE_LOGIN=1` in Railway after both sides are configured. If Google Auth Platform is in testing mode, add each Google email as a test user there as well.

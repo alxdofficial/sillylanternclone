@@ -83,8 +83,10 @@ async function waitForAccount() {
           accountNotice(accountCallbackMessage);
           accountCallbackMessage = '';
         }
-        if (googleSignIn.hidden) signIn.elements.email.focus();
-        else googleSignIn.querySelector('a').focus();
+        if (!window.matchMedia('(pointer: coarse)').matches) {
+          const firstControl = googleSignIn.hidden ? signIn.elements.email : googleSignIn.querySelector('a');
+          firstControl.focus({preventScroll:true});
+        }
       } catch {
         accountGate.hidden = false;
         $('#accountGateIntro').hidden = true;
@@ -105,6 +107,8 @@ async function waitForAccount() {
       const submit = signIn.querySelector('button[type="submit"]');
       if (submit.disabled) return;
       submit.disabled = true;
+      submit.textContent = 'Signing in…';
+      signIn.setAttribute('aria-busy','true');
       accountNotice();
       try {
         const response = await fetch('/api/account/login',{
@@ -128,6 +132,8 @@ async function waitForAccount() {
       } finally {
         signIn.elements.password.value = '';
         submit.disabled = false;
+        submit.textContent = 'Sign in';
+        signIn.removeAttribute('aria-busy');
       }
     };
     void check();
