@@ -115,10 +115,18 @@ export async function runStoryEdit(project,instruction,complete,model) {
   const context = editorContext(project,instruction,model);
   if (context.problem) throw diagnosticError('AGENT_CONTEXT_FULL',context.problem);
   const {messages} = context;
+  let rejectedEdit;
   const action = agentTool('edit_story_state','Reply to the writer and finish. Send changes: [] for discussion. Apply only explicitly requested story-state changes. Use the current eventIndex for an existing relationship. Leave prose, turns, and chapters intact.',
     editSchema,({changes,message,historySafe}) => {
       try {
         const count = changes.length ? applyStoryEdits(project,changes) : 0;
+        if (!count && rejectedEdit) {
+          message = 'No story changes were saved. ' + rejectedEdit;
+        } else if (!count && changes.length) {
+          message = 'No story changes were saved. The submitted changes had no effect.';
+        } else if (count < changes.length) {
+          message = `Saved ${count} of ${changes.length} submitted changes. The remaining changes had no effect.`;
+        }
         (project.agentHistory ||= []).push({
           afterTurn:project.messages.at(-1)?.turnNumber ?? project.messages.length,
           request:instruction.trim(),message,count,
@@ -132,5 +140,8 @@ export async function runStoryEdit(project,instruction,complete,model) {
     });
   return await runAgentTask({messages,completions:complete,reads:[continuityReader(project)],action,
     prefixLength:context.prefixLength,
-    code:'STORY_EDIT_NOT_RECORDED',failure:'The editor did not complete a valid story edit.'});
+    onActionFeedback(feedback,args) {
+      if (!Array.isArray(args?.changes) || args.changes.length) rejectedEdit = feedback.error;
+    },
+    code:'STORY_EDIT_NOT_RECORDED',failure:'The agent did not complete a valid reply. No story changes were saved.'});
 }

@@ -141,6 +141,85 @@ test('a parallel final edit is retried as a single batch before any metadata cha
   assert.equal(project.notes,'Use short sentences.');
 });
 
+test('Agent repairs a rejected batch after reading its tool results and must supply a visible reply', async () => {
+  const project = structuredClone(story);
+  const before = structuredClone(project);
+  const invalid = {kind:'relationship',from:'Unknown',to:'Orin',label:'They exchange charts.'};
+  const valid = {kind:'relationship',from:'Iona',to:'Orin',label:'They exchange charts.'};
+  const reply = 'I recorded the chart exchange between Iona and Orin.';
+  let round = 0;
+  const result = await runStoryEdit(project,'Record the chart exchange.',async messages => {
+    assert.deepEqual(project,before);
+    switch (++round) {
+      case 1:
+        return assistant(call('edit_story_state',{changes:[invalid],message:'Recorded.'},'unresolved'));
+      case 2:
+        assert.match(JSON.parse(messages.at(-1).content).error,/exact, unambiguous cast name/);
+        return assistant(call('inspect_continuity',{section:'cast',character:'Iona'},'cast'));
+      case 3:
+        assert.equal(JSON.parse(messages.at(-1).content).cast[0].name,'Iona');
+        return assistant(call('edit_story_state',{changes:[valid],message:' '},'blank-reply'));
+      default:
+        assert.deepEqual(JSON.parse(messages.at(-1).content).fields,['message']);
+        return assistant(call('edit_story_state',{changes:[valid],message:reply},'complete'));
+    }
+  });
+  assert.equal(round,4);
+  assert.deepEqual(result,{count:1,message:reply});
+  assert.equal(project.agentHistory.at(-1).message,reply);
+  assert.equal(project.relationships.length,1);
+  assert.deepEqual(project.messages,before.messages);
+});
+
+test('Agent cannot report a rejected or ineffective metadata edit as applied',async()=>{
+  for (const reject of [true,false]) {
+    const project = structuredClone(story);
+    const before = structuredClone(project);
+    const duplicate = {kind:'world',action:'append',text:world};
+    const invalid = {kind:'remove_relationship',eventIndex:99};
+    let round = 0;
+    const result = await runStoryEdit(project,'Update the story.',async messages => {
+      assert.deepEqual(project,before);
+      const changes = !reject ? [duplicate] : ++round === 1 ? [duplicate,invalid] : [];
+      if (reject && round === 2) assert.match(JSON.parse(messages.at(-1).content).error,/eventIndex/);
+      return assistant(call('edit_story_state',{changes,message:'All changes applied.'},'attempt'));
+    });
+    assert.equal(result.count,0);
+    assert.match(result.message,/No story changes were saved/);
+    assert.doesNotMatch(result.message,/All changes applied/);
+    const {agentHistory,...saved} = project;
+    assert.deepEqual(saved,before);
+    assert.equal(agentHistory.at(-1).message,result.message);
+  }
+});
+
+test('Agent reports the applied count when some submitted changes have no effect',async()=>{
+  const project = structuredClone(story);
+  const changes = [
+    {kind:'world',action:'append',text:world},
+    {kind:'notes',action:'append',text:'Keep close to Iona.'}
+  ];
+  const result = await runStoryEdit(project,'Update the story.',async () =>
+    assistant(call('edit_story_state',{changes,message:'Both applied.'},'attempt')));
+  assert.equal(result.count,1);
+  assert.match(result.message,/Saved 1 of 2 submitted changes/);
+  assert.equal(project.agentHistory.at(-1).message,result.message);
+  assert.equal(project.notes,'Keep close to Iona.');
+});
+
+test('Agent leaves the story untouched and reports failure when all four edit attempts fail',async()=>{
+  const project = structuredClone(story);
+  const before = structuredClone(project);
+  let rounds = 0;
+  await assert.rejects(runStoryEdit(project,'Rename Iona.',async messages => {
+    if (rounds) assert.match(JSON.parse(messages.at(-1).content).error,/exact, unambiguous cast name/);
+    const changes = [{kind:'rename_character',name:'Unknown',newName:'Mina'}];
+    return assistant(call('edit_story_state',{changes,message:'Renamed.'},'invalid-' + ++rounds));
+  }),{diagnosticCode:'STORY_EDIT_NOT_RECORDED',message:/No story changes were saved/});
+  assert.equal(rounds,4);
+  assert.deepEqual(project,before);
+});
+
 test('brainstorming records a conversation without changing manuscript or story state',async()=>{
   const project = structuredClone(story);
   const before = structuredClone(project);

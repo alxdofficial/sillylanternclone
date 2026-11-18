@@ -137,6 +137,10 @@ export function applyStoryEdits(project, changes) {
     if (graphEditKinds.has(change.kind)) {
       if (applyStructuredChange(draft,change,originalEvents,originalPlot)) count++;
     } else if (change.kind === 'relationship' || change.kind === 'plot') {
+      if (change.kind === 'relationship') {
+        requireCastMember(draft,change.from);
+        requireCastMember(draft,change.to);
+      }
       const applied = applyGraphUpdate(draft,change,turn);
       if (applied === null) throw diagnosticError('STORY_EDIT_RELATIONSHIP_INVALID','Use two distinct cast names for a relationship.');
       if (applied) count++;

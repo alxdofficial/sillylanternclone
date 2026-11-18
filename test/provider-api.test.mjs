@@ -63,6 +63,7 @@ test('direct providers draft and exchange native tool results without crossing c
       cast:[{name:'Ada',description:'The dock keeper.'}]};
     const edit = {changes:[{kind:'world',action:'append',text:'The pier has a lighthouse.'}],
       message:'Added the lighthouse.',historySafe:true};
+    const nativeFetch = globalThis.fetch;
     globalThis.fetch = async (url, options) => {
       const body = JSON.parse(options.body);
       if (url === 'https://api.anthropic.com/v1/messages') {
@@ -97,10 +98,34 @@ test('direct providers draft and exchange native tool results without crossing c
       if (!body.tools) return Response.json({status:'completed',usage:{input_tokens:1000,output_tokens:20},output:[
         {type:'message',role:'assistant',content:[{type:'output_text',text:'The ferry bell rang.'}]}]});
       if (body.tools.some(tool=>tool.name === 'edit_story_state')) {
-        const result = JSON.stringify(body.input).includes('Local-only example.') ?
-          {changes:[],message:'No story changes.',historySafe:false} : edit;
+        const input = JSON.stringify(body.input);
+        const feedback = body.input.at(-1);
+        let result = edit;
+        if (input.includes('Local-only example.')) {
+          result = {changes:[],message:'No story changes.',historySafe:false};
+        } else if (input.includes('Concurrent edit example.')) {
+          const origin = 'http://127.0.0.1:' + process.env.PORT;
+          const state = await nativeFetch(origin+'/api/state');
+          const {activeId,projects} = await state.json();
+          const project = projects.find(item=>item.id === activeId);
+          const saved = await nativeFetch(origin+'/api/starter',{method:'PUT',
+            headers:{origin,'content-type':'application/json','if-match':state.headers.get('etag')},
+            body:JSON.stringify({...project,title:'A concurrent change'})});
+          assert.equal(saved.status,200);
+          result = {changes:[{kind:'settings',title:'An agent change'}],message:'Changed the title.'};
+        } else if (input.includes('Remove missing event.')) {
+          result = feedback.type === 'function_call_output' ? {changes:[],message:'Removed the event.'} :
+            {changes:[{kind:'remove_relationship',eventIndex:999}],message:'Removed the event.'};
+        } else if (feedback.type === 'function_call_output') {
+          assert.equal(feedback.call_id,'edit-call');
+          assert.match(JSON.parse(feedback.output).error,/exact, unambiguous cast name/);
+        } else {
+          result = {changes:[...edit.changes,{kind:'rename_character',name:'Unrecognized',newName:'Ada'}],
+            message:'Added the lighthouse and renamed the character.'};
+        }
         return Response.json({status:'completed',output:[{type:'function_call',
-          call_id:'edit-call',name:'edit_story_state',arguments:JSON.stringify(result)}]});
+          call_id:feedback.type === 'function_call_output' ? 'edit-retry' : 'edit-call',
+          name:'edit_story_state',arguments:JSON.stringify(result)}]});
       }
       assert.ok(body.tools.find(tool=>tool.name === 'inspect_continuity').parameters);
       assert.deepEqual(body.include,['reasoning.encrypted_content']);
@@ -152,7 +177,7 @@ test('direct providers draft and exchange native tool results without crossing c
     const edit = await send({...openai,storyId:activeId,revision:state.headers.get('etag'),
       instruction:'Add a lighthouse.'},'/api/story-edits');
     assert.equal(edit.status,200);
-    assert.equal((await edit.json()).count,1);
+    assert.deepEqual(await edit.json(),{count:1,message:'Added the lighthouse.'});
     const saved = (await (await fetch(origin+'/api/state')).json()).projects.find(story=>story.id === activeId);
     assert.match(saved.lore,/The pier has a lighthouse/);
     assert.deepEqual(saved.messages,original.messages);
@@ -165,6 +190,25 @@ test('direct providers draft and exchange native tool results without crossing c
     assert.deepEqual(afterPrivate.agentHistory.at(-1),{afterTurn:original.messages.at(-1)?.turnNumber ?? original.messages.length,request:'Local-only example.',
       message:'No story changes.',count:0,historySafe:false});
     assert.deepEqual(afterPrivate.messages,original.messages);
+    const rejectedState = await fetch(origin+'/api/state');
+    const rejected = await send({...openai,storyId:activeId,revision:rejectedState.headers.get('etag'),
+      instruction:'Remove missing event.'},'/api/story-edits');
+    assert.equal(rejected.status,200);
+    const rejectedReply = await rejected.json();
+    assert.equal(rejectedReply.count,0);
+    assert.match(rejectedReply.message,/No story changes were saved.*eventIndex/);
+    const afterRejected = (await (await fetch(origin+'/api/state')).json()).projects.find(story=>story.id === activeId);
+    assert.equal(afterRejected.agentHistory.at(-1).message,rejectedReply.message);
+    assert.deepEqual(afterRejected.relationships,afterPrivate.relationships);
+    assert.deepEqual(afterRejected.messages,original.messages);
+    const conflictState = await fetch(origin+'/api/state');
+    const conflicted = await send({...openai,storyId:activeId,revision:conflictState.headers.get('etag'),
+      instruction:'Concurrent edit example.'},'/api/story-edits');
+    assert.equal(conflicted.status,409);
+    assert.match((await conflicted.json()).error,/story changed before saving the edit/i);
+    const afterConflict = (await (await fetch(origin+'/api/state')).json()).projects.find(story=>story.id === activeId);
+    assert.equal(afterConflict.title,'A concurrent change');
+    assert.deepEqual(afterConflict.agentHistory,afterRejected.agentHistory);
     const mismatched = await send({project,instruction:'Ring the bell.',...openai,model:claude.model});
     assert.equal(mismatched.status,400);
     const keyMissing = await send({project,instruction:'Ring the bell.',...openai,
