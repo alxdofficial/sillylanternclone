@@ -42,6 +42,12 @@ In **Write**, click the plus at the end of the manuscript and choose **Add prose
 
 To add your own OpenRouter model, choose **Manage custom models…** in the **Prose artist** menu and enter its `author/model` ID. User-added models appear in the writer picker and setup chat. Use the same menu to remove them.
 
+## Write at an earlier scene
+
+In **Write**, click **Set manuscript cursor** or click a handle before a scene. Drag the handle to a nearby scene or use the Up and Down arrow keys while it has focus. The composer names the insertion point, and the manuscript marks the scenes whose excerpts will go into context. **Return to end** resumes normal continuation.
+
+**Prose** inserts a new scene before the cursor. Its graph suggestions wait for review. **Agent** can discuss the selected area, update story state, or propose manuscript edits for approval. Targeted exchanges appear next to the marked scene. The model receives the whole-book story graph and up to two scene excerpts on each side of the cursor. Existing privacy labels still apply, and the Agent can read more eligible prose with its tools. Studio keeps stable story context ahead of the changing cursor and request to help providers reuse cached input.
+
 ## Story Flow
 
 In **Write**, click **Suggest directions** next to **Get AI recommendations** to ask your selected continuity agent for three next beats. Open a suggestion for its full direction and any consequence the agent provided. Click **Use direction** to fill an empty composer, or choose **Insert at cursor** or **Replace draft** when it already contains text. Collapse **Story Flow** from its own header. Saved choices remain available when you reopen it. Sending a direction while an in-app offer is active asks for fresh suggestions after the scene. Each suggestion request uses the selected provider.

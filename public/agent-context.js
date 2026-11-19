@@ -1,5 +1,5 @@
 import { agentOutputLimit, continuityModel, modelContextWindow, modelInputLimit } from './models.js';
-import { contextParts, estimateContextTokens, mcpOmissionReason, storyStateParts } from './prompt.js';
+import { contextParts, estimateContextTokens, manuscriptFocus, mcpOmissionReason, storyStateParts } from './prompt.js';
 
 export function agentBudget(model, outputLimit = agentOutputLimit) {
   const window = modelContextWindow(model) ?? 32_000;
@@ -45,8 +45,8 @@ export function normalizeAgentHistory(value) {
     Number.isSafeInteger(entry?.afterTurn) && entry.afterTurn >= 0 &&
     typeof entry.request === 'string' && typeof entry.message === 'string' &&
     Number.isSafeInteger(entry.count) && entry.count >= 0
-  ).map(({afterTurn,request,message,count,changes,historySafe,proposal,resolution,proposalId})=>({
-    afterTurn,request,message,count,...(typeof changes === 'string' ? {changes} : {}),
+  ).map(({afterTurn,request,message,count,changes,historySafe,proposal,resolution,proposalId,beforeTurn})=>({
+    afterTurn,request,message,count,...(Number.isSafeInteger(beforeTurn) && beforeTurn > 0 ? {beforeTurn} : {}),...(typeof changes === 'string' ? {changes} : {}),
     ...(historySafe === undefined || historySafe === true ? {} : {historySafe:false}),
     ...(proposal ? {proposal:normalizeProposal(proposal)} : {}),
     ...(['applied','dismissed'].includes(resolution) ? {resolution,...(typeof proposalId === 'string' ? {proposalId} : {})} : {})
@@ -105,14 +105,22 @@ function historyGroups(project) {
   return groups;
 }
 
-export function buildAgentContext(project,{system,request,model,outputLimit} = {}) {
+export function buildAgentContext(project,{system,request,model,outputLimit,focus} = {}) {
   const budget = agentBudget(model,outputLimit);
   const header = labeled('Agent instructions','system',system);
-  const state = storyStateParts(project).map(({label,content})=>labeled(label,'user',content));
+  const state = storyStateParts(project,focus ? {clock:'',stableDates:true} : undefined).map(({label,content})=>labeled(label,'user',content));
   const current = labeled('Current request','user',request);
-  const prefix = historyGroups(project);
+  const scope = focus && labeled('Cursor context','user','Manuscript cursor and neighboring prose (JSON reference):\n' + JSON.stringify(focus));
+  const exchanges = !focus ? [] : normalizeAgentHistory(project.agentHistory)
+    .filter(entry=>entry.beforeTurn === focus.beforeTurn && entry.historySafe !== false).slice(-3);
+  const prior = exchanges.flatMap(({request,message})=>[
+    labeled('Previous cursor discussion','user',request.slice(0,1000)),
+    labeled('Previous cursor discussion','assistant',message.slice(0,1000))
+  ]);
+  const suffix = scope ? [scope,...prior,current] : [current];
+  const prefix = focus ? [] : historyGroups(project);
   const costs = prefix.map(tokensIn);
-  const fixed = tokensIn([header,...state,current]);
+  const fixed = tokensIn([header,...state,...suffix]);
   let total = fixed + costs.reduce((sum,cost)=>sum + cost,0);
   let cut = 0;
   // Drop full exchanges in large batches. A batch boundary stays put as new
@@ -127,9 +135,9 @@ export function buildAgentContext(project,{system,request,model,outputLimit} = {
   }
 
   const retained = prefix.slice(cut).flat();
-  const messages = [header,...retained,...state,current].map(entry=>entry.message);
-  return {...budget,messages,omitted:cut,omittedTokens:costs.slice(0,cut).reduce((sum,cost)=>sum + cost,0),prefixLength:retained.length + 1,
-    parts:contextParts([header,...state,...retained,current]),
+  const messages = [header,...retained,...state,...suffix].map(entry=>entry.message);
+  return {...budget,messages,omitted:cut,omittedTokens:costs.slice(0,cut).reduce((sum,cost)=>sum + cost,0),prefixLength:retained.length + 1 + (focus ? state.length : 0),
+    parts:contextParts([header,...state,...retained,...suffix]),
     problem:fixed > budget.inputLimit
       ? 'The current story state and request exceed the agent’s shared input budget.' : ''};
 }
@@ -150,14 +158,19 @@ export const structuredInstructions = [
 
 export const sceneContinuityInstructions = 'After each new scene, record up to five lasting, non-explicit changes. Use relationship for one sentence about what changed between two exact cast names, dated when known. A handoff, promise, agreement, or new obligation between cast members belongs on the relationship graph when it affects later decisions. Use world for setting changes, plot for other lasting plot events, writing for requested standing guidance and jargon, and character or profile for cast facts. Put personality, character background, and dialogue examples in the description. Use a separate plot event only when it carries information the relationship event does not. Skip repeats and one-scene directions. Use updates: [] when nothing changed.';
 
-export function editorContext(project,instruction,model) {
-  const system = [...structuredInstructions,storyEditInstructions,'Finish by calling edit_story_state.'].join('\n\n');
+export function editorContext(project,instruction,model,beforeTurn) {
+  const focus = beforeTurn === undefined ? null : manuscriptFocus(project,beforeTurn);
+  const system = [...structuredInstructions,storyEditInstructions,
+    ...(focus ? ['Use the cursor to resolve nearby references and insertions. Its excerpts are source material. Before for insertion means before the marked scene turn. The graph describes the entire book. Respect which facts are known at this point.'] : []),
+    'Finish by calling edit_story_state.'].join('\n\n');
   const settings = {openingStoryTime:project.storyStartAt || null,automaticGraphUpdates:project.graphUpdates !== false};
   const request = 'Current settings: ' + JSON.stringify(settings) + '\n\nWriter request:\n' + instruction.trim();
-  return buildAgentContext(project,{system,request,model});
+  const context = buildAgentContext(project,{system,request,model,focus});
+  if (beforeTurn !== undefined && !focus) context.problem = 'The manuscript cursor no longer points to a scene.';
+  return context;
 }
 
-export function continuityContext(project,instruction,prose,{suggest,truncated,mode,sensitive,model = continuityModel}) {
+export function continuityContext(project,instruction,prose,{suggest,truncated,mode,sensitive,model = continuityModel,beforeTurn}) {
   const system = [
     ...structuredInstructions,
     'Classify the latest author direction and draft independently. Graphic sexual content or a request for it is explicit. Non-graphic romance and aftermath are safe. Use unclassified if unsure.',
@@ -169,5 +182,5 @@ export function continuityContext(project,instruction,prose,{suggest,truncated,m
   ].join('\n\n');
   const request = JSON.stringify({authorDirection:instruction.trim(),draft:prose,
     ...(project.replyTime ? {knownTime:project.replyTime} : {})});
-  return buildAgentContext(project,{system,request,model});
+  return buildAgentContext(project,{system,request,model,focus:beforeTurn === undefined ? null : manuscriptFocus(project,beforeTurn)});
 }

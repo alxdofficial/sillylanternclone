@@ -16,7 +16,7 @@ import { createRevisionViews } from './revision-view.js';
 import { installExpandedEditors } from './expanded-editor.js';
 import { createPassageSelection } from './passage-selection.js';
 import { branchRevisionNotes, sceneIndex } from './revision.js';
-import { buildWritingContext, formatMessages, storyTextFields, narrator, resolveCastName, simpleCharacter, castFields, validCast, validPlotEvents, graphSuggestions, nextTurnNumber, appendTurn, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
+import { buildWritingContext, manuscriptFocus, formatMessages, storyTextFields, narrator, resolveCastName, simpleCharacter, castFields, validCast, validPlotEvents, graphSuggestions, nextTurnNumber, appendTurn, validSensitivity, isAvailableToMcp, precedingDirection, isStoryTime, localStoryTime, lastStoryTime, relationshipTime, recordStoryTime } from './prompt.js';
 
 import { models, chapterCost, canWriteSensitive, continuityModel, defaultDirectModel, isAgentModel, isContinuityModel, isModelId, isWriterModel, modelLabel, modelTag, modelContextWindow, modelProvider, providerNames, setupDraftModel, setupChatOutputLimit, setupDraftOutputLimit, usesSensitiveContinuity } from './models.js';
 import { dateWriterTurn, mcpOmissionReason, replyInput, stripSpeakerName, syncTakeSuggestions } from './prompt.js';
@@ -1540,6 +1540,108 @@ function arrangeWriteScenes(list,project,chapters) {
   list.replaceChildren(...sequence,...afterScenes);
 }
 
+const manuscriptCursorKey = id => 'story-manuscript-cursor:' + id;
+const cursorTurn = project => Number(getSession(manuscriptCursorKey(project.id))) || undefined;
+function setManuscriptCursor(turn, {jump = false} = {}) {
+  if (busy || composerEdit || !state) return;
+  setSession(manuscriptCursorKey(current().id),turn ? String(turn) : '');
+  workspaceTools.setComposerOpen(true);
+  syncRoute();
+  if (jump && turn) {
+    const marker = $(`[data-manuscript-cursor="${turn}"]`);
+    marker?.scrollIntoView({block:'center'});
+    marker?.focus({preventScroll:true});
+  }
+}
+function syncManuscriptCursor(project) {
+  const turn = cursorTurn(project);
+  const active = turn !== undefined && !composerEdit;
+  const context = active && manuscriptFocus(project,turn,{
+    includeSensitive:authorMode(project) === 'story' && canWriteSensitive(writingModel(project)) && sensitiveDraft(project)
+  });
+  $('#manuscriptCursorBar').hidden = !active && (Boolean(composerEdit) || !lastProseTurn(project));
+  $('#chooseManuscriptCursor').hidden = active;
+  $('#chooseManuscriptCursor').disabled = busy;
+  $('#showManuscriptCursor').hidden = !active;
+  $('#showManuscriptCursor').disabled = !context;
+  $('#showManuscriptCursor').textContent = context
+    ? `Before Chapter ${context.chapter} · Scene ${context.scene}` : 'Insertion point removed';
+  $('#clearManuscriptCursor').hidden = !active;
+  $('#clearManuscriptCursor').disabled = busy;
+  const count = context ? context.nearby.filter(scene=>!scene.withheld).length : 0;
+  $('#manuscriptCursorContext').textContent = active && context
+    ? `${count} nearby ${count === 1 ? 'scene excerpt' : 'scene excerpts'} + whole-book graph` : '';
+  document.querySelectorAll('[data-manuscript-cursor]').forEach(button=>{
+    button.setAttribute('aria-pressed',String(active && Number(button.dataset.manuscriptCursor) === turn));
+    button.disabled = busy || Boolean(composerEdit);
+  });
+  const included = new Set(context ? context.nearby.filter(scene=>!scene.withheld).map(scene=>scene.turn) : []);
+  document.querySelectorAll('#messageList .assistant[data-story-turn]').forEach(row=>{
+    row.classList.toggle('cursor-context-scene',included.has(Number(row.dataset.storyTurn)));
+  });
+}
+function manuscriptCursorHandle(scene) {
+  const button = el('button','manuscript-cursor-handle', '⋮');
+  button.type = 'button';
+  button.dataset.manuscriptCursor = scene.turn;
+  button.dataset.directionOnly = '';
+  button.setAttribute('aria-label',`Set cursor before Chapter ${scene.chapter}, Scene ${scene.number}`);
+  button.title = 'Click or drag to place the manuscript cursor';
+  button.onclick = ()=>setManuscriptCursor(scene.turn);
+  button.onkeydown = event=>{
+    const step = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+    if (!step) return;
+    event.preventDefault();
+    const markers = [...document.querySelectorAll('[data-manuscript-cursor]')];
+    const destination = markers[markers.indexOf(button) + step];
+    if (destination) setManuscriptCursor(Number(destination.dataset.manuscriptCursor),{jump:true});
+  };
+  button.onpointerdown = event=>{
+    if (event.button !== 0 || button.disabled) return;
+    const startY = event.clientY;
+    let destination;
+    const move = moveEvent=>{
+      if (Math.abs(moveEvent.clientY - startY) < 6 && !destination) return;
+      const hit = document.elementFromPoint(moveEvent.clientX,moveEvent.clientY);
+      const direct = hit?.closest('[data-manuscript-cursor]');
+      const article = hit?.closest('#messageList article[data-story-turn]');
+      const prose = article?.dataset.replyTurn || (article?.classList.contains('assistant') ? article.dataset.storyTurn : undefined);
+      const candidate = direct || (prose && $(`[data-manuscript-cursor="${prose}"]`));
+      if (!candidate || candidate === destination) return;
+      destination?.classList.remove('cursor-drop-target');
+      destination = candidate;
+      destination.classList.add('cursor-drop-target');
+    };
+    const finish = endEvent=>{
+      button.removeEventListener('pointermove',move);
+      button.removeEventListener('pointerup',finish);
+      button.removeEventListener('pointercancel',finish);
+      destination?.classList.remove('cursor-drop-target');
+      if (destination && endEvent.type === 'pointerup') {
+        button.onclick = ()=>{};
+        setManuscriptCursor(Number(destination.dataset.manuscriptCursor),{jump:true});
+        setTimeout(()=>{ button.onclick = ()=>setManuscriptCursor(scene.turn); },0);
+      }
+    };
+    button.setPointerCapture(event.pointerId);
+    button.addEventListener('pointermove',move);
+    button.addEventListener('pointerup',finish);
+    button.addEventListener('pointercancel',finish);
+  };
+  return button;
+}
+$('#chooseManuscriptCursor').onclick = ()=>{
+  const box = $('#messages').getBoundingClientRect();
+  const markers = [...document.querySelectorAll('[data-manuscript-cursor]')];
+  const target = markers.reduce((best,marker)=>{
+    const middle = (box.top + box.bottom) / 2;
+    return !best || Math.abs(marker.getBoundingClientRect().top - middle) < Math.abs(best.getBoundingClientRect().top - middle) ? marker : best;
+  },null);
+  if (target) setManuscriptCursor(Number(target.dataset.manuscriptCursor),{jump:true});
+};
+$('#clearManuscriptCursor').onclick = ()=>{ setManuscriptCursor(); showLatestStoryTurn(); };
+$('#showManuscriptCursor').onclick = ()=>setManuscriptCursor(cursorTurn(current()),{jump:true});
+
 function addTurnInsertControls(list,project) {
   const rows = [...list.querySelectorAll('.message[data-story-turn]')];
   let nextScene;
@@ -1582,13 +1684,16 @@ function renderMessages() {
   messageList.replaceChildren();
   if (!sameStory) syncManualProse();
   syncInsertOptions(project);
-  const editorTurns = normalizeAgentHistory(project.agentHistory).sort((a,b)=>a.afterTurn - b.afterTurn);
+  const exchanges = normalizeAgentHistory(project.agentHistory);
+  const sceneTurns = new Set(project.messages.filter(turn=>turn.role === 'assistant' && turn.content.trim()).map(turn=>turn.turnNumber));
+  const editorTurns = exchanges.filter(entry=>!entry.beforeTurn || !sceneTurns.has(entry.beforeTurn)).sort((a,b)=>a.afterTurn - b.afterTurn);
   const pendingEdit = editingStateFor?.projectId === project.id ? editingStateFor.instruction : '';
   if (!project.messages.length && !editorTurns.length && !pendingEdit) {
     const empty = el('div','empty');
     empty.append(el('strong','','Start your story'),
       el('p','','Set the scene below, or ask your co-writer to begin.'));
     messageList.append(empty);
+    syncManuscriptCursor(project);
     renderStoryTurns(project,followLatest);
     return;
   }
@@ -1598,24 +1703,23 @@ function renderMessages() {
   const chapterByTurn = new Map(manuscript.flatMap(chapter=>chapter.map(scene=>[scene.turn,scene.chapter])));
   let visibleChapter;
   let editorIndex = 0;
+  function editorExchange({request,message,proposal,resolution}) {
+    const reply = editorMessage('assistant',message);
+    const body = reply.querySelector('.message-body');
+    if (proposal) {
+      const review = el('button','text-button','Review changes');
+      review.type = 'button';
+      review.disabled = busy || Boolean(composerEdit);
+      review.onclick = ()=>reviewAgentRevision(project,proposal);
+      body.append(review);
+    } else if (resolution) {
+      body.append(el('p','form-note',resolution === 'applied' ? 'Changes applied.' : 'Proposal discarded.'));
+    }
+    return request ? [editorMessage('user',request),reply] : [reply];
+  }
   function appendEditorTurns(through) {
     while (editorTurns[editorIndex]?.afterTurn <= through) {
-      const {request,message,proposal,resolution} = editorTurns[editorIndex++];
-      if (request) messageList.append(editorMessage('user',request));
-      const reply = editorMessage('assistant',message);
-      if (proposal || resolution) {
-        const body = reply.querySelector('.message-body');
-        if (proposal) {
-          const review = el('button','text-button','Review changes');
-          review.type = 'button';
-          review.disabled = busy || Boolean(composerEdit);
-          review.onclick = ()=>reviewAgentRevision(project,proposal);
-          body.append(review);
-        } else {
-          body.append(el('p','form-note',resolution === 'applied' ? 'Changes applied.' : 'Proposal discarded.'));
-        }
-      }
-      messageList.append(reply);
+      messageList.append(...editorExchange(editorTurns[editorIndex++]));
     }
   }
   let previousDirection;
@@ -1710,10 +1814,20 @@ function renderMessages() {
     messageList.append(row);
   });
   appendEditorTurns(Infinity);
-  if (pendingEdit) messageList.append(editorMessage('user',pendingEdit),editorMessage('assistant','Working…',true));
+  if (pendingEdit && !editingStateFor.beforeTurn) messageList.append(editorMessage('user',pendingEdit),editorMessage('assistant','Working…',true));
   renderPlacedArtwork();
   if (readingOrder) arrangeWriteScenes(messageList,project,manuscript);
   addTurnInsertControls(messageList,project);
+  const proseRows = new Map(Array.from(messageList.querySelectorAll('.assistant[data-story-turn]'),row=>[Number(row.dataset.storyTurn),row]));
+  const focusedExchanges = Map.groupBy(exchanges.filter(entry=>proseRows.has(entry.beforeTurn)),entry=>entry.beforeTurn);
+  for (const scene of manuscript.flat()) {
+    const row = proseRows.get(scene.turn);
+    if (!row) continue;
+    for (const entry of focusedExchanges.get(scene.turn) || []) row.before(...editorExchange(entry));
+    if (pendingEdit && editingStateFor.beforeTurn === scene.turn) row.before(editorMessage('user',pendingEdit),editorMessage('assistant','Working…',true));
+    row.before(manuscriptCursorHandle(scene));
+  }
+  syncManuscriptCursor(project);
   if (hasUpcomingChapter(project)) messageList.append(writeChapterDivider(project,manuscript.length + 1,undefined,true));
   renderPending();
   box.scrollTop = followLatest ? box.scrollHeight : scrollTop;
@@ -1825,8 +1939,10 @@ function renderPending() {
   body.setAttribute('role','status');
   body.append(el('span','pending-state' + (pending.active ? ' active' : ''),pending.state));
   row.append(body);
-  $('#messageList').append(row);
-  if (atBottom) box.scrollTop = box.scrollHeight;
+  const marker = generatingFor.beforeTurn && $(`[data-manuscript-cursor="${generatingFor.beforeTurn}"]`);
+  if (marker) marker.before(row);
+  else $('#messageList').append(row);
+  if (atBottom && !marker) box.scrollTop = box.scrollHeight;
 }
 function syncRoute() {
   const transcript = $('#messages');
@@ -1868,7 +1984,8 @@ function syncRoute() {
   $('#verifyComposerEditLabel').hidden = !composerEdit;
   $('#verifyComposerEdit').checked = Boolean(composerEdit?.verified);
   $('#instructionLabel').textContent = composerEdit ? 'Edit turn text' : editingStory ? 'What would you like the Agent to do?' : 'What happens next?';
-  $('#instruction').placeholder = editingStory ? 'Ask about the story or request a revision…' : 'Write the next beat or tell the narrator what happens…';
+  const targeted = !composerEdit && cursorTurn(project);
+  $('#instruction').placeholder = targeted ? (editingStory ? 'Ask about the scenes around the cursor…' : 'What should happen at the cursor?') : editingStory ? 'Ask about the story or request a revision…' : 'Write the next beat or tell the narrator what happens…';
   $('#cancelComposerEdit').hidden = !composerEdit;
   $('#saveComposerOnly').hidden = !rewriting;
   $('#composeShortcut').textContent = rewriting ? '⌘/Ctrl + Enter to rewrite'
@@ -1876,6 +1993,7 @@ function syncRoute() {
   $('#sendButton').disabled = busy;
   $('#sendButton').setAttribute('aria-busy',String(busy));
   syncStoryFlow(project);
+  syncManuscriptCursor(project);
   updateContextIndicator();
   if (storyView === 'write' && workspaceTools.activeTool) revisionViews.render();
   if (followLatest) transcript.scrollTop = transcript.scrollHeight;
@@ -1886,6 +2004,8 @@ function speakerMetadata(speaker) {
 
 function syncStoryFlow(project) {
   const flow = activeStoryFlow(project);
+  const targeted = Boolean(cursorTurn(project));
+  $('#storyFlowPanel').classList.toggle('cursor-flow-hidden',targeted);
   const request = $('#requestStoryFlow');
   $('#storyFlowActionLabel').hidden = Boolean(flow);
   const options = $('#storyFlowOptions');
@@ -1941,6 +2061,7 @@ async function chooseStoryFlow(preview, replace) {
   const field = $('#instruction');
   const wasEditing = authorMode(project) === 'agent';
   if (wasEditing) setSession(modeKey(project.id),'story');
+  setSession(manuscriptCursorKey(project.id),'');
   if (replace || !draft.trim()) {
     field.value = direction;
     field.setSelectionRange(direction.length, direction.length);
@@ -2035,17 +2156,18 @@ async function generateAgentEdit(project) {
     sceneModelPicker.focus();
     return error('Choose an agent model, then send again.');
   }
-  const budgetProblem = editorContext(project,instruction,model).problem;
+  const beforeTurn = cursorTurn(project);
+  const budgetProblem = editorContext(project,instruction,model,beforeTurn).problem;
   if (budgetProblem) return error(budgetProblem);
-  editingStateFor = {projectId:project.id,instruction};
-  showLatestStoryTurn();
+  editingStateFor = {projectId:project.id,instruction,beforeTurn};
+  if (!beforeTurn) showLatestStoryTurn();
   setBusy(true);
   try {
     await save();
     if (dirty || !state.projects.includes(project)) throw Error('Save the story and try again.');
     const result = await api('/api/story-edits',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({storyId:project.id,revision,provider:modelProvider(model),model,instruction})
+      body:JSON.stringify({storyId:project.id,revision,provider:modelProvider(model),model,instruction,beforeTurn})
     });
     if (getSession(draftKey(project.id,'agent'))?.trim() === instruction) setSession(draftKey(project.id,'agent'),'');
     editingStateFor = undefined;
@@ -2062,6 +2184,69 @@ async function generateAgentEdit(project) {
   }
 }
 
+async function generateAtManuscriptCursor(project,model) {
+  const field = $('#instruction');
+  const instruction = field.value.trim();
+  if (!instruction) return field.focus();
+  const beforeTurn = cursorTurn(project);
+  const context = manuscriptFocus(project,beforeTurn);
+  if (!context) return error('The manuscript cursor no longer points to a scene. Choose a new insertion point.');
+  const sensitive = sensitiveDraft(project);
+  if (sensitive && !canWriteSensitive(model)) return error('Choose an NSFW-friendly writer to generate a sensitive scene.');
+  const agentModel = selectedContinuityModel(project);
+  if (!agentModel) {
+    continuityModelPicker.focus();
+    return error('Choose a continuity agent, then send again.');
+  }
+  const {problem} = promptForDraft();
+  if (problem) return error(problem);
+  const snapshot = openRouterSnapshot(project,project.messages);
+  const requested = JSON.stringify(snapshot);
+  error();
+  generatingFor = {projectId:project.id,beforeTurn};
+  setBusy(true);
+  try {
+    await save();
+    if (dirty || !state.projects.includes(project)) throw Error('Save the story and try again.');
+    if (JSON.stringify(openRouterSnapshot(project,project.messages)) !== requested) throw Error('The story changed. Check the insertion point and try again.');
+    const draft = await api('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({project:snapshot,instruction,model,provider:modelProvider(model),
+        agentModel,agentProvider:modelProvider(agentModel),sensitive,mode:'insert',beforeTurn})});
+    await mergeServerLibrary({ifChanged:true});
+    if (!state.projects.includes(project) || JSON.stringify(openRouterSnapshot(project,project.messages)) !== requested) {
+      throw Error('The manuscript or story state changed. Your direction is still in the composer.');
+    }
+    const content = stripSpeakerName(draft.text || '',narrator.name).trim();
+    if (!content) throw Error('The writer returned no prose.');
+    const storyTime = isStoryTime(draft.storyTime) ? draft.storyTime : undefined;
+    const inserted = placeSceneBefore(project,beforeTurn,()=>{
+      appendTurn(project,{role:'user',content:instruction,insertedAtCursor:true,
+        contentSensitivity:sensitive ? 'explicit' : validSensitivity(draft.input) ? draft.input : 'unclassified'});
+      const turn = appendTurn(project,{role:'assistant',content,insertedAtCursor:true,
+        ...speakerMetadata(narrator),storyTime,contentSensitivity:validSensitivity(draft.reply) ? draft.reply : 'unclassified'});
+      dateWriterTurn(project);
+      applyTurnGraphUpdates(project,project.messages.at(-1),graphSuggestions(draft.suggestions),{allowAutomatic:false});
+      return turn;
+    });
+    markDirty(project);
+    await save();
+    if (dirty) return;
+    if (getSession(draftKey(project.id))?.trim() === instruction) setSession(draftKey(project.id),'');
+    if (current() === project) field.value = getSession(draftKey(project.id)) || '';
+    render();
+    if (current() === project) {
+      selectStoryTurn(inserted)?.scrollIntoView({block:'start'});
+      if (draft.truncated) error('The inserted draft reached the output limit and may end mid-scene.');
+      else if (draft.metadataFailed) error('The draft was inserted. Review its context label before using it with a general model.');
+    }
+  } catch (failure) {
+    if (current() === project) error(failure.message);
+  } finally {
+    generatingFor = null;
+    setBusy(false);
+  }
+}
+
 async function generate() {
   if (busy || !state) return;
   const project = current();
@@ -2073,6 +2258,7 @@ async function generate() {
     sceneModelPicker.focus();
     return error('Choose a prose artist, then send again.');
   }
+  if (!composerEdit && cursorTurn(project)) return generateAtManuscriptCursor(project,model);
   const activeFlow = activeStoryFlow(project);
   const refreshDirections = Boolean(activeFlow && activeFlow.source !== 'mcp');
   const sensitive = sensitiveDraft(project);
@@ -3468,6 +3654,21 @@ insertPassageDialog.addEventListener('cancel',event=>{
   event.preventDefault();
   cancelManualProse();
 });
+function placeSceneBefore(project,beforeTurn,append) {
+  const before = beforeTurn === undefined ? undefined : manuscriptChapters(project).flat().find(scene=>scene.turn === beforeTurn);
+  if (beforeTurn !== undefined && !before) throw Error('This insertion point no longer exists.');
+  const pendingChapter = Boolean(before && hasUpcomingChapter(project));
+  const setBoard = board => {
+    if (board) project.sceneBoard = board;
+    else delete project.sceneBoard;
+  };
+  if (pendingChapter) setBoard(setUpcomingChapter(project,false));
+  const turn = append();
+  if (before) setBoard(moveManuscriptScene(project,turn,{chapter:before.chapter,beforeTurn}));
+  if (pendingChapter) setBoard(setUpcomingChapter(project,true));
+  return turn;
+}
+
 pasteForm.onsubmit=event=>{
   event.preventDefault();
   if (busy || composerEdit) return;
@@ -3486,20 +3687,13 @@ pasteForm.onsubmit=event=>{
     field.reportValidity();
     return;
   }
-  const pendingChapter = before && hasUpcomingChapter(project);
-  const setBoard = board => {
-    if (board) project.sceneBoard = board;
-    else delete project.sceneBoard;
-  };
-  if (pendingChapter) setBoard(setUpcomingChapter(project,false));
   if (!before) {
     delete project.agentRequest;
     delete project.agentNotice;
   }
-  const newTurn = appendTurn(project,{role:'assistant',content:text,...speakerMetadata(narrator),
-    standalone:true,contentSensitivity:$('#pasteSensitivity').value});
-  if (before) setBoard(moveManuscriptScene(project,newTurn,{chapter:before.chapter,beforeTurn}));
-  if (pendingChapter) setBoard(setUpcomingChapter(project,true));
+  const newTurn = placeSceneBefore(project,beforeTurn,()=>appendTurn(project,{
+    role:'assistant',content:text,...speakerMetadata(narrator),standalone:true,contentSensitivity:$('#pasteSensitivity').value
+  }));
   markDirty();
   manualProseDrafts.delete(project.id);
   syncManualProse();
@@ -4139,6 +4333,7 @@ $('#deleteProject').onclick = async () => {
   state.projects = state.projects.filter(item => item.id !== project.id);
   pendingComposerEdits.delete(project.id);
   manualProseDrafts.delete(project.id);
+  setSession(manuscriptCursorKey(project.id),'');
   state.activeId = state.projects[0].id;
   markDirty(project);
   render();
@@ -4213,6 +4408,8 @@ function draftInputs() {
       return {project:openRouterSnapshot(source,history,replyTime),direction,mode:reply ? 'replace' : 'send',options};
     }
   }
+  const beforeTurn = cursorTurn(project);
+  if (beforeTurn !== undefined) return {project:openRouterSnapshot(project,project.messages),direction,mode:'insert',options:{...options,beforeTurn}};
   const input = direction ? {project,direction,mode:'send'} : replyInput(project,'send',options);
   return {...input,project:openRouterSnapshot(input.project,input.project.messages,input.project.replyTime),options};
 }
@@ -4318,8 +4515,8 @@ function composerContext(stage = 'writer') {
     if (useContinuity) {
       const input = draftInputs();
       details = continuityContext(input.project,input.direction,'',{model,mode:input.mode,
-        sensitive:sensitiveDraft(project),suggest:input.mode === 'send' && project.graphUpdates !== false});
-    } else details = editorContext(project,$('#instruction').value,model);
+        sensitive:sensitiveDraft(project),suggest:['send','insert'].includes(input.mode) && project.graphUpdates !== false,beforeTurn:input.options.beforeTurn});
+    } else details = editorContext(project,$('#instruction').value,model,cursorTurn(project));
     limits = windowNote + ' Studio budgets ' + contextNumber.format(details.inputLimit) + ' input tokens and keeps the current story state when it drops older exchanges.'
       + (details.omitted ? ' ' + details.omitted + ' older exchanges omitted.' : '')
       + (useContinuity ? ' This preview includes the current direction. The generated prose and any tool results are added during the call.' : '');
@@ -4494,6 +4691,7 @@ $('#importFile').onchange = async event => {
     for (const project of [...state.projects,...incoming.projects]) {
       pendingComposerEdits.delete(project.id);
       manualProseDrafts.delete(project.id);
+      setSession(manuscriptCursorKey(project.id),'');
       setSession(draftKey(project.id),'');
       setSession(modelKey(project.id),'');
     }

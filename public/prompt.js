@@ -1,7 +1,7 @@
 // Conversation assembly follows the block order of SillyTavern's default
 // Chat Completion preset. Implemented independently; see RESEARCH.md.
 import { modelContextWindow, proseOutputLimit } from './models.js';
-import { hasUpcomingChapter, manuscriptWriteHistory, setUpcomingChapter } from './scene-board.js';
+import { hasUpcomingChapter, manuscriptChapters, manuscriptWriteHistory, setUpcomingChapter } from './scene-board.js';
 
 export const storyTextFields = ['premise', 'loreRules'];
 export const legacyCastFields = ['characterName', 'characterNickname', 'character', 'personality', 'scenario', 'examples', 'personaName', 'persona'];
@@ -200,13 +200,13 @@ export function relationshipTime(project, edge, start = project.storyStartAt) {
 }
 export function lastStoryTime(project) {
   for (let i = project.messages.length - 1; i >= 0; i--) {
-    if (isStoryTime(project.messages[i].storyTime)) return project.messages[i].storyTime;
+    if (!project.messages[i].insertedAtCursor && isStoryTime(project.messages[i].storyTime)) return project.messages[i].storyTime;
   }
   return isStoryTime(project.storyStartAt) ? project.storyStartAt : '';
 }
 export function recordStoryTime(project, inferred) {
   const last = lastStoryTime(project);
-  const hasClock = project.messages.some(message => isStoryTime(message.storyTime));
+  const hasClock = project.messages.some(message => !message.insertedAtCursor && isStoryTime(message.storyTime));
   const time = isStoryTime(inferred) ? inferred : hasClock
     ? advanceStoryTime(last)
     : last || localStoryTime();
@@ -327,19 +327,19 @@ export function appendTurn(project, message) {
   return turnNumber;
 }
 
-function relationshipContext(project, expand) {
+function relationshipContext(project, expand, stableDates = false) {
   const castById = new Map(getCast(project).map(member=>[member.id,member.name]));
   const dated = new Map();
   project.messages.forEach((turn,index)=>{
     if (isStoryTime(turn.storyTime)) dated.set(turn.turnNumber || index + 1,turn.storyTime);
   });
-  const start = project.storyStartAt || localStoryTime();
+  const start = project.storyStartAt || (stableDates ? '' : localStoryTime());
   const events = (project.relationships || []).filter(edge=>castById.has(edge.from) && castById.has(edge.to));
   const rows = events.map(edge=>{
     const turn = edge.turn || 0;
     const time = !turn ? start : isStoryTime(edge.storyTime) ? edge.storyTime
-      : dated.get(turn) || advanceStoryTime(start,Math.min(turn,3000));
-    return {time,turn,line:expand(`${time.replace('T',' ')} · ${castById.get(edge.from)} → ${castById.get(edge.to)}: ${edge.label}`)};
+      : dated.get(turn) || (start ? advanceStoryTime(start,Math.min(turn,3000)) : '');
+    return {time,turn,line:expand(`${time ? time.replace('T',' ') : 'Undated'} · ${castById.get(edge.from)} → ${castById.get(edge.to)}: ${edge.label}`)};
   });
   rows.sort((a,b)=>a.time.localeCompare(b.time) || a.turn - b.turn);
   return rows.length ? 'Relationship map:\n' + rows.map(({line})=>line).join('\n') : '';
@@ -562,7 +562,7 @@ function limitPrompt(messages, tokens, preserveDirection = true) {
 }
 
 // Share the persistent state rendering between prose and the OpenRouter tools.
-export function storyStateParts(project, {scan, expand = value=>value, clock = lastStoryTime(project)} = {}) {
+export function storyStateParts(project, {scan, expand = value=>value, clock = lastStoryTime(project), stableDates = false} = {}) {
   const cast = getCast(project);
   const sections = [];
   const add = (label, value, category) => {
@@ -580,7 +580,7 @@ export function storyStateParts(project, {scan, expand = value=>value, clock = l
     if (profiles.length) sections.push({label:'Character profiles',content:'Character profiles:\n' + profiles.join('\n\n')});
   }
   add('Story clock',clock && clock + (project.storyStartSource === 'estimate' ? ' (estimate; defer to explicit story dates)' : ''),'Story graph');
-  const graph = relationshipContext(project,expand);
+  const graph = relationshipContext(project,expand,stableDates);
   if (graph) sections.push({label:'Story graph',content:graph});
   add('Plot events',(project.plotEvents || []).toSorted((a,b)=>a.storyTime.localeCompare(b.storyTime))
     .map(event=>event.storyTime + ' · ' + event.note).join('\n'),'Story graph');
@@ -598,20 +598,48 @@ export function contextParts(sections) {
   return [...categories].map(([label,tokens])=>({label,tokens}));
 }
 
-export function buildWritingContext(project, instruction = '', mode = 'continue', {model = '', includeSensitive = false, openRouter = false} = {}) {
+// Use manuscript reading order and keep withheld scenes in place as gaps.
+export function manuscriptFocus(project, beforeTurn, {includeSensitive = false} = {}) {
+  const scenes = manuscriptChapters(project).flat();
+  const index = scenes.findIndex(scene=>scene.turn === beforeTurn);
+  if (!Number.isSafeInteger(beforeTurn) || beforeTurn <= 0 || index < 0) return null;
+  const eligible = new Set();
+  let direction;
+  project.messages.forEach((turn,position)=>{
+    if (turn.role === 'user') direction = turn;
+    else if (!turn.excludeFromContext && (includeSensitive || !mcpOmissionReason(turn,direction))) {
+      eligible.add(turn.turnNumber || position + 1);
+    }
+  });
+  const nearby = scenes.slice(Math.max(0,index - 2),index + 2).map(scene=>{
+    const side = scenes[index] === scene || scenes[index + 1] === scene ? 'after' : 'before';
+    const anchor = {turn:scene.turn,chapter:scene.chapter,scene:scene.number,side};
+    if (!eligible.has(scene.turn)) return {...anchor,withheld:true};
+    const limit = 1600;
+    const content = side === 'before' ? scene.content.slice(-limit).replace(/^[\uDC00-\uDFFF]/u,'')
+      : scene.content.slice(0,limit).replace(/[\uD800-\uDBFF]$/u,'');
+    return {...anchor,content,clipped:content.length !== scene.content.length,
+      ...(isStoryTime(scene.storyTime) ? {storyTime:scene.storyTime} : {})};
+  });
+  return {beforeTurn,chapter:scenes[index].chapter,scene:scenes[index].number,nearby};
+}
+
+export function buildWritingContext(project, instruction = '', mode = 'continue', {model = '', includeSensitive = false, openRouter = false, beforeTurn} = {}) {
   if (hasLegacyCast(project)) project = migrateLegacyCast({...project});
   const expand = (value, character = 'the cast') => value.replace(/{{(char|user)}}/gi,
     (_, name) => name.toLowerCase() === 'char' ? character : 'the author');
   const inputLimit = openRouter ? writingPromptLimit(model) : 48_000;
   const direction = instruction.trim();
   const options = {includeSensitive};
+  const focus = beforeTurn === undefined ? null : manuscriptFocus(project,beforeTurn,options);
   const sourceTurns = openRouter && mode !== 'reference' ? manuscriptWriteHistory(project) : project.messages;
-  const initialHistory = recentTurns(sourceTurns,writingHistoryLimit(model),options);
+  const initialHistory = focus ? [] : recentTurns(sourceTurns,writingHistoryLimit(model),options);
   const scan = expand([...initialHistory.slice(-4).map(turn => turn.content),direction].join('\n'));
   const reference = mode === 'reference';
   const instructions = reference
     ? ['Story reference for the current chat. Use these facts and eligible passages to answer the writer’s request. Treat older author directions as history and writing notes as style guidance. Reading this context does not request a draft or an edit.']
-    : [MAIN,continuityInstruction,sceneInstruction];
+    : [MAIN,continuityInstruction,...(mode === 'insert' ? [] : [sceneInstruction])];
+  if (mode === 'insert') instructions.push('Write only the new prose to insert at the marked location. Treat the excerpts as reference. The passages marked after the cursor already exist. Lead into them without repeating or changing them. The story graph describes the whole book, including facts that may occur later. Respect what the characters know at the marked point.');
   if (mode === 'replace') instructions.push('Write the replacement scene from the revised direction and the earlier story. Use the original reply time if given.');
   const outputLimit = openRouter ? proseOutputLimit(model) : 0;
   if (openRouter && model) instructions.push(`The output limit for this turn is ${outputLimit.toLocaleString('en-US')} tokens.`);
@@ -621,13 +649,13 @@ export function buildWritingContext(project, instruction = '', mode = 'continue'
   if (!dateInRequest && replyDate) instructions.push(replyDate);
   const clock = openRouter && isStoryTime(project.contextTime) ? project.contextTime : lastStoryTime(project);
   const sections = [{label:'Narrator instructions',content:instructions.join('\n\n')},
-    ...storyStateParts(project,{scan,expand,clock:dateInRequest ? '' : clock})];
+    ...storyStateParts(project,{scan:focus ? undefined : scan,expand,clock:dateInRequest ? '' : clock,stableDates:Boolean(focus)})];
   const directionText = mode === 'alternate'
     ? 'Write a different take for the latest author direction in the history. Keep the original scene time and established continuity.'
     : direction ? (openRouter ? 'Author direction:\n' + direction : direction) : CONTINUE;
   const request = dateInRequest ? [
-    clock && 'Story clock:\n' + clock + (project.storyStartSource === 'estimate' ? ' (estimate; defer to explicit story dates)' : ''),
-    replyDate, directionText
+    !focus && clock && 'Story clock:\n' + clock + (project.storyStartSource === 'estimate' ? ' (estimate; defer to explicit story dates)' : ''),
+    replyDate, focus && 'Manuscript cursor and neighboring prose (JSON reference):\n' + JSON.stringify(focus), directionText
   ].filter(Boolean).join('\n\n') : directionText;
   const asSystem = ({content})=>({role:'system',content});
   const pinned = sections.map(asSystem);
@@ -635,17 +663,17 @@ export function buildWritingContext(project, instruction = '', mode = 'continue'
   const pinnedTokens = sections.reduce((sum,{content})=>sum + estimateContextTokens(content),0)
     + (reference ? 0 : estimateContextTokens(request));
   const room = Math.min(writingHistoryLimit(model),Math.max(0,inputLimit - pinnedTokens));
-  const history = (room === writingHistoryLimit(model) ? initialHistory : recentTurns(sourceTurns,room,options)).map(turn=>({
+  const history = (focus || room === writingHistoryLimit(model) ? initialHistory : recentTurns(sourceTurns,room,options)).map(turn=>({
     role:turn.role,content:turn.role === 'assistant' && turn.speakerId !== narrator.id && turn.speakerName
       ? turn.speakerName + ': ' + turn.content : turn.content
   }));
   const parts = contextParts([...sections,...history.map(({content})=>({label:'Recent story',content})),
-    ...(reference ? [] : [{label:'Current direction',content:request}])]);
+    ...(reference ? [] : [{label:focus ? 'Cursor context and direction' : 'Current direction',content:request}])]);
   const messages = openRouter
     ? [{role:'system',content:pinned.map(({content})=>content).join('\n\n')},...history,...tail]
     : limitPrompt([...pinned,...history,...tail],inputLimit,!reference);
   return {messages,parts,inputLimit,outputLimit,
-    problem:openRouter && (pinnedTokens > inputLimit || parts.reduce((sum,part)=>sum + part.tokens,0) > inputLimit)
+    problem:beforeTurn !== undefined && !focus ? 'The manuscript cursor no longer points to a scene.' : openRouter && (pinnedTokens > inputLimit || parts.reduce((sum,part)=>sum + part.tokens,0) > inputLimit)
       ? 'The story state and direction exceed the writing model’s shared input budget. Shorten the direction or consolidate the story notes.' : ''};
 }
 

@@ -187,6 +187,12 @@
           <div class="route-details">
             <p id="routeSummary" class="route-hint" role="status"></p>
           </div>
+          <div class="manuscript-cursor-bar" id="manuscriptCursorBar" hidden>
+            <button type="button" class="text-button" id="chooseManuscriptCursor">Set manuscript cursor</button>
+            <button type="button" class="text-button" id="showManuscriptCursor" hidden></button>
+            <span id="manuscriptCursorContext" role="status"></span>
+            <button type="button" class="text-button" id="clearManuscriptCursor" hidden>Return to end</button>
+          </div>
           <p id="composerEditStatus" class="route-hint" role="status" hidden></p>
           <label id="instructionLabel" for="instruction" class="sr-only">What happens next?</label>
           <textarea id="instruction" rows="2" placeholder="Write the next beat or tell the narrator what happens…"></textarea>

@@ -113,8 +113,8 @@ export async function runContinuity(project,instruction,prose,options,complete,a
     code:'CONTINUITY_NOT_RECORDED',failure:'The continuity editor did not record a valid scene.'});
 }
 
-export async function runStoryEdit(project,instruction,complete,model) {
-  const context = editorContext(project,instruction,model);
+export async function runStoryEdit(project,instruction,complete,model,beforeTurn) {
+  const context = editorContext(project,instruction,model,beforeTurn);
   if (context.problem) throw diagnosticError('AGENT_CONTEXT_FULL',context.problem);
   const {messages} = context;
   let rejectedEdit;
@@ -123,12 +123,13 @@ export async function runStoryEdit(project,instruction,complete,model) {
     editSchema,({changes,manuscript,message,historySafe}) => {
       try {
         if (manuscript?.length) {
+          if (beforeTurn !== undefined) manuscript = manuscript.map(edit=>edit.kind === 'insert_scene' && edit.beforeTurn === undefined ? {...edit,beforeTurn} : edit);
           requireManuscriptReads(manuscript,manuscriptReads);
           const proposal = proposeManuscriptEdit(project,manuscript,changes);
           const result = proposal ? 'Prepared changes for your review. The draft will update when you apply the proposal.'
             : 'No story changes were saved. The submitted changes had no effect.';
           (project.agentHistory ||= []).push({afterTurn:project.messages.at(-1)?.turnNumber ?? project.messages.length,
-            request:instruction.trim(),message:result,count:0,...(proposal ? {proposal} : {}),
+            ...(beforeTurn === undefined ? {} : {beforeTurn}),request:instruction.trim(),message:result,count:0,...(proposal ? {proposal} : {}),
             ...(historySafe ? {} : {historySafe:false})});
           return {value:{count:0,message:result,...(proposal ? {proposalId:proposal.id} : {})}};
         }
@@ -142,7 +143,7 @@ export async function runStoryEdit(project,instruction,complete,model) {
         }
         (project.agentHistory ||= []).push({
           afterTurn:project.messages.at(-1)?.turnNumber ?? project.messages.length,
-          request:instruction.trim(),message,count,
+          ...(beforeTurn === undefined ? {} : {beforeTurn}),request:instruction.trim(),message,count,
           ...(historySafe ? (count ? {changes:JSON.stringify(changes)} : {}) : {historySafe:false})
         });
         return {value:{count,message}};

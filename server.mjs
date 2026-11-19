@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { zipSync, strToU8 } from 'fflate';
 import { join, dirname, extname } from 'node:path';
 import { agentOutputLimit, canWriteSensitive, continuityModel, isAgentModel, isContinuityModel, isWriterModel, modelInputLimit, modelProvider, models, providerNames, proseOutputLimit, setupChatOutputLimit, setupDraftModel, setupDraftOutputLimit, usesSensitiveContinuity } from './public/models.js';
-import { buildWritingContext, getCast, legacyCastFields, migrateLegacyCast, migrateStoryFields, validPlotEvents, storyTextFields, validCast, validRelationships, validSensitivity, isStoryTime, estimateContextTokens, nextTurnNumber } from './public/prompt.js';
+import { buildWritingContext, manuscriptFocus, getCast, legacyCastFields, migrateLegacyCast, migrateStoryFields, validPlotEvents, storyTextFields, validCast, validRelationships, validSensitivity, isStoryTime, estimateContextTokens, nextTurnNumber } from './public/prompt.js';
 import { libraryByteLimit, maxLibraryStories, starterStoryId, withoutStarter } from './public/library.js';
 import { createStarterStory, starterReview } from './examples/the-late-ferry.mjs';
 import { listStarterArtwork, listStarterVersions, readStarterArtwork, readStarterVersion } from './examples/the-late-ferry-extras.mjs';
@@ -455,7 +455,7 @@ function storyToolCompletion(model,key,diagnostics,stage,signal,maxOutputTokens 
 }
 
 async function generateStoryEdits(req,res,diagnostics) {
-  const {storyId,revision,model,key:requestKey,instruction,provider = 'openrouter'} = await body(req,libraryLimit) || {};
+  const {storyId,revision,model,key:requestKey,instruction,beforeTurn,provider = 'openrouter'} = await body(req,libraryLimit) || {};
   if (typeof storyId !== 'string' || typeof revision !== 'string' || !validStoryEditInstruction(instruction)) {
     return json(res,400,{error:'Enter a message for the agent.'});
   }
@@ -467,13 +467,14 @@ async function generateStoryEdits(req,res,diagnostics) {
   const index = library.projects.findIndex(item => item.id === storyId);
   if (index < 0) return json(res,404,{error:'Story not found.'});
   const project = structuredClone(library.projects[index]);
+  if (beforeTurn !== undefined && !manuscriptFocus(project,beforeTurn)) return json(res,409,{error:'The manuscript cursor no longer points to a scene.'});
   if (project.agentHistory != null && !Array.isArray(project.agentHistory)) {
     return json(res,409,{error:'This story has invalid Agent history. Import a valid backup before editing.'});
   }
   Object.assign(diagnostics,{provider,mode:'story-edit',storyRef:storyReference(storyId),model});
   const signal = disconnectSignal(res);
   try {
-    const result = await runStoryEdit(project,instruction,storyToolCompletion(model,key,diagnostics,'story-edit',signal),model);
+    const result = await runStoryEdit(project,instruction,storyToolCompletion(model,key,diagnostics,'story-edit',signal),model,beforeTurn);
     if (signal.aborted) return;
     delete project.agentEditRequest;
     library.projects[index] = project;
@@ -807,15 +808,18 @@ if (url.pathname === '/api/story-edits' && req.method === 'PUT') {
 if (url.pathname === '/api/story-flow' && req.method === 'POST') return suggestStoryFlow(req,res,diagnostics);
 if (url.pathname === '/api/revision' && req.method === 'POST') return runRevisionReview(req,res,diagnostics);
 if (url.pathname === '/api/generate' && req.method === 'POST') {
-  const {project,instruction,provider,model,key:requestKey,mode='send',sensitive=false,agentModel=continuityModel,agentProvider=provider,agentKey:separateKey,flow=false} = await body(req, libraryLimit) || {};
+  const {project,instruction,provider,model,key:requestKey,mode='send',sensitive=false,agentModel=continuityModel,agentProvider=provider,agentKey:separateKey,flow=false,beforeTurn} = await body(req, libraryLimit) || {};
   if (!validateState({activeId:project?.id,projects:[project]}) || typeof instruction !== 'string') {
     diagnostics.code = 'INVALID_STORY_REQUEST';
     return json(res,400,{error:'Invalid story request.'});
   }
   migrateStoryFields(migrateLegacyCast(project));
-  if (!Object.hasOwn(providerNames,provider) || !['send','alternate','replace'].includes(mode)) {
+  if (!Object.hasOwn(providerNames,provider) || !['send','alternate','replace','insert'].includes(mode)) {
     diagnostics.code = 'UNSUPPORTED_GENERATION_MODE';
     return json(res,400,{error:'Unsupported browser generation mode.'});
+  }
+  if (mode === 'insert' ? !manuscriptFocus(project,beforeTurn) : beforeTurn !== undefined) {
+    return json(res,409,{error:'Choose an existing manuscript insertion point.'});
   }
   diagnostics.provider = provider;
   diagnostics.mode = mode;
@@ -841,7 +845,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     if (!validKey(agentKey)) return json(res,400,{error:keyRequired(agentProvider)});
     diagnostics.model = modelIds.has(model) ? model : 'custom';
     diagnostics.outputFormat = 'text';
-    const {messages,problem} = buildWritingContext(project,instruction,mode,{model,includeSensitive:sensitive,openRouter:true});
+    const {messages,problem} = buildWritingContext(project,instruction,mode,{model,includeSensitive:sensitive,openRouter:true,beforeTurn});
     if (problem) {
       diagnostics.code = 'WRITE_INPUT_TOO_LONG';
       return json(res,400,{error:problem});
@@ -857,10 +861,10 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     diagnostics.truncated = output.truncated;
     const draft = {text,input:sensitive ? 'explicit' : 'unclassified',reply:'unclassified',storyTime:'',suggestions:[]};
     if (output.truncated) draft.truncated = true;
-    const suggest = !output.truncated && project.graphUpdates !== false && mode === 'send';
+    const suggest = !output.truncated && project.graphUpdates !== false && ['send','insert'].includes(mode);
     try {
       diagnostics.metadataModel = agentModel;
-      const parsed = await runContinuity(project,instruction,text,{suggest,truncated:output.truncated,mode,sensitive,model:agentModel},
+      const parsed = await runContinuity(project,instruction,text,{suggest,truncated:output.truncated,mode,sensitive,model:agentModel,beforeTurn},
         storyToolCompletion(agentModel,agentKey,diagnostics,'metadata',signal),
         rejections => {
           diagnostics.mapUpdateRejections = rejections;
@@ -876,7 +880,7 @@ if (url.pathname === '/api/generate' && req.method === 'POST') {
     diagnostics.replySensitivity = draft.reply;
     diagnostics.mapProposals = draft.suggestions.length;
     diagnostics.unverifiedLabels = draft.input === 'unclassified' || draft.reply === 'unclassified';
-    if (flow === true && !output.truncated) {
+    if (mode !== 'insert' && flow === true && !output.truncated) {
       try {
         const held = sensitive || draft.input !== 'safe' || draft.reply !== 'safe';
         draft.flowOptions = await runStoryFlow(project,flowCompletion(agentModel,agentKey,diagnostics,signal),{

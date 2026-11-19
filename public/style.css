@@ -1751,3 +1751,46 @@ form textarea { resize: vertical; }
   :is(.icon, .text-button, .story-tabs button, .picker-trigger, .story-flow-choice):active { background: var(--selected); }
   :is(.message-actions button, .workspace-tools-heading .icon, .display-name-remove) { min-height: 44px; }
 }
+
+.manuscript-cursor-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; color: var(--muted); font-size: 0.8rem; }
+.manuscript-cursor-bar[hidden] { display: none; }
+.manuscript-cursor-bar button { min-height: 30px; padding-inline: 0; }
+#showManuscriptCursor { color: var(--focus); }
+#clearManuscriptCursor { margin-inline-start: auto; }
+.manuscript-cursor-handle {
+  display: block;
+  position: relative;
+  z-index: 3;
+  width: 44px;
+  height: 20px;
+  margin-inline-start: 8px;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.manuscript-cursor-handle:hover, .manuscript-cursor-handle:focus-visible,
+.manuscript-cursor-handle[aria-pressed=true], .manuscript-cursor-handle.cursor-drop-target {
+  color: var(--focus);
+  background: var(--selected);
+}
+.manuscript-cursor-handle[aria-pressed=true]::after, .manuscript-cursor-handle.cursor-drop-target::after {
+  content: '';
+  position: absolute;
+  inset-inline-start: 100%;
+  top: 50%;
+  width: min(30vw, 90px);
+  border-block-start: 1px solid var(--focus);
+  pointer-events: none;
+}
+@media (pointer: coarse) {
+  .manuscript-cursor-handle { height: 32px; }
+}
+#messageList .cursor-context-scene {
+  box-shadow: inset 2px 0 var(--focus);
+}
+.cursor-flow-hidden { display: none !important; }
