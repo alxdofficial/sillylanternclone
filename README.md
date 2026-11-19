@@ -38,13 +38,13 @@ Use **Chapters** and **Writing tools** to open or close the side panes. Drag the
 
 Write shows author inputs alongside the prose. To show them in Graph, check **Show author directions in Graph** in **Settings** and click **Save settings**. Use the chapter outline to jump to a scene or the down arrow to return to the most recent turn. Turn actions follow the top of the current turn as you scroll. You can edit any prose turn and the latest author direction. For a direction with a paired reply, **Send** saves the edit and regenerates just that reply when an API artist is configured. **Save without rewriting** keeps the existing reply.
 
-In **Write**, click the plus at the end of the manuscript and choose **Add prose** to write or paste without a model. Set **AI context** to **Explicit**, **Unverified**, or **Verified non-explicit**, then click **Save prose**. General AI context includes prose you verify as non-explicit. You can review a saved turn in **Write → ⋯ → Time and context**. The same menu has branching and rewind.
+In **Write**, choose **Manual prose** in the composer to write or paste without a model. Set **AI context** to **Explicit**, **Unverified**, or **Verified non-explicit**, then click **Save prose**. General AI context includes prose you verify as non-explicit. You can review a saved turn in **Write → ⋯ → Time and context**. The same menu has branching and rewind.
 
 To add your own OpenRouter model, choose **Manage custom models…** in the **Prose artist** menu and enter its `author/model` ID. User-added models appear in the writer picker and setup chat. Use the same menu to remove them.
 
 ## Write at an earlier scene
 
-In **Write**, click **Set manuscript cursor** or click a handle before a scene. Drag the handle to a nearby scene or use the Up and Down arrow keys while it has focus. The composer names the insertion point, and the manuscript marks the scenes whose excerpts will go into context. **Return to end** resumes normal continuation.
+In **Write**, click a divider between turns to move the writing cursor. The highlighted divider and triangle show where the composer is aimed. Drag the triangle to snap to another divider. The **+** opens **Move cursor** and **Add chapter divider**. A new chapter divider appears at the selected boundary immediately. Select **Manual prose** in the composer to write or paste prose directly at the cursor, or use **Prose** or **Agent** for AI-assisted work. **Return to end** resumes normal continuation.
 
 **Prose** inserts a new scene before the cursor. Its graph suggestions wait for review. **Agent** can discuss the selected area, update story state, or propose manuscript edits for approval. Targeted exchanges appear next to the marked scene. The model receives the whole-book story graph and up to two scene excerpts on each side of the cursor. Existing privacy labels still apply, and the Agent can read more eligible prose with its tools. Studio keeps stable story context ahead of the changing cursor and request to help providers reuse cached input.
 
@@ -80,7 +80,7 @@ Under **Menu → New story**, choose **Set up manually** or **Brainstorm with a 
 
 Open **Book view** to read the manuscript. It includes manually saved prose and the selected take for each model reply. Author directions are available in **Write**.
 
-The first scene starts Chapter 1. In **Write**, hover over a line between turns to reveal the plus button. On a phone, tap the plus on the line. Choose **Add prose** to insert before the next scene or **Add chapter divider** to start a chapter there. The plus at the end starts a chapter with the next scene you save. **Remove divider** joins a chapter to the preceding one or cancels an upcoming chapter. You can also start a chapter at an existing scene from **Scene board → Edit details**.
+The first scene starts Chapter 1. In **Write**, hover over a line between turns to reveal the plus button. On a phone, tap the plus on the line. Choose **Move cursor** to target the next scene, or **Add chapter divider** to start a chapter there. The plus at the end starts a chapter with the next scene you save. **Remove divider** joins a chapter to the preceding one or cancels an upcoming chapter. You can also start a chapter at an existing scene from **Scene board → Edit details**.
 
 In **Book view**, use **Go to chapter** to jump between chapters. On a wide window, choose **Two pages** to read facing pages with **Previous** and **Next**. Choose **Export**, select the chapter range, and choose **Markdown**, **Word (.docx)**, or **AO3 HTML**. Word and AO3 exports preserve inline emphasis and recognized scene breaks. **Copy for AO3** copies formatted prose for the Rich Text editor, with an HTML download when clipboard access is unavailable. Use **Export history ZIP** separately to make a restorable library backup.
 

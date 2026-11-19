@@ -25,7 +25,7 @@
 #writeView .transcript { min-height: min(112px, 28%); }
 #reviewProseEmpty { display: none; }
 #writeView[data-prose-only] :is(.message.user, .editor-message, #pendingTurn, #messageList > .empty,
-  .manual-prose, .turn-insert, #composerDock, #storyFlowPanel, .message-header, .alternatives, [data-direction-only]) {
+  .turn-insert, #composerDock, #storyFlowPanel, .message-header, .alternatives, [data-direction-only]) {
   display: none;
 }
 #writeView[data-prose-only] #messageList:not(:has(.assistant[data-story-turn])) + #reviewProseEmpty {

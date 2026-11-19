@@ -60,7 +60,10 @@ function setSession(key, value) {
   }
 }
 const modeKey = id => 'story-author-mode:' + id;
-const authorMode = project => getSession(modeKey(project.id)) === 'agent' ? 'agent' : 'story';
+const authorMode = project => {
+  const mode = getSession(modeKey(project.id));
+  return mode === 'agent' || mode === 'manual' ? mode : 'story';
+};
 const modelKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-model:' : 'story-model:') + id;
 const retiredPresets = new Set(['anthracite-org/magnum-v4-72b','thedrummer/unslopnemo-12b','sao10k/l3.1-euryale-70b','gryphe/mythomax-l2-13b']);
 function writingModel(project, mode = 'story') {
@@ -80,7 +83,7 @@ function selectedContinuityModel(project, sensitive = sensitiveContinuity(projec
   return (available.find(({id})=>modelProvider(id) === writerProvider)
     || available.find(({id})=>id === continuityModel) || available[0])?.id || '';
 }
-const draftKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-draft:' : 'story-draft:') + id;
+const draftKey = (id, mode = 'story') => (mode === 'agent' ? 'story-agent-draft:' : mode === 'manual' ? 'story-manual-draft:' : 'story-draft:') + id;
 const flowNotice = new Map();
 let flowRequestStory;
 const sensitiveKey = id => 'story-sensitive-draft:' + id;
@@ -199,10 +202,9 @@ async function mergeServerLibrary({ifChanged = false} = {}) {
   render();
 }
 window.addEventListener('beforeunload', event => {
-  const hasDraft = ([storyId,draft])=>storyId !== starterStoryId && draft.text.trim();
   const hasTurnEdit = ([storyId,edit])=>storyId !== starterStoryId && (edit.draft !== edit.original || edit.verified);
   if (libraryDirty || pendingLibraryWrites || (state && settingsDraftChanged()) ||
-    [...manualProseDrafts].some(hasDraft) || [...pendingComposerEdits].some(hasTurnEdit)) event.preventDefault();
+    [...pendingComposerEdits].some(hasTurnEdit)) event.preventDefault();
 });
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n}
 const transientDisplayNames = new Map();
@@ -692,7 +694,7 @@ function syncJumpButton() {
 }
 $('#messages').addEventListener('scroll',syncJumpButton,{passive:true});
 const transcriptResize = new ResizeObserver(syncJumpButton);
-for (const selector of ['#messages','#messageList','.manual-prose']) transcriptResize.observe($(selector));
+for (const selector of ['#messages','#messageList']) transcriptResize.observe($(selector));
 
 function renderStoryTurns(project, followLatest, match) {
   const nav = $('#storyTurns'), scrollTop = nav.scrollTop;
@@ -1330,7 +1332,7 @@ function renderBook() {
 function showStoryView(view) {
   if (storyView === view) return;
   if (storyView === 'book') rememberBookPosition();
-  if (storyView === 'write') showInsertOptions();
+  if (storyView === 'write') closeTurnInsertion();
   storyView = view;
   closeTurnMenu();
   for (const [name,tab,panel] of storyViews) {
@@ -1491,6 +1493,7 @@ function saveChapterDivider(project, board, announcement) {
 function writeChapterDivider(project, chapter, firstTurn, upcoming = false) {
   const divider = el('div','write-chapter-divider');
   divider.toggleAttribute('data-upcoming',upcoming);
+  divider.dataset.chapterAt = firstTurn ?? '';
   divider.append(el('h2','',`Chapter ${chapter}`));
   if (upcoming) divider.append(el('span','write-chapter-note','Next scene'));
   if (chapter === 1) return divider;
@@ -1507,8 +1510,9 @@ function writeChapterDivider(project, chapter, firstTurn, upcoming = false) {
   remove.onclick = () => {
     if (busy || composerEdit) return;
     const board = upcoming ? setUpcomingChapter(project,false) : toggleReadingChapter(project,firstTurn);
+    setSession(chapterPlacementKey(project,firstTurn ?? ''),'');
     saveChapterDivider(project,board,`Chapter ${chapter} divider removed.`);
-    const target = upcoming ? $('#pasteReply') : $(`#messageList [data-story-turn="${firstTurn}"]`);
+    const target = upcoming ? $('#messageList .turn-cursor[data-before-turn=""]') : $(`#messageList [data-story-turn="${firstTurn}"]`);
     target?.focus({preventScroll:true});
   };
   divider.append(remove);
@@ -1541,115 +1545,90 @@ function arrangeWriteScenes(list,project,chapters) {
 }
 
 const manuscriptCursorKey = id => 'story-manuscript-cursor:' + id;
-const cursorTurn = project => Number(getSession(manuscriptCursorKey(project.id))) || undefined;
-function setManuscriptCursor(turn, {jump = false} = {}) {
+const cursorTurn = project => Number(getSession(manuscriptCursorKey(project.id))?.split(':')[0]) || undefined;
+const cursorDivider = () => $('#messageList .turn-cursor[aria-pressed="true"]');
+let cursorNoticeTimer;
+
+function setManuscriptCursor(turn, divider, animate = false) {
   if (busy || composerEdit || !state) return;
-  setSession(manuscriptCursorKey(current().id),turn ? String(turn) : '');
+  const project = current();
+  const previous = cursorDivider();
+  const start = previous?.querySelector('.cursor-pointer')?.getBoundingClientRect();
+  const changed = divider ? divider !== previous : cursorTurn(project) !== turn;
+  const end = !turn && [...document.querySelectorAll('.turn-cursor[data-before-turn=""]')].at(-1);
+  const after = (divider || end)?.dataset.cursorAfter;
+  setSession(manuscriptCursorKey(project.id),turn || after ? `${turn || 0}:${after || ''}` : '');
   workspaceTools.setComposerOpen(true);
   syncRoute();
-  if (jump && turn) {
-    const marker = $(`[data-manuscript-cursor="${turn}"]`);
-    marker?.scrollIntoView({block:'center'});
-    marker?.focus({preventScroll:true});
+  if (changed) {
+    const pointer = cursorDivider()?.querySelector('.cursor-pointer');
+    if (pointer && animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const bounds = pointer.getBoundingClientRect(), transcript = $('#messages').getBoundingClientRect();
+      const visible = start && start.top >= transcript.top && start.bottom <= transcript.bottom;
+      const offset = visible ? start.top - bounds.top : 0;
+      pointer.animate([{transform:`translateY(${offset}px) scale(.92)`,opacity:.4},{transform:'none',opacity:1}],
+        {duration:200,easing:'cubic-bezier(.23, 1, .32, 1)'});
+    }
+    const notice = $('#manuscriptCursorNotice');
+    notice.textContent = turn ? `Cursor moved · ${$('#showManuscriptCursor').textContent}` : 'Cursor moved to end';
+    notice.hidden = false;
+    clearTimeout(cursorNoticeTimer);
+    cursorNoticeTimer = setTimeout(()=>{ notice.hidden = true; },2400);
   }
 }
+
 function syncManuscriptCursor(project) {
   const turn = cursorTurn(project);
   const active = turn !== undefined && !composerEdit;
   const context = active && manuscriptFocus(project,turn,{
     includeSensitive:authorMode(project) === 'story' && canWriteSensitive(writingModel(project)) && sensitiveDraft(project)
   });
-  $('#manuscriptCursorBar').hidden = !active && (Boolean(composerEdit) || !lastProseTurn(project));
-  $('#chooseManuscriptCursor').hidden = active;
-  $('#chooseManuscriptCursor').disabled = busy;
-  $('#showManuscriptCursor').hidden = !active;
+  $('#manuscriptCursorBar').hidden = !active;
   $('#showManuscriptCursor').disabled = !context;
   $('#showManuscriptCursor').textContent = context
     ? `Before Chapter ${context.chapter} · Scene ${context.scene}` : 'Insertion point removed';
-  $('#clearManuscriptCursor').hidden = !active;
   $('#clearManuscriptCursor').disabled = busy;
   const count = context ? context.nearby.filter(scene=>!scene.withheld).length : 0;
-  $('#manuscriptCursorContext').textContent = active && context
+  $('#manuscriptCursorContext').textContent = context && authorMode(project) !== 'manual'
     ? `${count} nearby ${count === 1 ? 'scene excerpt' : 'scene excerpts'} + whole-book graph` : '';
-  document.querySelectorAll('[data-manuscript-cursor]').forEach(button=>{
-    button.setAttribute('aria-pressed',String(active && Number(button.dataset.manuscriptCursor) === turn));
+  const dividers = [...document.querySelectorAll('#messageList .turn-cursor')];
+  const matching = dividers.filter(button=>Number(button.dataset.beforeTurn) === (turn || 0));
+  const after = getSession(manuscriptCursorKey(project.id))?.split(':')[1];
+  const selected = !composerEdit && (matching.find(button=>button.dataset.cursorAfter === after)
+    || (active ? matching[0] : after ? matching.at(-1) : undefined));
+  dividers.forEach(button=>{
+    button.setAttribute('aria-pressed',String(button === selected));
     button.disabled = busy || Boolean(composerEdit);
   });
-  const included = new Set(context ? context.nearby.filter(scene=>!scene.withheld).map(scene=>scene.turn) : []);
-  document.querySelectorAll('#messageList .assistant[data-story-turn]').forEach(row=>{
-    row.classList.toggle('cursor-context-scene',included.has(Number(row.dataset.storyTurn)));
-  });
 }
-function manuscriptCursorHandle(scene) {
-  const button = el('button','manuscript-cursor-handle', '⋮');
-  button.type = 'button';
-  button.dataset.manuscriptCursor = scene.turn;
-  button.dataset.directionOnly = '';
-  button.setAttribute('aria-label',`Set cursor before Chapter ${scene.chapter}, Scene ${scene.number}`);
-  button.title = 'Click or drag to place the manuscript cursor';
-  button.onclick = ()=>setManuscriptCursor(scene.turn);
-  button.onkeydown = event=>{
-    const step = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
-    if (!step) return;
-    event.preventDefault();
-    const markers = [...document.querySelectorAll('[data-manuscript-cursor]')];
-    const destination = markers[markers.indexOf(button) + step];
-    if (destination) setManuscriptCursor(Number(destination.dataset.manuscriptCursor),{jump:true});
-  };
-  button.onpointerdown = event=>{
-    if (event.button !== 0 || button.disabled) return;
-    const startY = event.clientY;
-    let destination;
-    const move = moveEvent=>{
-      if (Math.abs(moveEvent.clientY - startY) < 6 && !destination) return;
-      const hit = document.elementFromPoint(moveEvent.clientX,moveEvent.clientY);
-      const direct = hit?.closest('[data-manuscript-cursor]');
-      const article = hit?.closest('#messageList article[data-story-turn]');
-      const prose = article?.dataset.replyTurn || (article?.classList.contains('assistant') ? article.dataset.storyTurn : undefined);
-      const candidate = direct || (prose && $(`[data-manuscript-cursor="${prose}"]`));
-      if (!candidate || candidate === destination) return;
-      destination?.classList.remove('cursor-drop-target');
-      destination = candidate;
-      destination.classList.add('cursor-drop-target');
-    };
-    const finish = endEvent=>{
-      button.removeEventListener('pointermove',move);
-      button.removeEventListener('pointerup',finish);
-      button.removeEventListener('pointercancel',finish);
-      destination?.classList.remove('cursor-drop-target');
-      if (destination && endEvent.type === 'pointerup') {
-        button.onclick = ()=>{};
-        setManuscriptCursor(Number(destination.dataset.manuscriptCursor),{jump:true});
-        setTimeout(()=>{ button.onclick = ()=>setManuscriptCursor(scene.turn); },0);
-      }
-    };
-    button.setPointerCapture(event.pointerId);
-    button.addEventListener('pointermove',move);
-    button.addEventListener('pointerup',finish);
-    button.addEventListener('pointercancel',finish);
-  };
-  return button;
-}
-$('#chooseManuscriptCursor').onclick = ()=>{
-  const box = $('#messages').getBoundingClientRect();
-  const markers = [...document.querySelectorAll('[data-manuscript-cursor]')];
-  const target = markers.reduce((best,marker)=>{
-    const middle = (box.top + box.bottom) / 2;
-    return !best || Math.abs(marker.getBoundingClientRect().top - middle) < Math.abs(best.getBoundingClientRect().top - middle) ? marker : best;
-  },null);
-  if (target) setManuscriptCursor(Number(target.dataset.manuscriptCursor),{jump:true});
-};
 $('#clearManuscriptCursor').onclick = ()=>{ setManuscriptCursor(); showLatestStoryTurn(); };
-$('#showManuscriptCursor').onclick = ()=>setManuscriptCursor(cursorTurn(current()),{jump:true});
+$('#showManuscriptCursor').onclick = ()=>{
+  const divider = cursorDivider();
+  divider?.scrollIntoView({block:'center'});
+  divider?.focus({preventScroll:true});
+};
 
-function addTurnInsertControls(list,project) {
-  const rows = [...list.querySelectorAll('.message[data-story-turn]')];
+function addTurnInsertControls(list,project,manuscript) {
+  const scenes = new Map(manuscript.flat().map(scene=>[scene.turn,scene]));
+  const rows = [...list.children].filter(row=>row.matches('.message[data-story-turn], .editor-message[data-exchange-row]'));
   let nextScene;
   for (const row of rows.reverse()) {
-    if (nextScene) row.append(turnInsertControl(project,nextScene));
-    if (row.classList.contains('assistant') && row.querySelector('.message-text')?.textContent.trim()) {
-      nextScene = Number(row.dataset.storyTurn);
+    row.append(turnInsertControl(project,nextScene,row.dataset.storyTurn || row.dataset.exchangeRow));
+    if (row.classList.contains('assistant') && scenes.has(Number(row.dataset.storyTurn))) {
+      nextScene = scenes.get(Number(row.dataset.storyTurn));
     }
+  }
+  if (nextScene && rows.at(-1)?.dataset.storyTurn === String(nextScene.turn)) {
+    const heading = rows.at(-1).previousElementSibling;
+    if (heading?.classList.contains('write-chapter-divider')) heading.append(turnInsertControl(project,nextScene,'start'));
+  }
+  for (const heading of list.querySelectorAll('[data-chapter-at]')) {
+    const before = heading.dataset.chapterAt;
+    const after = getSession(chapterPlacementKey(project,before));
+    if (!after) continue;
+    const divider = [...list.querySelectorAll('.turn-cursor')].find(button=>
+      button.dataset.beforeTurn === before && button.dataset.cursorAfter === after);
+    divider?.parentElement.parentElement.after(heading);
   }
 }
 
@@ -1676,15 +1655,15 @@ function renderMessages() {
   }
   lastRenderedTurn = latest?.turnNumber;
   if (!sameStory) {
+    $('#manuscriptCursorNotice').hidden = true;
     renderedStoryId = project.id;
     activeStoryTurn = undefined;
     passageSelection.highlight([]);
     workspaceTools.dismissOutline();
   }
   messageList.replaceChildren();
-  if (!sameStory) syncManualProse();
-  syncInsertOptions(project);
   const exchanges = normalizeAgentHistory(project.agentHistory);
+  const exchangeIndexes = new Map(exchanges.map((entry,index)=>[entry,index]));
   const sceneTurns = new Set(project.messages.filter(turn=>turn.role === 'assistant' && turn.content.trim()).map(turn=>turn.turnNumber));
   const editorTurns = exchanges.filter(entry=>!entry.beforeTurn || !sceneTurns.has(entry.beforeTurn)).sort((a,b)=>a.afterTurn - b.afterTurn);
   const pendingEdit = editingStateFor?.projectId === project.id ? editingStateFor.instruction : '';
@@ -1703,7 +1682,9 @@ function renderMessages() {
   const chapterByTurn = new Map(manuscript.flatMap(chapter=>chapter.map(scene=>[scene.turn,scene.chapter])));
   let visibleChapter;
   let editorIndex = 0;
-  function editorExchange({request,message,proposal,resolution}) {
+  function editorExchange(entry) {
+    const {request,message,proposal,resolution} = entry;
+    const index = exchangeIndexes.get(entry);
     const reply = editorMessage('assistant',message);
     const body = reply.querySelector('.message-body');
     if (proposal) {
@@ -1715,7 +1696,11 @@ function renderMessages() {
     } else if (resolution) {
       body.append(el('p','form-note',resolution === 'applied' ? 'Changes applied.' : 'Proposal discarded.'));
     }
-    return request ? [editorMessage('user',request),reply] : [reply];
+    reply.dataset.exchangeRow = `agent-${index}-reply`;
+    if (!request) return [reply];
+    const direction = editorMessage('user',request);
+    direction.dataset.exchangeRow = `agent-${index}-request`;
+    return [direction,reply];
   }
   function appendEditorTurns(through) {
     while (editorTurns[editorIndex]?.afterTurn <= through) {
@@ -1817,7 +1802,6 @@ function renderMessages() {
   if (pendingEdit && !editingStateFor.beforeTurn) messageList.append(editorMessage('user',pendingEdit),editorMessage('assistant','Working…',true));
   renderPlacedArtwork();
   if (readingOrder) arrangeWriteScenes(messageList,project,manuscript);
-  addTurnInsertControls(messageList,project);
   const proseRows = new Map(Array.from(messageList.querySelectorAll('.assistant[data-story-turn]'),row=>[Number(row.dataset.storyTurn),row]));
   const focusedExchanges = Map.groupBy(exchanges.filter(entry=>proseRows.has(entry.beforeTurn)),entry=>entry.beforeTurn);
   for (const scene of manuscript.flat()) {
@@ -1825,10 +1809,10 @@ function renderMessages() {
     if (!row) continue;
     for (const entry of focusedExchanges.get(scene.turn) || []) row.before(...editorExchange(entry));
     if (pendingEdit && editingStateFor.beforeTurn === scene.turn) row.before(editorMessage('user',pendingEdit),editorMessage('assistant','Working…',true));
-    row.before(manuscriptCursorHandle(scene));
   }
-  syncManuscriptCursor(project);
   if (hasUpcomingChapter(project)) messageList.append(writeChapterDivider(project,manuscript.length + 1,undefined,true));
+  addTurnInsertControls(messageList,project,manuscript);
+  syncManuscriptCursor(project);
   renderPending();
   box.scrollTop = followLatest ? box.scrollHeight : scrollTop;
   renderStoryTurns(project,followLatest,match);
@@ -1939,10 +1923,12 @@ function renderPending() {
   body.setAttribute('role','status');
   body.append(el('span','pending-state' + (pending.active ? ' active' : ''),pending.state));
   row.append(body);
-  const marker = generatingFor.beforeTurn && $(`[data-manuscript-cursor="${generatingFor.beforeTurn}"]`);
-  if (marker) marker.before(row);
+  const marker = generatingFor.beforeTurn && cursorDivider();
+  const anchor = generatingFor.beforeTurn && $(`#messageList .assistant[data-story-turn="${generatingFor.beforeTurn}"]`);
+  if (marker) marker.closest('article').after(row);
+  else if (anchor) anchor.before(row);
   else $('#messageList').append(row);
-  if (atBottom && !marker) box.scrollTop = box.scrollHeight;
+  if (atBottom && !anchor) box.scrollTop = box.scrollHeight;
 }
 function syncRoute() {
   const transcript = $('#messages');
@@ -1950,46 +1936,48 @@ function syncRoute() {
   const project = current();
   const mode = authorMode(project);
   const editingStory = mode === 'agent';
-  const model = writingModel(project,mode);
+  const manual = mode === 'manual' && !composerEdit;
+  const model = manual ? '' : writingModel(project,mode);
   const rewriting = composerEdit?.canRegenerate && Boolean(model && hasModelProvider(model));
   workspaceTools.setComposerEditing(Boolean(composerEdit));
-  if (hasApiKey() || composerEdit || !workspaceTools.composerOpen) clearComposerConnectionWarning();
+  if (manual || hasApiKey() || composerEdit || !workspaceTools.composerOpen) clearComposerConnectionWarning();
   $('#authorMode').value = mode;
-  $('#routeModels').classList.toggle('editor-route',editingStory);
+  $('#routeModels').classList.toggle('editor-route',editingStory || manual);
   $('#routeModels').hidden = Boolean(composerEdit && !rewriting);
-  $('#sensitiveSceneLabel').hidden = editingStory || Boolean(composerEdit && !rewriting);
+  $('#sensitiveSceneLabel').hidden = manual || editingStory || Boolean(composerEdit && !rewriting);
   $('#sensitiveScene').checked = sensitiveDraft(project);
   $('#sensitiveScene').disabled = busy;
   $('#authorMode').disabled = busy || Boolean(composerEdit);
   modePicker.sync();
-  $('#sceneModelControl').hidden = Boolean(composerEdit && !rewriting);
+  $('#sceneModelControl').hidden = manual || Boolean(composerEdit && !rewriting);
   sceneModelChoice.disabled = busy || Boolean(composerEdit);
   $('#sceneModelLabel').textContent = editingStory ? 'Agent model' : 'Prose artist';
   sceneModelChoice.title = editingStory ? 'This model brainstorms and helps revise the manuscript or story details.'
     : 'This model writes the next scene.';
   syncSceneModel(model,mode);
-  $('#continuityModelControl').hidden = editingStory || Boolean(composerEdit && !rewriting);
+  $('#continuityModelControl').hidden = manual || editingStory || Boolean(composerEdit && !rewriting);
   continuityModelChoice.disabled = busy;
   syncContinuityModel(project);
-  $('#routeSummary').textContent = !composerEdit && !editingStory && sensitiveDraft(project) && model && !canWriteSensitive(model)
+  $('#routeSummary').textContent = !manual && !composerEdit && !editingStory && sensitiveDraft(project) && model && !canWriteSensitive(model)
     ? 'Choose an NSFW-friendly writer.' : '';
   $('#providerButton').disabled = busy || Boolean(composerEdit);
-  syncInsertOptions(project);
   document.querySelectorAll('[data-remove-chapter-divider]').forEach(button=>{
     button.disabled = busy || Boolean(composerEdit);
   });
-  $('#saveManualProse').disabled = busy || Boolean(composerEdit);
+  $('#manualSensitivity').hidden = !manual;
+  $('#contextIndicator').hidden = manual;
+  $('#sendButton').textContent = manual ? 'Save prose' : 'Send';
   $('#composerEditStatus').hidden = !composerEdit;
   $('#composerEditStatus').textContent = composerEdit ? `Editing turn ${composerEdit.turnNumber}` : '';
   $('#verifyComposerEditLabel').hidden = !composerEdit;
   $('#verifyComposerEdit').checked = Boolean(composerEdit?.verified);
-  $('#instructionLabel').textContent = composerEdit ? 'Edit turn text' : editingStory ? 'What would you like the Agent to do?' : 'What happens next?';
+  $('#instructionLabel').textContent = composerEdit ? 'Edit turn text' : manual ? 'Manuscript prose' : editingStory ? 'What would you like the Agent to do?' : 'What happens next?';
   const targeted = !composerEdit && cursorTurn(project);
-  $('#instruction').placeholder = targeted ? (editingStory ? 'Ask about the scenes around the cursor…' : 'What should happen at the cursor?') : editingStory ? 'Ask about the story or request a revision…' : 'Write the next beat or tell the narrator what happens…';
+  $('#instruction').placeholder = manual ? 'Write or paste your prose…' : targeted ? (editingStory ? 'Ask about the scenes around the cursor…' : 'What should happen at the cursor?') : editingStory ? 'Ask about the story or request a revision…' : 'Write the next beat or tell the narrator what happens…';
   $('#cancelComposerEdit').hidden = !composerEdit;
   $('#saveComposerOnly').hidden = !rewriting;
   $('#composeShortcut').textContent = rewriting ? '⌘/Ctrl + Enter to rewrite'
-    : composerEdit ? '⌘/Ctrl + Enter to save' : '⌘/Ctrl + Enter to send';
+    : composerEdit || manual ? '⌘/Ctrl + Enter to save' : '⌘/Ctrl + Enter to send';
   $('#sendButton').disabled = busy;
   $('#sendButton').setAttribute('aria-busy',String(busy));
   syncStoryFlow(project);
@@ -2059,7 +2047,7 @@ async function chooseStoryFlow(preview, replace) {
   if (busy || current() !== project || JSON.stringify(activeStoryFlow(project)) !== JSON.stringify(flow)) return;
   const direction = flow.options[index].direction;
   const field = $('#instruction');
-  const wasEditing = authorMode(project) === 'agent';
+  const wasEditing = authorMode(project) !== 'story';
   if (wasEditing) setSession(modeKey(project.id),'story');
   setSession(manuscriptCursorKey(project.id),'');
   if (replace || !draft.trim()) {
@@ -2250,6 +2238,7 @@ async function generateAtManuscriptCursor(project,model) {
 async function generate() {
   if (busy || !state) return;
   const project = current();
+  if (authorMode(project) === 'manual') return saveManualProse(project);
   if (authorMode(project) === 'agent') return generateAgentEdit(project);
   const model = writingModel(project);
   if (composerEdit && (!composerEdit.canRegenerate || !model || !hasModelProvider(model))) return saveComposerEdit();
@@ -3475,185 +3464,156 @@ $('#customModelForm').onsubmit = event => {
   customModelDialog.close();
 };
 
-const manualProseDrafts = new Map();
-const insertOptions = $('#manuscriptInsertOptions');
-const insertTrigger = $('#pasteReply');
-const insertProse = $('#insertProse');
-const insertChapter = $('#insertChapterDivider');
-const manualProseDock = $('#manualProseDock');
-const insertPassageDialog = $('#insertPassageDialog');
-const pasteForm = $('#pasteForm');
+const chapterPlacementKey = (project,before) => `story-chapter-placement:${project.id}:${before}`;
 let turnInsertion;
 
 function closeTurnInsertion(returnFocus = false) {
   if (!turnInsertion) return;
-  const {trigger,menu} = turnInsertion;
+  const {trigger,actions} = turnInsertion;
   turnInsertion = undefined;
-  menu.remove();
+  actions.hidden = true;
+  trigger.hidden = false;
   trigger.setAttribute('aria-expanded','false');
   if (returnFocus) trigger.focus({preventScroll:true});
 }
 
-function positionTurnInsertion() {
-  if (!turnInsertion) return;
-  const {trigger,menu} = turnInsertion;
-  const anchor = trigger.getBoundingClientRect(), bounds = menu.getBoundingClientRect();
-  const transcript = $('#messages').getBoundingClientRect();
-  if (anchor.bottom <= transcript.top || anchor.top >= transcript.bottom) return closeTurnInsertion();
-  menu.style.left = Math.max(8,Math.min(anchor.left + (anchor.width - bounds.width) / 2,innerWidth - bounds.width - 8)) + 'px';
-  menu.style.top = (anchor.bottom + bounds.height + 8 <= innerHeight ? anchor.bottom + 4 : Math.max(8,anchor.top - bounds.height - 4)) + 'px';
-}
-
-function turnInsertControl(project,beforeTurn) {
+function turnInsertControl(project,scene,after) {
   const wrapper = el('div','turn-insert');
-  const trigger = el('button','icon add-prose');
-  trigger.type = 'button';
-  trigger.dataset.insertBefore = beforeTurn;
-  trigger.setAttribute('aria-expanded','false');
-  trigger.setAttribute('aria-label','Insert before the next scene');
-  trigger.title = 'Insert before the next scene';
-  trigger.disabled = busy || Boolean(composerEdit);
-  const icon = svg('svg',{class:'tool-mark',viewBox:'0 0 24 24','aria-hidden':'true'});
-  icon.append(svg('path',{d:'M12 5v14M5 12h14'}));
-  trigger.append(icon);
-  trigger.onclick = () => {
-    if (turnInsertion?.trigger === trigger) return closeTurnInsertion(true);
-    closeTurnInsertion();
-    const menu = el('div','turn-insert-menu');
-    menu.id = 'turnInsertionOptions';
-    menu.setAttribute('role','group');
-    menu.setAttribute('aria-label','Insert before the next scene');
-    const prose = el('button','text-button','Add prose');
-    prose.onclick = () => {
+  const beforeTurn = scene?.turn;
+  const divider = el('button','turn-cursor');
+  divider.type = 'button';
+  divider.dataset.cursorAfter = after;
+  divider.dataset.beforeTurn = beforeTurn ?? '';
+  divider.setAttribute('aria-label', scene
+    ? `Place cursor before Chapter ${scene.chapter}, Scene ${scene.number}` : 'Place cursor at the end');
+  divider.title = 'Place the writing cursor here';
+  const pointer = el('span','cursor-pointer');
+  pointer.title = 'Drag to move the writing cursor';
+  divider.append(pointer);
+  let dragged = false;
+  divider.onclick = event=>{
+    if (!dragged) {
       closeTurnInsertion();
-      startManualProse(beforeTurn);
-    };
-    const chapter = el('button','text-button','Add chapter divider');
-    const existing = readingChapterBreak(project,beforeTurn);
-    chapter.disabled = existing !== false;
-    chapter.title = existing ? 'This scene already starts a chapter.' : existing === null ? 'This scene starts Chapter 1.' : '';
-    chapter.onclick = () => {
-      if (chapter.disabled || current() !== project || busy || composerEdit) return;
-      const target = $(`#messageList .assistant[data-story-turn="${beforeTurn}"]`);
-      const box = $('#messages');
-      const top = target?.getBoundingClientRect().top;
-      saveChapterDivider(project,toggleReadingChapter(project,beforeTurn),'Chapter divider added.');
-      const inserted = $(`#messageList .assistant[data-story-turn="${beforeTurn}"]`);
-      if (inserted && top !== undefined) {
-        box.scrollTop += inserted.getBoundingClientRect().top - top;
-        inserted.focus({preventScroll:true});
-      }
-    };
-    menu.append(prose,chapter);
-    document.body.append(menu);
-    turnInsertion = {trigger,menu};
-    trigger.setAttribute('aria-controls',menu.id);
-    trigger.setAttribute('aria-expanded','true');
-    positionTurnInsertion();
-    prose.focus({preventScroll:true});
+      setManuscriptCursor(beforeTurn,divider,event.detail > 0);
+    }
+    dragged = false;
   };
-  wrapper.append(trigger);
+  pointer.onpointerdown = event=>{
+    if (event.button !== 0 || divider.disabled) return;
+    dragged = false;
+    const origin = event.clientY;
+    const transcript = $('#messages');
+    let target, visibleDividers;
+    pointer.setPointerCapture(event.pointerId);
+    pointer.onpointermove = moveEvent=>{
+      if (!dragged && Math.abs(moveEvent.clientY - origin) < 5) return;
+      dragged = true;
+      if (!visibleDividers) {
+        const {top,bottom} = transcript.getBoundingClientRect();
+        visibleDividers = [...transcript.querySelectorAll('.turn-cursor')].map(candidate=>{
+          const bounds = candidate.getBoundingClientRect();
+          return {candidate, center:bounds.top + bounds.height / 2};
+        }).filter(({center})=>center >= top && center <= bottom);
+      }
+      let nearest, distance = Infinity;
+      for (const {candidate,center} of visibleDividers) {
+        const gap = Math.abs(center - moveEvent.clientY);
+        if (gap >= distance) continue;
+        nearest = candidate;
+        distance = gap;
+      }
+      if (target === nearest) return;
+      target?.classList.remove('cursor-drop-target');
+      target = nearest;
+      target?.classList.add('cursor-drop-target');
+    };
+    const finish = endEvent=>{
+      pointer.onpointermove = pointer.onpointerup = pointer.onlostpointercapture = null;
+      target?.classList.remove('cursor-drop-target');
+      if (target && endEvent.type === 'pointerup') {
+        setManuscriptCursor(Number(target.dataset.beforeTurn) || undefined,target,true);
+        target.focus({preventScroll:true});
+      }
+      setTimeout(()=>{ dragged = false; },0);
+    };
+    pointer.onpointerup = pointer.onlostpointercapture = finish;
+  };
+
+  function bubble(label,path,description) {
+    const button = el('button','icon add-prose');
+    button.type = 'button';
+    button.setAttribute('aria-label',label);
+    button.title = description || label;
+    const icon = svg('svg',{class:'tool-mark',viewBox:'0 0 24 24','aria-hidden':'true'});
+    icon.append(svg('path',{d:path}));
+    button.append(icon);
+    return button;
+  }
+
+  const trigger = bubble('Insertion actions','M12 5v14M5 12h14');
+  trigger.setAttribute('aria-expanded','false');
+  trigger.disabled = busy || Boolean(composerEdit);
+  const actions = el('div','turn-insert-bubbles');
+  actions.hidden = true;
+  actions.setAttribute('role','group');
+  actions.setAttribute('aria-label','Insertion actions');
+  const move = bubble('Move cursor','M5 6l8 6-8 6zM13 12h7');
+  const chapter = bubble('Add chapter divider','M12 7v10M7 12h10M4 5h16M4 19h16');
+  const existing = scene ? readingChapterBreak(project,beforeTurn) : hasUpcomingChapter(project);
+  chapter.disabled = scene ? existing !== false : existing || !lastProseTurn(project);
+  if (chapter.disabled) chapter.title = existing ? 'A chapter divider is already here.' : 'Add prose to begin Chapter 1.';
+  actions.append(move,chapter);
+  for (const button of [move,chapter]) {
+    const label = el('span','insert-bubble-label',button.getAttribute('aria-label'));
+    label.setAttribute('aria-hidden','true');
+    button.append(label);
+  }
+  trigger.onclick = () => {
+    closeTurnInsertion();
+    turnInsertion = {trigger,actions};
+    trigger.setAttribute('aria-expanded','true');
+    trigger.hidden = true;
+    actions.hidden = false;
+    actions.scrollIntoView({block:'nearest'});
+    move.focus({preventScroll:true});
+  };
+  move.onclick = event => {
+    closeTurnInsertion();
+    setManuscriptCursor(beforeTurn,divider,event.detail > 0);
+    divider.focus({preventScroll:true});
+  };
+  chapter.onclick = event => {
+    if (chapter.disabled || current() !== project || busy || composerEdit) return;
+    closeTurnInsertion();
+    const box = $('#messages');
+    const top = divider.getBoundingClientRect().top;
+    setManuscriptCursor(beforeTurn,divider,event.detail > 0);
+    setSession(chapterPlacementKey(project,divider.dataset.beforeTurn),after);
+    const board = scene ? toggleReadingChapter(project,beforeTurn) : setUpcomingChapter(project,true);
+    saveChapterDivider(project,board,'Chapter divider added.');
+    $('#manuscriptCursorNotice').hidden = true;
+    const heading = [...$('#messageList').querySelectorAll('[data-chapter-at]')].find(node=>node.dataset.chapterAt === divider.dataset.beforeTurn);
+    if (heading) {
+      box.scrollTop += heading.getBoundingClientRect().top - top;
+      heading.querySelector('h2').tabIndex = -1;
+      heading.querySelector('h2').focus({preventScroll:true});
+    }
+  };
+  wrapper.append(divider,trigger,actions);
   return wrapper;
 }
 
-document.addEventListener('pointerdown',event=>{
-  if (turnInsertion && !turnInsertion.menu.contains(event.target) && !turnInsertion.trigger.contains(event.target)) closeTurnInsertion();
-});
-document.addEventListener('focusin',event=>{
-  if (turnInsertion && !turnInsertion.menu.contains(event.target) && !turnInsertion.trigger.contains(event.target)) closeTurnInsertion();
-});
+function dismissTurnInsertion(event) {
+  if (turnInsertion && !turnInsertion.actions.parentElement.contains(event.target)) closeTurnInsertion();
+}
+document.addEventListener('pointerdown',dismissTurnInsertion);
+document.addEventListener('focusin',dismissTurnInsertion);
 document.addEventListener('keydown',event=>{
-  if (event.key === 'Escape' && turnInsertion) {
-    event.preventDefault();
-    closeTurnInsertion(true);
-  }
-});
-$('#messages').addEventListener('scroll',positionTurnInsertion,{passive:true});
-window.addEventListener('resize',()=>closeTurnInsertion());
-
-function showInsertOptions(open = false) {
-  insertOptions.hidden = !open;
-  insertTrigger.setAttribute('aria-expanded',String(open));
-}
-
-function syncInsertOptions(project) {
-  const locked = busy || Boolean(composerEdit);
-  insertTrigger.disabled = locked;
-  insertProse.disabled = locked;
-  const pending = hasUpcomingChapter(project);
-  const hasProse = Boolean(lastProseTurn(project));
-  insertChapter.disabled = locked || pending || !hasProse;
-  insertChapter.title = pending ? 'A divider is already in place for the next scene.'
-    : !hasProse ? 'Add prose to begin Chapter 1.' : '';
-  if (locked) showInsertOptions();
-}
-
-function syncManualProse() {
-  const project = current(), draft = manualProseDrafts.get(project.id);
-  showInsertOptions();
-  pasteForm.hidden = !draft;
-  insertTrigger.hidden = Boolean(draft && !draft.beforeTurn);
-  $('#pasteText').value = draft?.text || '';
-  $('#pasteSensitivity').value = draft?.sensitivity || 'unclassified';
-  if (draft?.beforeTurn) {
-    const scene = manuscriptChapters(project).flat().find(item=>item.turn === draft.beforeTurn);
-    $('#insertPassageLocation').textContent = scene ? `Before Chapter ${scene.chapter} · Scene ${scene.number}` : 'The original insertion point was removed.';
-    $('#insertPassageBody').append(pasteForm);
-    if (!insertPassageDialog.open) insertPassageDialog.showModal();
-  } else {
-    if (insertPassageDialog.open) insertPassageDialog.close();
-    manualProseDock.append(pasteForm);
-  }
-}
-insertTrigger.onclick = () => {
-  const open = insertOptions.hidden;
-  showInsertOptions(open);
-  if (!open) return;
-  insertOptions.scrollIntoView({block:'nearest'});
-  insertProse.focus({preventScroll:true});
-};
-insertOptions.closest('.manual-prose').onkeydown = event => {
-  if (event.key !== 'Escape' || insertOptions.hidden) return;
+  if (event.key !== 'Escape' || !turnInsertion) return;
   event.preventDefault();
-  showInsertOptions();
-  insertTrigger.focus({preventScroll:true});
-};
-document.addEventListener('pointerdown',event=>{
-  if (!insertOptions.hidden && !event.target.closest('.manual-prose')) showInsertOptions();
+  closeTurnInsertion(true);
 });
-function startManualProse(beforeTurn) {
-  const project = current(), previous = manualProseDrafts.get(project.id);
-  manualProseDrafts.set(project.id,{text:previous?.text || '',sensitivity:previous?.sensitivity || 'unclassified',beforeTurn});
-  syncManualProse();
-  $('#pasteText').focus();
-}
-insertProse.onclick = () => startManualProse();
-insertChapter.onclick = () => {
-  if (insertChapter.disabled) return;
-  const project = current();
-  showInsertOptions();
-  saveChapterDivider(project,setUpcomingChapter(project,true),'Chapter divider added for the next scene.');
-  showLatestStoryTurn();
-  insertTrigger.focus({preventScroll:true});
-};
-pasteForm.oninput = () => {
-  $('#pasteText').setCustomValidity('');
-  const storyId = current().id;
-  manualProseDrafts.set(storyId,{...manualProseDrafts.get(storyId),text:$('#pasteText').value,sensitivity:$('#pasteSensitivity').value});
-};
-function cancelManualProse() {
-  const storyId = current().id;
-  const beforeTurn = manualProseDrafts.get(storyId)?.beforeTurn;
-  manualProseDrafts.delete(storyId);
-  syncManualProse();
-  const trigger = beforeTurn ? $(`.turn-insert [data-insert-before="${beforeTurn}"]`) : insertTrigger;
-  trigger?.focus({preventScroll:true});
-}
-$('#cancelPaste').onclick = cancelManualProse;
-insertPassageDialog.addEventListener('cancel',event=>{
-  event.preventDefault();
-  cancelManualProse();
-});
+
 function placeSceneBefore(project,beforeTurn,append) {
   const before = beforeTurn === undefined ? undefined : manuscriptChapters(project).flat().find(scene=>scene.turn === beforeTurn);
   if (beforeTurn !== undefined && !before) throw Error('This insertion point no longer exists.');
@@ -3669,44 +3629,37 @@ function placeSceneBefore(project,beforeTurn,append) {
   return turn;
 }
 
-pasteForm.onsubmit=event=>{
-  event.preventDefault();
-  if (busy || composerEdit) return;
-  const field = $('#pasteText');
+function saveManualProse(project) {
+  const field = $('#instruction');
   const text = field.value.trim();
   if (!text) {
     field.setCustomValidity('Enter a passage to save.');
     field.reportValidity();
     return;
   }
-  const project = current();
-  const beforeTurn = manualProseDrafts.get(project.id)?.beforeTurn;
-  const before = beforeTurn && manuscriptChapters(project).flat().find(scene=>scene.turn === beforeTurn);
-  if (beforeTurn && !before) {
-    field.setCustomValidity('This insertion point no longer exists. Copy the prose before returning to the manuscript.');
-    field.reportValidity();
-    return;
+  const beforeTurn = cursorTurn(project);
+  if (beforeTurn && !manuscriptChapters(project).flat().some(scene=>scene.turn === beforeTurn)) {
+    return error('The insertion point was removed. Choose a new divider or return to the end.');
   }
-  if (!before) {
+  error();
+  if (!beforeTurn) {
     delete project.agentRequest;
     delete project.agentNotice;
   }
   const newTurn = placeSceneBefore(project,beforeTurn,()=>appendTurn(project,{
     role:'assistant',content:text,...speakerMetadata(narrator),standalone:true,contentSensitivity:$('#pasteSensitivity').value
   }));
-  markDirty();
-  manualProseDrafts.delete(project.id);
-  syncManualProse();
+  // Keep subsequent passages in the same order by leaving the composer before the original scene.
+  if (beforeTurn) setSession(manuscriptCursorKey(project.id),`${beforeTurn}:${newTurn}`);
+  markDirty(project);
+  setSession(draftKey(project.id,'manual'),'');
+  $('#pasteSensitivity').value = 'unclassified';
   render();
-  if (before) {
-    const inserted = selectStoryTurn(newTurn);
-    inserted?.scrollIntoView({block:'start'});
-    inserted?.focus({preventScroll:true});
-  } else {
-    showLatestStoryTurn();
-    insertTrigger.focus({preventScroll:true});
-  }
-};
+  if (beforeTurn) selectStoryTurn(newTurn)?.scrollIntoView({block:'nearest'});
+  else showLatestStoryTurn();
+  $('#interactionStatus').textContent = 'Prose saved.';
+}
+
 // Import fills only the selected profile draft. Saving is still explicit.
 const cardButton = el('button', 'button subtle', 'Import JSON card');
 cardButton.type = 'button';
@@ -4332,7 +4285,7 @@ $('#deleteProject').onclick = async () => {
     'This permanently removes the story, its turns, and its character and relationship history from the library.', 'Delete story')) return;
   state.projects = state.projects.filter(item => item.id !== project.id);
   pendingComposerEdits.delete(project.id);
-  manualProseDrafts.delete(project.id);
+  setSession(draftKey(project.id,'manual'),'');
   setSession(manuscriptCursorKey(project.id),'');
   state.activeId = state.projects[0].id;
   markDirty(project);
@@ -4370,7 +4323,7 @@ function showComposerConnectionWarning() {
   if (following) transcript.scrollTop = transcript.scrollHeight;
 }
 $('#instruction').addEventListener('focus',() => {
-  if (!hasApiKey() && !composerEdit) showComposerConnectionWarning();
+  if (state && authorMode(current()) !== 'manual' && !hasApiKey() && !composerEdit) showComposerConnectionWarning();
 });
 $('#writingComposer').addEventListener('focusout',event => {
   if (!event.currentTarget.contains(event.relatedTarget)) clearComposerConnectionWarning();
@@ -4489,6 +4442,9 @@ function updateContextIndicator() {
 function composerContext(stage = 'writer') {
   const project = current();
   const mode = authorMode(project);
+  if (mode === 'manual' && !composerEdit) {
+    return {heading:'Context',summary:'Context · no model call',parts:[],limits:'Manual prose is saved directly to the manuscript.'};
+  }
   const writer = writingModel(project,mode);
   const useContinuity = mode === 'story' && stage === 'continuity';
   const model = useContinuity ? selectedContinuityModel(project) : writer;
@@ -4690,7 +4646,7 @@ $('#importFile').onchange = async event => {
     const replacement = incoming.projects.find(project => project.id === incoming.activeId);
     for (const project of [...state.projects,...incoming.projects]) {
       pendingComposerEdits.delete(project.id);
-      manualProseDrafts.delete(project.id);
+      setSession(draftKey(project.id,'manual'),'');
       setSession(manuscriptCursorKey(project.id),'');
       setSession(draftKey(project.id),'');
       setSession(modelKey(project.id),'');
